@@ -1,0 +1,3 @@
+# Placeholder: the real SQLite registry is created at runtime under
+# ~/.local/share/odoo-vite/odoo_vite.db (see core/registry.py).
+# This directory exists so the layout matches the Phase 1 charter §1.1.

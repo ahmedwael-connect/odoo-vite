@@ -1,0 +1,4 @@
+PyGObject>=3.48
+psutil>=5.9
+keyring>=24.0
+pytest>=8.0
