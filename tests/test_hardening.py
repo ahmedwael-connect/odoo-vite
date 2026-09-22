@@ -204,6 +204,8 @@ def test_remove_drops_checked_tracked_dbs(tmp_path, db, monkeypatch):
     from odoo_vite.core import db_manager, removal
 
     dropped = []
+    monkeypatch.setattr(db_manager, "server_reachable", lambda: True)
+    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
     monkeypatch.setattr(db_manager, "drop_database",
                         lambda name, *a, **k: dropped.append(name) or Result.success())
     inst = _mktracked(tmp_path)

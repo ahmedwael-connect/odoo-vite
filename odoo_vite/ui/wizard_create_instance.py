@@ -21,7 +21,7 @@ import threading
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("Adw", "1")
@@ -81,8 +81,10 @@ class CreateInstanceWizard(Gtk.Window):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.set_child(outer)
 
+        # H-M2: set as the window titlebar (appending it as a plain child
+        # renders a SECOND native titlebar above it on GNOME).
         header = Adw.HeaderBar() if HAS_ADW else Gtk.HeaderBar()
-        outer.append(header)
+        self.set_titlebar(header)
 
         self.btn_back = Gtk.Button(label="‹ Back")
         self.btn_back.connect("clicked", self._on_back)
@@ -798,6 +800,9 @@ class CreateInstanceWizard(Gtk.Window):
         hbox.set_margin_bottom(4)
         hbox.append(Gtk.Label(label=caption, xalign=0, hexpand=True))
         val = Gtk.Label(label=value, xalign=1)
+        # H-M1: review values include long paths — ellipsize, don't widen.
+        val.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        val.set_max_width_chars(44)
         val.add_css_class("dim-label")
         hbox.append(val)
         row.set_child(hbox)

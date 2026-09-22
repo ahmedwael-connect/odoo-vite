@@ -150,6 +150,11 @@ def adopt_instance(
     if not community or not (Path(community) / "odoo-bin").is_file():
         return Result.failure(
             f"odoo-bin not found under: {community or '(none given)'}")
+    venv_given = str((overrides or {}).get("venv_path") or "")
+    if venv_given and not (Path(venv_given) / "bin" / "python").is_file():
+        return Result.failure(
+            f"Venv python not found at {venv_given}/bin/python — point at a "
+            "virtualenv folder (or leave empty and set it later)")
 
     parsed = parse_conf(conf)
     port_raw = (overrides.get("port") or parsed.get("xmlrpc_port")
@@ -176,6 +181,7 @@ def adopt_instance(
         version=str(overrides.get("version") or detect_version(community) or ""),
         mode="adopted",
         path=str(overrides.get("path") or str(Path(conf).parent)),
+        venv_path=str(overrides.get("venv_path") or ""),
         community_path=community,
         enterprise_path=overrides.get("enterprise_path") or None,
         custom_addons_path=str(overrides.get("custom_addons_path") or ""),

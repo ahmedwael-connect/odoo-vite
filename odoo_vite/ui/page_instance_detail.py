@@ -87,6 +87,14 @@ class InstanceDetailPage(Gtk.Box):
         self.lbl_error.add_css_class("error")
         box.append(self.lbl_error)
 
+        self.btn_repair = Gtk.Button(label="Repair venv (install setuptools/wheel)")
+        self.btn_repair.set_tooltip_text(
+            "Fixes 'No module named pkg_resources' on instances provisioned "
+            "before the packaging fix — no re-provisioning needed")
+        self.btn_repair.connect("clicked", self._emit, "repair", None)
+        self.btn_repair.set_visible(False)
+        box.append(self.btn_repair)
+
         # ------------------------------------------- H.2/H.5 badges
         self.security_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.lbl_security = Gtk.Label(xalign=0, hexpand=True, wrap=True)
@@ -125,6 +133,25 @@ class InstanceDetailPage(Gtk.Box):
             row.set_child(hbox)
             self.stats_list.append(row)
             self._stat_rows[key] = val
+
+        # ------------------------------------------------- environment
+        env_title = Gtk.Label(label="Python environment", xalign=0)
+        env_title.add_css_class("heading")
+        box.append(env_title)
+        self.lbl_venv = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_venv.add_css_class("dim-label")
+        box.append(self.lbl_venv)
+        self.venv_edit_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.entry_venv = Gtk.Entry(hexpand=True,
+                                    placeholder_text="/path/to/venv (must contain bin/python)")
+        self.venv_edit_row.append(self.entry_venv)
+        btn_venv_save = Gtk.Button(label="Save")
+        btn_venv_save.connect("clicked", self._on_save_venv)
+        self.venv_edit_row.append(btn_venv_save)
+        box.append(self.venv_edit_row)
+        self.lbl_venv_hint = Gtk.Label(xalign=0)
+        self.lbl_venv_hint.add_css_class("dim-label")
+        box.append(self.lbl_venv_hint)
 
         au_title = Gtk.Label(label="Auto-update modules on start", xalign=0)
         au_title.add_css_class("heading")
@@ -237,6 +264,28 @@ class InstanceDetailPage(Gtk.Box):
         else:
             self.lbl_modules_hint.set_text(f"Save failed: {res.message}")
 
+    def _on_save_venv(self, _btn: Gtk.Button) -> None:
+        """H-B2: adopted instances can (re)point their Python environment."""
+        import os
+
+        if self.instance_id is None:
+            return
+        path = (self.entry_venv.get_text() or "").strip()
+        if path and not os.path.isfile(os.path.join(path, "bin", "python")):
+            self.lbl_venv_hint.set_text(
+                f"Not a virtualenv: no bin/python under {path}")
+            return
+        res = update_instance(self.instance_id, venv_path=path)
+        if res.ok:
+            self.lbl_venv.set_text(path or "— (not set)")
+            self.lbl_venv_hint.set_text("Saved.")
+        else:
+            self.lbl_venv_hint.set_text(f"Save failed: {res.message}")
+
+    def show_repair_option(self, show: bool) -> None:
+        """H-B1: offer venv repair after a pkg_resources-pattern start failure."""
+        self.btn_repair.set_visible(show)
+
     def _on_secure_clicked(self, _btn: Gtk.Button) -> None:
         """H.2 one-click sweep: move this instance's password to the keyring."""
         import threading
@@ -343,6 +392,14 @@ class InstanceDetailPage(Gtk.Box):
         self._stat_rows["mode"].set_text(
             "Managed (least-privilege)" if (inst.provisioning_mode or "developer") == "managed"
             else "Developer (CREATEDB role)")
+        self.show_repair_option(False)
+        self.lbl_venv.set_text(inst.venv_path or "— (not set)")
+        adopted = (inst.mode or "managed") == "adopted"
+        self.venv_edit_row.set_visible(adopted)
+        if adopted and inst.venv_path:
+            self.entry_venv.set_text(inst.venv_path)
+        self.lbl_venv_hint.set_text(
+            "Set the virtualenv this adopted install runs with." if adopted else "")
         self.entry_modules.set_text(", ".join(inst.auto_update_modules or []))
         self.lbl_modules_hint.set_text("")
         # H.2 sweep badge: persistent warning while plaintext is stored.

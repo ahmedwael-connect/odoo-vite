@@ -90,14 +90,28 @@ def remove_instance(instance_id: str, drop_db: bool = False, db_path=None,
             pw = get_db_password(inst) or None
         except Exception:
             pw = None
+        # H-B3: ground truth before dropping — a database that was never
+        # created (e.g. H-B1 crashed mid--i base) is "nothing to drop", not a
+        # reason to abort the whole removal. But if Postgres itself is
+        # unreachable we cannot tell missing from unknown, so abort loudly
+        # instead of risking orphaned databases.
+        if not db_manager.server_reachable():
+            return Result.failure(
+                "Removal aborted: PostgreSQL is unreachable, so database "
+                "drops cannot be verified — start Postgres and retry "
+                "(files and registry row left intact)")
         for db_name in wanted:
+            if not db_manager.database_exists(db_name, inst.db_user, pw):
+                notes.append(f"database '{db_name}' did not exist — nothing to drop")
+                continue
             drop_res = db_manager.drop_database(db_name, inst.db_user, pw)
             if not drop_res.ok:
                 return Result.failure(
                     f"Removal aborted: {drop_res.message} "
                     "(files and registry row left intact)")
             dropped.append(db_name)
-        notes.append(f"database(s) dropped: {', '.join(dropped)}")
+        if dropped:
+            notes.append(f"database(s) dropped: {', '.join(dropped)}")
     db_dropped = bool(dropped)
 
     files_deleted = False

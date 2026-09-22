@@ -128,6 +128,21 @@ def _finish_alert(dlg, task, default_id):
         return default_id
 
 
+def filter_checks(checks: dict, needle: str) -> int:
+    """H-P1 client-side filter: show checks matching needle, return visible count."""
+    needle = (needle or "").strip().lower()
+    visible = 0
+    for name, check in checks.items():
+        show = not needle or needle in name.lower()
+        try:
+            check.set_visible(show)
+        except Exception:
+            pass
+        if show:
+            visible += 1
+    return visible
+
+
 class MainWindow(BaseWindow):  # type: ignore[misc]
     def __init__(self, app: Gtk.Application) -> None:
         super().__init__(application=app, title="Odoo Vite")
@@ -149,6 +164,12 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
 
         header = Adw.HeaderBar() if HAS_ADW else Gtk.HeaderBar()
         outer.append(header)
+
+        # H-M3: global busy indicator for background lifecycle operations.
+        self.header_spinner = Gtk.Spinner()
+        if hasattr(header, "pack_start"):
+            header.pack_start(self.header_spinner)
+        self._bg_ops = 0
 
         self.btn_new = Gtk.Button(label="+ New Instance")
         self.btn_new.add_css_class("suggested-action")
@@ -266,6 +287,8 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             self.start_flow(instance_id)
         elif action in ("stop", "restart"):
             self._run_simple_flow(action, instance_id)
+        elif action == "repair":
+            self._repair_flow(instance_id)
         elif action == "set-primary":
             self._set_primary_flow(instance_id, (payload or "").strip())
         elif action == "switch":
@@ -281,7 +304,41 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         elif action == "secured":
             self.toast(str(payload or "Password secured"))
 
+    # ------------------------------------------------ H-M3 busy sweep
+    # Every bg lifecycle op brackets itself with _op_start/_op_end (always on
+    # the main thread: starts run in click handlers, ends in idle callbacks).
+    # While busy: header spinner spins and all action buttons go insensitive,
+    # so every click gets immediate feedback and double-clicks can't pile up.
+    def _op_start(self) -> None:
+        self._bg_ops += 1
+        self.header_spinner.start()
+        self._set_actions_sensitive(False)
+
+    def _op_end(self) -> None:
+        self._bg_ops = max(0, self._bg_ops - 1)
+        if self._bg_ops == 0:
+            self.header_spinner.stop()
+            self._set_actions_sensitive(True)
+
+    def _set_actions_sensitive(self, sensitive: bool) -> None:
+        try:
+            for row in self.sidebar._rows.values():
+                row.btn_start.set_sensitive(sensitive)
+                row.btn_stop.set_sensitive(sensitive)
+                row.btn_restart.set_sensitive(sensitive)
+        except Exception:
+            pass
+        for btn in (self.detail.btn_start, self.detail.btn_stop,
+                    self.detail.btn_restart, self.detail.btn_switch,
+                    self.detail.btn_set_primary, self.detail.btn_discover,
+                    self.detail.btn_remove, self.detail.btn_browser):
+            try:
+                btn.set_sensitive(sensitive)
+            except Exception:
+                pass
+
     def _run_simple_flow(self, action: str, instance_id: str) -> None:
+        self._op_start()
         self._select_row(instance_id)
 
         def _work() -> None:
@@ -293,30 +350,50 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
 
         threading.Thread(target=_work, daemon=True).start()
 
-    def start_flow(self, instance_id: str, database: str | None = None) -> None:
+    def start_flow(self, instance_id: str, database: str | None = None,
+                   _op_held: bool = False) -> None:
         """Start flow with first-start confirm + collision handling (bg thread)."""
+        if not _op_held:
+            self._op_start()
         self._select_row(instance_id)
 
         def _work() -> None:
             res = process_manager.start_instance(
                 instance_id, database=database, confirm_cb=self._confirm_cb)
             if not res.ok and (res.data or {}).get("collision"):
+                # Op stays held across the recursive retry (balanced by its end).
                 self._handle_collision(instance_id, res.data)
                 return
             GLib.idle_add(self._show_result, instance_id, res.ok, res.message)
 
         threading.Thread(target=_work, daemon=True).start()
 
+    def _repair_flow(self, instance_id: str) -> None:
+        self._op_start()
+        self._select_row(instance_id)
+
+        def _work() -> None:
+            from odoo_vite.core import venv_manager
+
+            res = venv_manager.repair_venv(instance_id)
+            GLib.idle_add(self._show_result, instance_id, res.ok, res.message)
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def _show_result(self, instance_id: str, ok: bool, message: str) -> bool:
+        self._op_end()
         self._select_row(instance_id)
         if ok:
             self.toast(message)
             if self.detail.instance_id == instance_id:
                 self.detail.show_error("")
+                self.detail.show_repair_option(False)
         else:
             # PM pattern: persistent label (+ status pill) for ongoing bad states.
             if self.detail.instance_id == instance_id:
                 self.detail.show_error(message)
+                # H-B1: surface one-click repair on the pkg_resources pattern.
+                self.detail.show_repair_option("pkg_resources" in message)
         self._poll_tick()
         return False
 
@@ -369,7 +446,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             default_id="abort")
         if choice == "reuse":
             update_instance(instance_id, db_created=True)
-            self.start_flow(instance_id)
+            self.start_flow(instance_id, _op_held=True)
         elif choice == "new":
             _choice2, text = _ask_blocking(
                 self, "New database name",
@@ -384,7 +461,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
 
             if _choice2 == "ok" and new_name and is_valid_identifier(new_name):
                 update_instance(instance_id, primary_db=new_name)
-                self.start_flow(instance_id)
+                self.start_flow(instance_id, _op_held=True)
             else:
                 GLib.idle_add(self._show_result, instance_id, False,
                               "Aborted — no valid new database name given")
@@ -452,11 +529,14 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
     def _set_primary_flow(self, instance_id: str, db_name: str) -> None:
         from odoo_vite.core.db_manager import is_valid_identifier
 
+        self._op_start()
+
         if not db_name or not is_valid_identifier(db_name):
             self._select_row(instance_id)
             if self.detail.instance_id == instance_id:
                 self.detail.show_error(
                     "Pick a valid database name first (or choose Other… and type one).")
+            self._op_end()
             return
 
         def _work() -> None:
@@ -476,6 +556,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             if self.detail.instance_id == instance_id:
                 self.detail.show_error("Pick a valid database name to switch to.")
             return
+        self._op_start()
         self._select_row(instance_id)
 
         def _work() -> None:
@@ -488,6 +569,8 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
 
     def _track_flow(self, instance_id: str, db_name: str) -> None:
         from odoo_vite.core.db_manager import track_database
+
+        self._op_start()
 
         def _work() -> None:
             res = track_database(instance_id, db_name)
@@ -514,6 +597,8 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
     def _do_untrack(self, instance_id: str, db_name: str) -> None:
         from odoo_vite.core.db_manager import untrack_database
 
+        self._op_start()
+
         def _work() -> None:
             res = untrack_database(instance_id, db_name)
             GLib.idle_add(self._show_result, instance_id, res.ok, res.message)
@@ -527,6 +612,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         inst = get_instance(instance_id)
         if inst is None:
             return
+        self._op_start()
         self._select_row(instance_id)
 
         def _work() -> None:
@@ -550,6 +636,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
 
         inst = get_instance(instance_id)
         if inst is None:
+            self._op_end()
             return False
         if not ok:
             self._show_result(instance_id, False, message)
@@ -558,29 +645,45 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         fresh = [d for d in databases if d not in tracked]
         if not fresh:
             self.toast("No new databases — everything found is tracked")
+            self._op_end()
             return False
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        # H-P1: searchable + scrollable checklist (client-side filter).
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        search = Gtk.SearchEntry(placeholder_text="Filter databases…")
+        outer.append(search)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_min_content_height(200)
+        scrolled.set_max_content_height(380)
+        outer.append(scrolled)
+        listbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        scrolled.set_child(listbox)
         checks: dict[str, Gtk.CheckButton] = {}
-        for name in fresh[:50]:
+        for name in fresh[:200]:
             check = Gtk.CheckButton(label=name, active=True)
             checks[name] = check
-            box.append(check)
-        if len(fresh) > 50:
+            listbox.append(check)
+        if len(fresh) > 200:
             lbl = Gtk.Label(xalign=0)
-            lbl.set_text(f"…and {len(fresh) - 50} more (track by name instead)")
+            lbl.set_text(f"…and {len(fresh) - 200} more (track by name instead)")
             lbl.add_css_class("dim-label")
-            box.append(lbl)
+            listbox.append(lbl)
+
+        def _apply_filter(_entry=None) -> None:
+            filter_checks(checks, search.get_text() or "")
+
+        search.connect("search-changed", _apply_filter)
 
         def _on_ok(confirmed: bool) -> None:
             if not confirmed:
+                self._op_end()
                 return
 
             def _work() -> None:
                 picked = [n for n, c in checks.items() if c.get_active()]
-                last = None
                 for name in picked:
-                    last = track_database(instance_id, name)
+                    track_database(instance_id, name)
                 GLib.idle_add(self._show_result, instance_id, True,
                               f"Tracked {len(picked)} database(s)" if picked
                               else "Nothing selected")
@@ -597,7 +700,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             dlg.add_response("ok", "Track selected")
             dlg.set_response_appearance(
                 "ok", Adw.ResponseAppearance.SUGGESTED)
-            dlg.set_extra_child(box)
+            dlg.set_extra_child(outer)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
             dlg.choose(self, None,
@@ -676,6 +779,8 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
                    drop_extra_dbs: list | None = None) -> None:
         from odoo_vite.core import removal
 
+        self._op_start()
+
         def _work() -> None:
             res = removal.remove_instance(instance_id, drop_db=drop_db,
                                           drop_extra_dbs=drop_extra_dbs)
@@ -684,6 +789,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         threading.Thread(target=_work, daemon=True).start()
 
     def _after_remove(self, instance_id: str, ok: bool, message: str) -> bool:
+        self._op_end()
         if ok:
             self.toast(message)
             if self.detail.instance_id == instance_id:

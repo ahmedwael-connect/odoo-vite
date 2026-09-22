@@ -12,13 +12,14 @@ Step 3 — Confirm: summary + Adopt button. Nothing on disk is touched;
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("Adw", "1")
@@ -37,6 +38,13 @@ from odoo_vite.core.adopt import check_enterprise_match  # noqa: E402
 from odoo_vite.core.db_manager import is_valid_identifier  # noqa: E402
 
 TOTAL_STEPS = 3
+
+
+def _shrink(label: Gtk.Label, chars: int = 44) -> Gtk.Label:
+    """H-M1: keep long unbroken paths from blowing out window width."""
+    label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+    label.set_max_width_chars(chars)
+    return label
 
 
 class AdoptInstanceWizard(Gtk.Window):
@@ -58,8 +66,9 @@ class AdoptInstanceWizard(Gtk.Window):
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.set_child(outer)
+        # H-M2: titlebar, not a child (avoids a duplicate native titlebar).
         header = Adw.HeaderBar() if HAS_ADW else Gtk.HeaderBar()
-        outer.append(header)
+        self.set_titlebar(header)
 
         self.btn_back = Gtk.Button(label="‹ Back")
         self.btn_back.connect("clicked", self._on_back)
@@ -178,7 +187,7 @@ class AdoptInstanceWizard(Gtk.Window):
 
         box.append(Gtk.Label(label="Odoo conf file (required)", xalign=0))
         row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.lbl_conf = Gtk.Label(label="No file selected", xalign=0, hexpand=True)
+        self.lbl_conf = _shrink(Gtk.Label(label="No file selected", xalign=0, hexpand=True))
         self.lbl_conf.add_css_class("dim-label")
         row1.append(self.lbl_conf)
         btn_conf = Gtk.Button(label="Browse…")
@@ -188,7 +197,7 @@ class AdoptInstanceWizard(Gtk.Window):
 
         box.append(Gtk.Label(label="Community folder (contains odoo-bin)", xalign=0))
         row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.lbl_community = Gtk.Label(label="No folder selected", xalign=0, hexpand=True)
+        self.lbl_community = _shrink(Gtk.Label(label="No folder selected", xalign=0, hexpand=True))
         self.lbl_community.add_css_class("dim-label")
         row2.append(self.lbl_community)
         btn_comm = Gtk.Button(label="Browse…")
@@ -326,7 +335,7 @@ class AdoptInstanceWizard(Gtk.Window):
 
         box.append(Gtk.Label(label="Enterprise addons folder (optional)", xalign=0))
         erow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.lbl_ent = Gtk.Label(xalign=0, hexpand=True)
+        self.lbl_ent = _shrink(Gtk.Label(xalign=0, hexpand=True))
         self.lbl_ent.add_css_class("dim-label")
         erow.append(self.lbl_ent)
         btn_ent = Gtk.Button(label="Browse…")
@@ -336,13 +345,26 @@ class AdoptInstanceWizard(Gtk.Window):
 
         box.append(Gtk.Label(label="Custom addons folder (optional)", xalign=0))
         crow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.lbl_custom = Gtk.Label(xalign=0, hexpand=True)
+        self.lbl_custom = _shrink(Gtk.Label(xalign=0, hexpand=True))
         self.lbl_custom.add_css_class("dim-label")
         crow.append(self.lbl_custom)
         btn_custom = Gtk.Button(label="Browse…")
         btn_custom.connect("clicked", lambda _b: self._pick_folder("custom"))
         crow.append(btn_custom)
         box.append(crow)
+
+        box.append(Gtk.Label(
+            label="Python environment (venv folder, optional — needed to Start)",
+            xalign=0))
+        vrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.entry_venv = Gtk.Entry(hexpand=True,
+                                    placeholder_text="/path/to/venv (must contain bin/python)")
+        self.entry_venv.connect("changed", lambda _e: self._update_next())
+        vrow.append(self.entry_venv)
+        box.append(vrow)
+        self.err_venv = Gtk.Label(xalign=0, wrap=True)
+        self.err_venv.add_css_class("error")
+        box.append(self.err_venv)
 
         box.append(Gtk.Label(label="Primary database (required — conf files never record one)", xalign=0))
         self.entry_db = Gtk.Entry()
@@ -517,6 +539,12 @@ class AdoptInstanceWizard(Gtk.Window):
             ok = False
         else:
             self.err_db.set_text("")
+        venv = self.entry_venv.get_text().strip()
+        if venv and not os.path.isfile(os.path.join(venv, "bin", "python")):
+            self.err_venv.set_text(f"Not a virtualenv: no bin/python under {venv}")
+            ok = False
+        else:
+            self.err_venv.set_text("")
         pw = self.gap_entries.get("db_password").get_text() \
             if "db_password" in self.gap_entries else ""
         if pw and not self._keyring_ok and not self.check_plaintext.get_active():
@@ -568,7 +596,7 @@ class AdoptInstanceWizard(Gtk.Window):
         hbox.set_margin_top(4)
         hbox.set_margin_bottom(4)
         hbox.append(Gtk.Label(label=caption, xalign=0, hexpand=True))
-        val = Gtk.Label(label=value, xalign=1)
+        val = _shrink(Gtk.Label(label=value, xalign=1))
         val.add_css_class("dim-label")
         hbox.append(val)
         row.set_child(hbox)
@@ -583,6 +611,7 @@ class AdoptInstanceWizard(Gtk.Window):
             if "db_password" in self.gap_entries else "",
             "port": get("port"),
             "logfile": get("logfile"),
+            "venv_path": self.entry_venv.get_text().strip(),
             "enterprise_path": getattr(self, "_ent", "") or None,
             "custom_addons_path": getattr(self, "_custom", "") or "",
             "primary_db": self.entry_db.get_text().strip(),
@@ -604,6 +633,7 @@ class AdoptInstanceWizard(Gtk.Window):
                 ("Port", ov["port"]),
                 ("DB user", ov["db_user"]),
                 ("Primary DB", ov["primary_db"]),
+                ("Venv", ov.get("venv_path") or "— (set later on the detail page)"),
                 ("Enterprise", ov["enterprise_path"] or "—"),
                 ("Custom addons", ov["custom_addons_path"] or "—")]:
             self.confirm_list.append(self._crow(caption, value))

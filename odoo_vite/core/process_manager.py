@@ -158,11 +158,25 @@ def start_instance(
     needs_init = (not inst.db_created) or (not initialized)
 
     # Preconditions with actionable messages (before touching the registry).
+    # H-B2: adopted rows may record no venv at all — that needs its own
+    # message (pointing at the detail-page editor), never a misleading
+    # relative "bin/python" path plus "re-run provisioning".
+    if not (inst.venv_path or "").strip():
+        return Result.failure(
+            f"No Python environment recorded for adopted instance '{inst.name}' — "
+            "open its detail page and set the venv Python path "
+            "(a virtualenv folder containing bin/python), then Start again"
+            if (inst.mode or "managed") == "adopted" else
+            f"Instance '{inst.name}' has no venv path configured — re-run provisioning"
+        )
     venv_python = Path(inst.venv_path) / "bin" / "python"
     odoo_bin = Path(inst.community_path) / "odoo-bin"
     if not venv_python.is_file():
+        hint = ("re-run provisioning"
+                if (inst.mode or "managed") == "managed"
+                else "check the venv path recorded on the detail page")
         return Result.failure(
-            f"Venv python missing at {venv_python} — re-run provisioning"
+            f"Venv python missing at {venv_python} — {hint}"
         )
     if not odoo_bin.is_file():
         return Result.failure(
