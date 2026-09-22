@@ -18,10 +18,14 @@ Status: Phase 1, Phase 1.5 hardening, and the RC matrix all pass
 ## Install
 
 ```bash
-# 1. System packages (GTK, Postgres, build tools, Odoo runtime deps)
+# 1. System packages (GTK, Postgres, build tools, Odoo runtime deps).
+#    NOTE on Ubuntu 24.04: install `npm` (it pulls the Node runtime) but do
+#    NOT apt-install `nodejs` and `npm` together — the two debs conflict and
+#    apt aborts the whole transaction. Need newer Node? Use NodeSource
+#    (deb.nodesource.com) instead of Ubuntu's nodejs package.
 sudo apt install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
   python3-venv python3-pip git postgresql postgresql-client \
-  libpq-dev wkhtmltopdf nodejs npm build-essential \
+  libpq-dev wkhtmltopdf npm build-essential \
   libxml2-dev libxslt1-dev libjpeg-dev libsasl2-dev libldap2-dev \
   libssl-dev zlib1g-dev gnome-keyring
 
@@ -34,8 +38,9 @@ tar xzf odoo-vite-1.0.0.tar.gz && cd odoo-vite-1.0.0
 #    system PyGObject stays importable)
 pip install --break-system-packages -r requirements.txt
 
-# 4. Run
-python main.py            # or: python -m odoo_vite.main
+# 4. Run (from the extracted folder root — note: `python3`, not `python`,
+#    which Ubuntu does not ship by default)
+python3 main.py            # or: python3 -m odoo_vite.main
 ```
 
 On first launch the app creates `~/.local/share/odoo-vite/` (registry +
@@ -56,7 +61,7 @@ Categories=Development;
 ## Test
 
 ```bash
-pytest tests/ -q
+python3 -m pytest tests/ -q
 ```
 
 (Live Postgres tests skip automatically when no server is reachable.)

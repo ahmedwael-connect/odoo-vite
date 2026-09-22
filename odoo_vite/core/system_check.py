@@ -69,7 +69,9 @@ REQUIREMENTS: list[Requirement] = [
     Requirement("postgresql-client", "PostgreSQL client (psql)", ["postgresql-client"], "apt install postgresql-client"),
     Requirement("libpq-dev", "libpq headers (psycopg2 build)", ["libpq-dev"], "apt install libpq-dev"),
     Requirement("wkhtmltopdf", "wkhtmltopdf (PDF reports)", ["wkhtmltopdf"], "apt install wkhtmltopdf"),
-    Requirement("node", "Node.js runtime", ["nodejs"], "apt install nodejs (>=16 for Odoo 17+)"),
+    Requirement("node", "Node.js runtime", ["npm"],
+                "apt install npm (pulls the Node runtime; do NOT apt-install "
+                "'nodejs'+'npm' together on Ubuntu 24.04 — the two debs conflict)"),
     Requirement("npm", "npm package manager", ["npm"], "apt install npm"),
     Requirement("rtlcss", "rtlcss (Odoo asset pipeline, via npm)", ["node-rtlcss"], "npm install -g rtlcss"),
     Requirement("build-essential", "C build tools", ["build-essential"], "apt install build-essential"),

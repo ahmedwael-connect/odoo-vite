@@ -8,3 +8,7 @@ dist/
 # Runtime SQLite registry (created under ~/.local/share/odoo-vite/; never commit)
 odoo_vite/data/odoo_vite.db
 *.db
+
+# Release artifacts (built with git archive, attached to tags)
+*.tar.gz
+odoo-vite-*/
