@@ -264,6 +264,73 @@ def list_databases(*args, **kwargs) -> Result:  # Sprint 4 scope
     return Result.failure("db_manager.list_databases is Sprint 4 scope")
 
 
+def pg_stat_statements_enabled(db_user: str = "odoo",
+                               db_password: str | None = None) -> bool:
+    """Is pg_stat_statements visible to this user? Never raises.
+
+    Note: this answers "can we query it", not server config alone — an
+    extension present but unreadable to the role reads as False, which is
+    the correct UX signal either way (show instructions, not an empty table).
+    """
+    if shutil.which("psql") is None:
+        return False
+    rc, out = _run(
+        ["psql", "-h", "localhost", "-U", db_user, "-d", "postgres",
+         "-tAc", "SELECT count(*) FROM pg_extension "
+                  "WHERE extname = 'pg_stat_statements'"],
+        env_extra={"PGPASSWORD": db_password} if db_password else None,
+        timeout=30,
+    )
+    if rc != 0:
+        return False
+    try:
+        return int(out.strip().splitlines()[0]) > 0
+    except (ValueError, IndexError):
+        return False
+
+
+def slow_queries(db_name: str, db_user: str = "odoo",
+                 db_password: str | None = None, limit: int = 20) -> Result:
+    """Top queries by total time for one database (Sprint 8, Ticket B.4)."""
+    if not is_valid_identifier(db_name):
+        return Result.failure(f"Invalid database name '{db_name}'")
+    if shutil.which("psql") is None:
+        return Result.failure("psql not found")
+    if not pg_stat_statements_enabled(db_user, db_password):
+        return Result.failure(
+            "pg_stat_statements is not available to this role. Ask your "
+            "Postgres admin to run: CREATE EXTENSION pg_stat_statements; "
+            "(plus shared_preload_libraries + a server restart on first "
+            "enable — see the report for why we don't do that for you)")
+    sql = ("SELECT query, calls, total_exec_time, mean_exec_time "
+           "FROM pg_stat_statements WHERE dbid = "
+           f"(SELECT oid FROM pg_database WHERE datname = {_qliteral(db_name)}) "
+           f"ORDER BY total_exec_time DESC LIMIT {max(1, min(int(limit), 100))};")
+    rc, out = _run(
+        ["psql", "-h", "localhost", "-U", db_user, "-d", "postgres",
+         "-tA", "-F", "\x1f", "-c", sql],
+        env_extra={"PGPASSWORD": db_password} if db_password else None,
+        timeout=60,
+    )
+    if rc != 0:
+        hint = out.splitlines()[-1] if out else f"exit {rc}"
+        return Result.failure(f"Slow-query probe failed: {hint}")
+    rows = []
+    for line in out.splitlines():
+        parts = line.split("\x1f")
+        if len(parts) != 4:
+            continue
+        try:
+            rows.append({"query": parts[0][:500],
+                         "calls": int(float(parts[1])),
+                         "total_ms": round(float(parts[2]), 1),
+                         "mean_ms": round(float(parts[3]), 2)})
+        except ValueError:
+            continue
+    return Result.success(data={"queries": rows, "database": db_name},
+                          message=f"{len(rows)} querie(s) profiled")
+
+
 def drop_database(
     db_name: str, db_user: str = "odoo", db_password: str | None = None
 ) -> Result:

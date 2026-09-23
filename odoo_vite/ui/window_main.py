@@ -281,6 +281,11 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         self.menu_btn.set_popover(popover)
         if hasattr(header, "pack_end"):
             header.pack_end(self.menu_btn)
+        self.btn_events = Gtk.ToggleButton(label="Events")
+        self.btn_events.set_tooltip_text("Show/hide the app event feed")
+        self.btn_events.connect("toggled", self._on_events_toggled)
+        if hasattr(header, "pack_end"):
+            header.pack_end(self.btn_events)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         paned.set_position(300)
@@ -295,10 +300,144 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         self.detail = InstanceDetailPage(on_action=self._on_row_action)
         paned.set_end_child(self.detail)
 
+        # B.6: collapsible app event feed (live view over audit.log).
+        self.event_revealer = Gtk.Revealer(reveal_child=False)
+        self.event_revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_UP)
+        event_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        event_box.set_margin_start(12)
+        event_box.set_margin_end(12)
+        event_box.set_margin_top(4)
+        event_box.set_margin_bottom(4)
+        event_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        event_title = Gtk.Label(label="App events", xalign=0, hexpand=True)
+        event_title.add_css_class("heading")
+        event_head.append(event_title)
+        btn_event_clear_view = Gtk.Button(label="Clear view")
+        btn_event_clear_view.set_tooltip_text(
+            "Clears the panel (audit.log on disk is untouched)")
+        btn_event_clear_view.connect("clicked", self._on_event_clear_view)
+        event_head.append(btn_event_clear_view)
+        event_box.append(event_head)
+        from gi.repository import Gio as _EventGio
+
+        self.event_store = _EventGio.ListStore(item_type=Gtk.StringObject)
+        event_factory = Gtk.SignalListItemFactory()
+        event_factory.connect("setup", self._on_event_row_setup)
+        event_factory.connect("bind", self._on_event_row_bind)
+        event_list = Gtk.ListView(model=Gtk.NoSelection(model=self.event_store),
+                                  factory=event_factory)
+        event_scrolled = Gtk.ScrolledWindow()
+        event_scrolled.set_min_content_height(120)
+        event_scrolled.set_max_content_height(220)
+        event_scrolled.set_child(event_list)
+        event_box.append(event_scrolled)
+        self._event_scrolled = event_scrolled
+        self.event_revealer.set_child(event_box)
+        outer.append(self.event_revealer)
+        self._event_pending: list = []
+        self._event_follower = None
+        self._event_flush_id = 0
+
         self._poll_busy = False
         self._poll_id = GLib.timeout_add(POLL_MS, self._poll_tick)
         self.connect("close-request", self._on_close_request)
         GLib.idle_add(self._poll_tick_soon)
+
+    # ------------------------------------------------- B.6 event feed
+    def _on_events_toggled(self, btn) -> None:
+        show = bool(btn.get_active())
+        self.event_revealer.set_reveal_child(show)
+        if show:
+            self._event_start()
+        else:
+            self._event_stop()
+
+    def _event_start(self) -> None:
+        from odoo_vite.core import audit as audit_log
+        from odoo_vite.core import log_tail
+
+        self._event_stop()
+        try:
+            follower = log_tail.LogFollower(str(audit_log.audit_path()))
+            tail = log_tail.read_last_n(str(audit_log.audit_path()), 100)
+        except Exception:
+            return
+        self._event_follower = follower
+        for line in tail:
+            self._event_pending.append(line)
+        follower.sync_to_end()
+        self._event_flush_id = GLib.timeout_add(300, self._event_flush_tick)
+        GLib.timeout_add(1000, self._event_poll_tick)
+
+    def _event_stop(self) -> None:
+        if self._event_flush_id:
+            try:
+                GLib.source_remove(self._event_flush_id)
+            except Exception:
+                pass
+            self._event_flush_id = 0
+        self._event_follower = None
+        self._event_pending = []
+
+    def _event_poll_tick(self) -> bool:
+        # Runs only while the panel is open (checked each tick).
+        if not self.btn_events.get_active():
+            return False
+        follower = self._event_follower
+        if follower is None:
+            return True
+        try:
+            batch = follower.poll()
+        except Exception:
+            return True
+        self._event_pending.extend(batch.get("lines", []))
+        return True
+
+    def _event_flush_tick(self) -> bool:
+        # Debounced batching: bursts render at most every ~300ms, never per event.
+        if not self.btn_events.get_active():
+            return False
+        pending, self._event_pending = self._event_pending, []
+        for line in pending[-500:]:
+            self.event_store.append(Gtk.StringObject.new(line[:300]))
+        over = self.event_store.get_n_items() - 1000
+        if over > 0:
+            self.event_store.splice(0, over, [])
+        try:
+            adj = self._event_scrolled.get_vadjustment()
+            if adj is not None:
+                adj.set_value(max(0, adj.get_upper() - adj.get_page_size()))
+        except Exception:
+            pass
+        return True
+
+    def _on_event_clear_view(self, _btn) -> None:
+        self.event_store.splice(0, self.event_store.get_n_items(), [])
+        self._event_pending = []
+
+    def _on_event_row_setup(self, _factory, item) -> None:
+        lbl = Gtk.Label(xalign=0, wrap=True)
+        lbl.add_css_class("monospace")
+        item.set_child(lbl)
+
+    def _on_event_row_bind(self, _factory, item) -> None:
+        obj = item.get_item()
+        text = obj.get_string() if obj is not None else ""
+        try:
+            import json as _json
+
+            entry = _json.loads(text)
+            text = (f"{entry.get('ts', '')[:19]}  {entry.get('action', '')}  "
+                    f"{entry.get('instance_name', '')}  {entry.get('detail', '')}")
+        except Exception:
+            pass
+        if len(text) > 300:
+            text = text[:300] + "…"
+        try:
+            item.get_child().set_text(text)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ shell
     def _on_close_request(self, *_args) -> bool:
@@ -335,6 +474,13 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         self.detail.show_instance(instance_id)
         self._refresh_detail_dbs(instance_id)
         self._load_modules(instance_id)
+        try:
+            inst = get_instance(instance_id)
+            self.detail.stop_log_poll()
+            if inst is not None and inst.log_path:
+                self.detail.start_log_poll(inst.log_path)
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------- polling
     def _poll_tick_soon(self) -> bool:
@@ -426,6 +572,14 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             self._mod_deps_dialog(instance_id)
         elif action == "mod-scaffold":
             self._mod_scaffold_wizard(instance_id)
+        elif action == "log-search":
+            self._log_search_flow(instance_id)
+        elif action == "log-doctor":
+            self._log_doctor_flow(instance_id)
+        elif action == "slow-refresh":
+            self._slow_refresh_flow(instance_id)
+        elif action == "profile":
+            self._profile_flow(instance_id, payload or 10)
 
     # ------------------------------------------------ H-M3 busy sweep
     # Every bg lifecycle op brackets itself with _op_start/_op_end (always on
@@ -1897,6 +2051,225 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
             except Exception:
                 pass
         return False
+
+    # --------------------------------------- Sprint 8 Monitoring flows
+    def _log_search_flow(self, instance_id: str) -> None:
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        pattern = ""
+        level = None
+        try:
+            pattern = self.detail.entry_log_search.get_text() or ""
+            item = self.detail.drop_log_level.get_selected_item()
+            text = item.get_string() if item is not None else "All levels"
+            level = None if text == "All levels" else text
+        except Exception:
+            pass
+        if not pattern.strip():
+            self.toast("Enter a regex pattern to search")
+            return
+        self._op_start()
+
+        def _work() -> None:
+            from odoo_vite.core import log_search
+
+            res = log_search.search_file(inst.log_path or "", pattern,
+                                         level=level, context=2)
+            GLib.idle_add(self._show_search_results, instance_id,
+                           res.ok, res.message,
+                           (res.data or {}).get("matches", []) if res.ok else [])
+            GLib.idle_add(self._op_end)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _show_search_results(self, instance_id: str, ok: bool, message: str,
+                             matches: list) -> bool:
+        self._op_end()
+        if self.detail.instance_id == instance_id:
+            try:
+                if ok:
+                    self.detail.set_search_results(matches, message)
+                else:
+                    self.detail.set_search_results([], message)
+            except Exception:
+                pass
+        return False
+
+    def _log_doctor_flow(self, instance_id: str) -> None:
+        inst = get_instance(instance_id)
+        if inst is None or not inst.log_path:
+            self.toast("No log file recorded for this instance")
+            return
+        self._op_start()
+
+        def _work() -> None:
+            from odoo_vite.core import log_doctor
+
+            try:
+                findings = log_doctor.diagnose_file(inst.log_path)
+            except Exception as exc:
+                GLib.idle_add(self._show_result, instance_id, False,
+                              f"Doctor failed: {exc}")
+                return
+            GLib.idle_add(self._show_doctor_findings, instance_id, findings)
+            GLib.idle_add(self._op_end)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _show_doctor_findings(self, instance_id: str, findings: list) -> bool:
+        self._op_end()
+        if self.detail.instance_id == instance_id:
+            try:
+                self.detail.set_doctor_findings(findings)
+                if not findings:
+                    self.toast("Doctor found no known issues in the log")
+            except Exception:
+                pass
+        return False
+
+    def _slow_refresh_flow(self, instance_id: str) -> None:
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        self._op_start()
+
+        def _work() -> None:
+            from odoo_vite.core import db_manager
+            from odoo_vite.core.registry import get_db_password
+
+            try:
+                pw = get_db_password(inst) or None
+            except Exception:
+                pw = None
+            if not db_manager.pg_stat_statements_enabled(inst.db_user, pw):
+                GLib.idle_add(self._show_slow, instance_id, False,
+                              "pg_stat_statements is not available to this role. "
+                              "Ask your Postgres admin to run: CREATE EXTENSION "
+                              "pg_stat_statements; (first enable needs "
+                              "shared_preload_libraries + a server restart — "
+                              "Odoo Vite won't do that for you: it restarts "
+                              "Postgres for every instance on the box.)", [])
+                return
+            res = db_manager.slow_queries(inst.primary_db, inst.db_user, pw)
+            GLib.idle_add(self._show_slow, instance_id, res.ok, res.message,
+                           (res.data or {}).get("queries", []) if res.ok else [])
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _show_slow(self, instance_id: str, ok: bool, message: str,
+                   rows: list) -> bool:
+        # _op_end accounting: _show_result also ends; call exactly one path.
+        if self.detail.instance_id == instance_id:
+            try:
+                self.detail.set_slow_queries(ok, message, rows)
+            except Exception:
+                pass
+        self._op_end()
+        return False
+
+    def _profile_flow(self, instance_id: str, duration: int = 10) -> None:
+        from odoo_vite.core import profiler
+        from odoo_vite.core.process_manager import _alive_pid
+
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        pid = _alive_pid(inst)
+        if pid is None:
+            self._select_row(instance_id)
+            if self.detail.instance_id == instance_id:
+                self.detail.show_error(
+                    "Profile needs a running process — start the instance first.")
+            return
+        if profiler.py_spy_path() is None:
+            self._confirm_async(
+                "py-spy is not installed",
+                "Flame graphs need py-spy (pip package, user-scoped install, "
+                "no sudo required). Install it now with 'pip install py-spy'?",
+                "Install py-spy",
+                lambda ok: self._install_pyspy_then_profile(instance_id, pid,
+                                                            duration)
+                if ok else None)
+            return
+        self._run_profile(instance_id, pid, duration)
+
+    def _install_pyspy_then_profile(self, instance_id: str, pid: int,
+                                    duration: int) -> None:
+        self._op_start()
+
+        def _work() -> None:
+            from odoo_vite.core import profiler
+
+            res = profiler.ensure_py_spy()
+            if not res.ok:
+                GLib.idle_add(self._show_result, instance_id, False, res.message)
+                return
+            # Op stays held: _run_profile takes it over (balanced by its end).
+            GLib.idle_add(self._run_profile, instance_id, pid, duration, True)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _run_profile(self, instance_id: str, pid: int, duration: int,
+                     _held: bool = False) -> None:
+        import os
+        import tempfile
+
+        if not _held:
+            self._op_start()
+        dest = os.path.join(
+            tempfile.gettempdir(), f"odoo-vite-profile-{instance_id[:8]}.svg")
+
+        def _work() -> None:
+            from odoo_vite.core import profiler
+
+            res = profiler.profile_pid(pid, duration=duration, output_svg=dest)
+            GLib.idle_add(self._show_profile_result, instance_id, res.ok,
+                           res.message,
+                           (res.data or {}).get("svg", "") if res.ok else "")
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _show_profile_result(self, instance_id: str, ok: bool, message: str,
+                             svg: str) -> bool:
+        self._op_end()
+        if not ok:
+            self._select_row(instance_id)
+            if self.detail.instance_id == instance_id:
+                self.detail.show_error(message)
+            return False
+        self.toast(message)
+        self._view_svg(svg)
+        return False
+
+    def _view_svg(self, path: str) -> None:
+        shown = False
+        try:
+            from gi.repository import Gio as _Gio
+
+            pic = Gtk.Picture.new_for_filename(path)
+            pic.set_can_shrink(True)
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_min_content_height(420)
+            scrolled.set_child(pic)
+            if HAS_ADW and HAS_ALERT:
+                dlg = Adw.AlertDialog(heading="Flame graph", body="")
+                dlg.add_response("ok", "Close")
+                dlg.set_extra_child(scrolled)
+                dlg.set_size_request(720, 520)
+                dlg.choose(self, None, lambda d, t: None)
+                shown = True
+        except Exception:
+            shown = False
+        if not shown:
+            try:
+                from gi.repository import Gio as _Gio2
+
+                _Gio2.AppInfo.launch_default_for_uri(
+                    Path(path).as_uri(), None)
+                self.toast(f"Opened {path} externally")
+            except Exception:
+                self.toast(f"Profile saved: {path}")
 
     def _remove_flow(self, instance_id: str) -> None:
         from odoo_vite.core import removal

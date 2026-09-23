@@ -11,7 +11,7 @@ import webbrowser
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("Adw", "1")
@@ -73,6 +73,7 @@ class InstanceDetailPage(Gtk.Box):
         self.tab_stack.add_titled(self._build_overview(), "overview", "Overview")
         self.tab_stack.add_titled(self._build_databases(), "databases", "Databases")
         self.tab_stack.add_titled(self._build_modules(), "modules", "Modules")
+        self.tab_stack.add_titled(self._build_logs(), "logs", "Logs")
         self.tab_stack.add_titled(self._build_configuration(), "configuration",
                                   "Configuration")
         outer.append(self.tab_stack)
@@ -466,8 +467,11 @@ class InstanceDetailPage(Gtk.Box):
         if True:  # addons_path is managed, not typed: read-only + manager link
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             row.append(Gtk.Label(label="addons_path", xalign=0, width_request=110))
-            self.lbl_addons_ro = Gtk.Label(xalign=0, hexpand=True, wrap=True)
+            self.lbl_addons_ro = Gtk.Label(xalign=0, hexpand=True)
             self.lbl_addons_ro.add_css_class("dim-label")
+            # A.1: addons_path is one unbroken string — ellipsize, don't wrap-wide.
+            self.lbl_addons_ro.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            self.lbl_addons_ro.set_max_width_chars(60)
             row.append(self.lbl_addons_ro)
             btn_addons = Gtk.Button(label="Manage…")
             btn_addons.connect("clicked", self._emit, "addons-manage", None)
@@ -580,6 +584,9 @@ class InstanceDetailPage(Gtk.Box):
             hbox.append(Gtk.Label(label=key, xalign=0, hexpand=True))
             val = Gtk.Label(label=value, xalign=1, selectable=True)
             val.add_css_class("dim-label")
+            # A.1 (Sprint 8): long conf values must not widen the tab.
+            val.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            val.set_max_width_chars(40)
             hbox.append(val)
             row.set_child(hbox)
             self.conf_table.append(row)
@@ -653,6 +660,293 @@ class InstanceDetailPage(Gtk.Box):
             "log_level": item.get_string() if item is not None else "info",
             "python_binary": pybin,
         })
+
+    # ---------------------------------------------------------------- logs
+    LOG_LEVELS_ALL = ["All levels", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    LOG_MODEL_CAP = 5000
+
+    def _build_logs(self) -> Gtk.Widget:
+        from gi.repository import Gio as _Gio
+
+        box = self._tab_box()
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title = Gtk.Label(label="Logs", xalign=0, hexpand=True)
+        title.add_css_class("heading")
+        toolbar.append(title)
+        self.btn_log_pause = Gtk.ToggleButton(label="Pause")
+        self.btn_log_pause.set_tooltip_text(
+            "Freeze auto-scroll (also pauses automatically when you scroll up)")
+        self.btn_log_pause.connect("toggled", self._on_log_pause_toggled)
+        toolbar.append(self.btn_log_pause)
+        self.btn_doctor = Gtk.Button(label="Run Doctor")
+        self.btn_doctor.set_tooltip_text("Scan the log for known failure signatures")
+        self.btn_doctor.connect("clicked", self._emit, "log-doctor", None)
+        toolbar.append(self.btn_doctor)
+        self.drop_profile_dur = Gtk.DropDown(
+            model=Gtk.StringList.new(["5s", "10s", "30s"]))
+        self.drop_profile_dur.set_selected(1)
+        toolbar.append(self.drop_profile_dur)
+        self.btn_profile = Gtk.Button(label="Profile")
+        self.btn_profile.set_tooltip_text(
+            "Record a py-spy flame graph of the running process")
+        self.btn_profile.connect("clicked", self._on_profile_clicked)
+        toolbar.append(self.btn_profile)
+        box.append(toolbar)
+
+        self.lbl_log_paused = Gtk.Label(
+            label="⏸ paused — scroll to the bottom to resume live follow",
+            xalign=0)
+        self.lbl_log_paused.add_css_class("warning")
+        self.lbl_log_paused.set_visible(False)
+        box.append(self.lbl_log_paused)
+        self.lbl_log_note = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_log_note.add_css_class("dim-label")
+        box.append(self.lbl_log_note)
+
+        self.log_store = _Gio.ListStore(item_type=Gtk.StringObject)
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._on_log_row_setup)
+        factory.connect("bind", self._on_log_row_bind)
+        self.log_view = Gtk.ListView(model=Gtk.NoSelection(model=self.log_store),
+                                     factory=factory)
+        self.log_scrolled = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        self.log_scrolled.set_min_content_height(220)
+        self.log_scrolled.set_child(self.log_view)
+        box.append(self.log_scrolled)
+
+        search_title = Gtk.Label(label="Search (full file, streamed)", xalign=0)
+        search_title.add_css_class("heading")
+        box.append(search_title)
+        search_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.entry_log_search = Gtk.SearchEntry(hexpand=True,
+                                                placeholder_text="regex pattern…")
+        search_row.append(self.entry_log_search)
+        self.drop_log_level = Gtk.DropDown(model=Gtk.StringList.new(
+            self.LOG_LEVELS_ALL))
+        search_row.append(self.drop_log_level)
+        self.btn_log_search = Gtk.Button(label="Search")
+        self.btn_log_search.connect("clicked", self._emit, "log-search", None)
+        search_row.append(self.btn_log_search)
+        box.append(search_row)
+        self.lbl_search_status = Gtk.Label(xalign=0)
+        self.lbl_search_status.add_css_class("dim-label")
+        box.append(self.lbl_search_status)
+        self.search_results = Gtk.ListBox()
+        self.search_results.set_selection_mode(Gtk.SelectionMode.NONE)
+        box.append(self.search_results)
+
+        self.doctor_list = Gtk.ListBox()
+        self.doctor_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.doctor_list.set_visible(False)
+        box.append(self.doctor_list)
+
+        slow_title = Gtk.Label(label="Slow queries (pg_stat_statements)", xalign=0)
+        slow_title.add_css_class("heading")
+        box.append(slow_title)
+        slow_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.lbl_slow_status = Gtk.Label(xalign=0, hexpand=True, wrap=True)
+        self.lbl_slow_status.add_css_class("dim-label")
+        slow_row.append(self.lbl_slow_status)
+        self.btn_slow_refresh = Gtk.Button(label="Refresh")
+        self.btn_slow_refresh.connect("clicked", self._emit, "slow-refresh", None)
+        slow_row.append(self.btn_slow_refresh)
+        box.append(slow_row)
+        self.slow_list = Gtk.ListBox()
+        self.slow_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        box.append(self.slow_list)
+
+        self._log_follower = None
+        self._log_poll_id = 0
+        self._log_follow = True
+        self._log_path = ""
+        return box
+
+    def _on_log_row_setup(self, _factory, item) -> None:
+        lbl = Gtk.Label(xalign=0, wrap=True)
+        try:
+            lbl.set_wrap_mode(2)  # WORD_CHAR
+        except Exception:
+            pass
+        lbl.add_css_class("monospace")
+        item.set_child(lbl)
+
+    def _on_log_row_bind(self, _factory, item) -> None:
+        obj = item.get_item()
+        text = obj.get_string() if obj is not None else ""
+        if len(text) > 2000:
+            text = text[:2000] + "…"
+        try:
+            item.get_child().set_text(text)
+        except Exception:
+            pass
+
+    def _on_log_pause_toggled(self, btn) -> None:
+        paused = bool(btn.get_active())
+        self._log_follow = not paused
+        self.lbl_log_paused.set_visible(paused)
+
+    def _on_profile_clicked(self, _btn) -> None:
+        item = self.drop_profile_dur.get_selected_item()
+        text = item.get_string() if item is not None else "10s"
+        try:
+            duration = int("".join(c for c in text if c.isdigit()) or 10)
+        except ValueError:
+            duration = 10
+        self._emit(_btn, "profile", duration)
+
+    def start_log_poll(self, log_path: str) -> None:
+        from odoo_vite.core import log_tail
+
+        self.stop_log_poll()
+        self._log_path = log_path or ""
+        if not self._log_path:
+            self.lbl_log_note.set_text("No log file recorded.")
+            return
+        self._log_follower = log_tail.LogFollower(self._log_path)
+        try:
+            initial = log_tail.read_last_n(self._log_path, 500)
+        except Exception:
+            initial = []
+        self._log_follower.sync_to_end()
+        self.log_store.splice(0, self.log_store.get_n_items(), [])
+        for line in initial:
+            self.log_store.append(Gtk.StringObject.new(line[:2000]))
+        self.lbl_log_note.set_text(
+            f"Tailing {self._log_path} (last {len(initial)} lines shown)")
+        self._scroll_log_to_end()
+        self._log_poll_id = GLib.timeout_add(1000, self._log_poll_tick)
+
+    def stop_log_poll(self) -> None:
+        if self._log_poll_id:
+            try:
+                GLib.source_remove(self._log_poll_id)
+            except Exception:
+                pass
+            self._log_poll_id = 0
+        self._log_follower = None
+
+    def _log_poll_tick(self) -> bool:
+        follower = self._log_follower
+        if follower is None:
+            return False
+        try:
+            batch = follower.poll()
+        except Exception:
+            return True
+        if batch.get("missing"):
+            self.lbl_log_note.set_text(f"Waiting for log file: {self._log_path}")
+            return True
+        if batch.get("rotated"):
+            self.log_store.splice(0, self.log_store.get_n_items(), [])
+            self.lbl_log_note.set_text("Log rotated/truncated — restarted from top")
+        lines = batch.get("lines", [])
+        if lines:
+            self._append_log_lines(lines)
+        return True
+
+    def _append_log_lines(self, lines: list) -> None:
+        adj = None
+        try:
+            adj = self.log_scrolled.get_vadjustment()
+        except Exception:
+            pass
+        follow = self._log_follow
+        if adj is not None and not self.btn_log_pause.get_active():
+            try:
+                follow = adj.get_value() >= adj.get_upper() - adj.get_page_size() - 8
+            except Exception:
+                pass
+        for line in lines:
+            self.log_store.append(Gtk.StringObject.new(line[:2000]))
+        over = self.log_store.get_n_items() - self.LOG_MODEL_CAP
+        if over > 0:
+            self.log_store.splice(0, over, [])
+        try:
+            paused = (not follow) or self.btn_log_pause.get_active()
+            self.lbl_log_paused.set_visible(paused)
+        except Exception:
+            pass
+        if follow and not self.btn_log_pause.get_active():
+            self._scroll_log_to_end()
+
+    def _scroll_log_to_end(self) -> None:
+        try:
+            adj = self.log_scrolled.get_vadjustment()
+            if adj is not None:
+                adj.set_value(max(0, adj.get_upper() - adj.get_page_size()))
+        except Exception:
+            pass
+
+    def set_search_results(self, matches: list, message: str) -> None:
+        while True:
+            row = self.search_results.get_row_at_index(0)
+            if row is None:
+                break
+            self.search_results.remove(row)
+        self.lbl_search_status.set_text(message)
+        for match in (matches or [])[:200]:
+            row = Gtk.ListBoxRow()
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            head = Gtk.Label(label=f"line {match.get('lineno', '?')}: "
+                                   f"{match.get('line', '')}"[:220], xalign=0)
+            head.add_css_class("monospace")
+            vbox.append(head)
+            for ctx in (match.get("before", []) + match.get("after", []))[-4:]:
+                lbl = Gtk.Label(label=str(ctx)[:220], xalign=0)
+                lbl.add_css_class("dim-label")
+                vbox.append(lbl)
+            row.set_child(vbox)
+            self.search_results.append(row)
+
+    def set_doctor_findings(self, findings: list) -> None:
+        while True:
+            row = self.doctor_list.get_row_at_index(0)
+            if row is None:
+                break
+            self.doctor_list.remove(row)
+        self.doctor_list.set_visible(bool(findings))
+        for finding in findings or []:
+            row = Gtk.ListBoxRow()
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            count = finding.get("count", 1)
+            title = Gtk.Label(
+                label=f"[{'!' if finding.get('severity') == 'high' else 'i'}] "
+                      f"{finding.get('title', '')}"
+                      + (f"  (×{count})" if count > 1 else ""),
+                xalign=0, wrap=True)
+            if finding.get("severity") == "high":
+                title.add_css_class("error")
+            vbox.append(title)
+            sug = Gtk.Label(label=str(finding.get("suggestion", "")), xalign=0,
+                            wrap=True)
+            sug.add_css_class("dim-label")
+            vbox.append(sug)
+            for excerpt in (finding.get("excerpt") or [])[:3]:
+                lbl = Gtk.Label(label=str(excerpt)[:220], xalign=0)
+                lbl.add_css_class("monospace")
+                vbox.append(lbl)
+            row.set_child(vbox)
+            self.doctor_list.append(row)
+
+    def set_slow_queries(self, ok: bool, message: str, rows: list) -> None:
+        while True:
+            row = self.slow_list.get_row_at_index(0)
+            if row is None:
+                break
+            self.slow_list.remove(row)
+        self.lbl_slow_status.set_text(message)
+        for entry in (rows or [])[:20]:
+            row = Gtk.ListBoxRow()
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            vbox.append(Gtk.Label(label=str(entry.get("query", ""))[:140],
+                                  xalign=0))
+            vbox.append(Gtk.Label(
+                label=f"{entry.get('calls', 0)} calls · "
+                      f"total {entry.get('total_ms', 0)} ms · "
+                      f"mean {entry.get('mean_ms', 0)} ms",
+                xalign=0))
+            row.set_child(vbox)
+            self.slow_list.append(row)
 
     # ---------------------------------------------------------------- actions
     def _emit(self, _btn: Gtk.Button, action: str, payload) -> None:

@@ -7,7 +7,7 @@ Structural changes (add/remove) are applied without touching live rows.
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gtk, Pango  # noqa: E402
 
 from odoo_vite.core.registry import list_instances  # noqa: E402
 
@@ -44,6 +44,11 @@ class InstanceRow(Gtk.ListBoxRow):
         self.lbl_sub = Gtk.Label(xalign=0)
         self.lbl_sub.add_css_class("dim-label")
         text.append(self.lbl_sub)
+        # A.1 (Sprint 8): instance names/ports/descriptions can be long.
+        self.lbl_name.set_ellipsize(Pango.EllipsizeMode.END)
+        self.lbl_name.set_max_width_chars(26)
+        self.lbl_sub.set_ellipsize(Pango.EllipsizeMode.END)
+        self.lbl_sub.set_max_width_chars(32)
 
         self.pill_dot = Gtk.Label(label="●")
         outer.append(self.pill_dot)

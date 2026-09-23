@@ -1,0 +1,65 @@
+# Odoo Vite — Engineering Patterns (living checklist)
+
+Read this before adding a screen or a core module. Most of these exist
+because we got burned once — the note says where.
+
+## UI text containers (H-M1, Sprint 8 A.1 — twice-bitten rule)
+
+**Any new text container showing a value that could be long — paths, conf
+values, instance/database names — must use max-width + ellipsize.**
+Check this before shipping any new screen. Concretely, on every `Gtk.Label`
+bound to user data or a path:
+
+```python
+label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)  # paths/conf values
+label.set_max_width_chars(40)                    # tune per layout
+# or EllipsizeMode.END + ~26-32 chars for names/one-liners
+```
+
+`wrap=True` alone does NOT save you: comma-joined paths and URLs have no
+break opportunities and still blow out the container. Wizards got this in
+H-M1; the Configuration tab and sidebar got it in Sprint 8 A.1.
+
+## Layering (Phase 1 §1.1, enforced by test)
+
+- `core/` is pure Python: zero GTK imports (`tests/test_no_gtk_in_core.py`
+  fails the suite otherwise). GTK crossing happens in `ui/` via
+  `GLib.idle_add`, never by importing UI modules from core.
+- Long operations run in daemon threads; the GTK main loop is never blocked.
+
+## Errors (Phase 1 §1.5)
+
+- Core functions return `Result(ok, message, data)`, never raise into UI.
+- Toasts for resolved/transient events; persistent label + status pill for
+  ongoing bad states (PM decision, Sprint 4).
+
+## Ground truth over flags (RC BUG-3, Hotfix H-B3, Sprint 5 Part A)
+
+- Never trust a cached flag (`db_created`, "drop needed") when Postgres can
+  answer directly. `core/db_state.py::get_db_state()` is the single owner
+  of exists/initialized/version/size/owner — no per-caller re-derivation.
+- Destructive paths verify-then-act; unreachable server aborts loudly
+  rather than assuming "missing".
+
+## Conf writes (Sprint 7)
+
+- Validate before writing; refuse with specifics; never leave half-written
+  files. One rolling `odoo.conf.bak` before every overwrite + one-click
+  restore. Unknown ini sections are preserved, never dropped.
+- Registry is the source of truth for structured data (addon paths list);
+  the conf string is derived from it, not vice versa.
+
+## Privilege (Sprints 1–3, Phase 1.5)
+
+- `pkexec` for system-user escalation (never raw sudo from the GUI).
+- Least-privilege roles by default in managed mode; DB create/drop are
+  explicit, separately-privileged, user-confirmed operations.
+- Secrets live in the OS keyring; no silent plaintext fallback (explicit
+  opt-out only, audited).
+
+## Confirmation tiers
+
+- Type-to-confirm: managed remove, standalone DB drop, restore-into-existing.
+- Light confirm: adopted unregister, switch-to-new-DB (via Start flow).
+- Always show the exact command/database when creation or deletion is on
+  the table — never a generic "are you sure".
