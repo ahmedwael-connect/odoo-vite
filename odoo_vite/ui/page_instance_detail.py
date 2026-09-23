@@ -53,13 +53,33 @@ class InstanceDetailPage(Gtk.Box):
         self.stack.set_visible_child_name("empty")
 
     # ------------------------------------------------------------------ build
-    def _build_content(self) -> Gtk.Widget:
+    def _tab_box(self) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_start(20)
         box.set_margin_end(20)
-        box.set_margin_top(16)
+        box.set_margin_top(12)
         box.set_margin_bottom(16)
+        return box
 
+    def _build_content(self) -> Gtk.Widget:
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.tab_stack = Gtk.Stack()
+        self.tab_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        switcher = Gtk.StackSwitcher(stack=self.tab_stack)
+        switcher.set_halign(Gtk.Align.CENTER)
+        switcher.set_margin_top(6)
+        outer.append(switcher)
+        self.tab_stack.add_titled(self._build_overview(), "overview", "Overview")
+        self.tab_stack.add_titled(self._build_databases(), "databases", "Databases")
+        self.tab_stack.add_titled(self._build_modules(), "modules", "Modules")
+        outer.append(self.tab_stack)
+        scrolled = Gtk.ScrolledWindow(vexpand=True)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_child(outer)
+        return scrolled
+
+    def _build_overview(self) -> Gtk.Widget:
+        box = self._tab_box()
         self.lbl_name = Gtk.Label(xalign=0)
         self.lbl_name.add_css_class("title-1")
         box.append(self.lbl_name)
@@ -168,7 +188,17 @@ class InstanceDetailPage(Gtk.Box):
         self.lbl_modules_hint.add_css_class("dim-label")
         box.append(self.lbl_modules_hint)
 
-        # ------------------------------------------------------- databases
+        dz_title = Gtk.Label(label="Danger zone", xalign=0)
+        dz_title.add_css_class("heading")
+        box.append(dz_title)
+        self.btn_remove = Gtk.Button(label="Remove instance…")
+        self.btn_remove.add_css_class("destructive-action")
+        self.btn_remove.connect("clicked", self._emit, "remove", None)
+        box.append(self.btn_remove)
+        return box
+
+    def _build_databases(self) -> Gtk.Widget:
+        box = self._tab_box()
         db_title = Gtk.Label(label="Databases", xalign=0)
         db_title.add_css_class("heading")
         box.append(db_title)
@@ -230,20 +260,173 @@ class InstanceDetailPage(Gtk.Box):
         self.btn_validate.connect("clicked", self._emit, "validate", None)
         ops_row.append(self.btn_validate)
         box.append(ops_row)
+        return box
 
-        # ------------------------------------------------------ danger zone
-        dz_title = Gtk.Label(label="Danger zone", xalign=0)
-        dz_title.add_css_class("heading")
-        box.append(dz_title)
-        self.btn_remove = Gtk.Button(label="Remove instance…")
-        self.btn_remove.add_css_class("destructive-action")
-        self.btn_remove.connect("clicked", self._emit, "remove", None)
-        box.append(self.btn_remove)
+    # ---------------------------------------------------------------- modules
+    def _build_modules(self) -> Gtk.Widget:
+        box = self._tab_box()
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title = Gtk.Label(label="Modules", xalign=0, hexpand=True)
+        title.add_css_class("heading")
+        head.append(title)
+        self.lbl_mod_db = Gtk.Label(xalign=1)
+        self.lbl_mod_db.add_css_class("dim-label")
+        head.append(self.lbl_mod_db)
+        box.append(head)
 
-        scrolled = Gtk.ScrolledWindow(vexpand=True)
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_child(box)
-        return scrolled
+        filter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.entry_mod_search = Gtk.SearchEntry(
+            placeholder_text="Filter by name or summary…", hexpand=True)
+        self.entry_mod_search.connect("search-changed",
+                                      lambda _e: self._render_module_rows())
+        filter_row.append(self.entry_mod_search)
+        self.mod_state_filter = Gtk.DropDown(model=Gtk.StringList.new(
+            ["All", "Installed", "Upgradeable", "Installable"]))
+        self.mod_state_filter.connect("notify::selected",
+                                      lambda *_a: self._render_module_rows())
+        filter_row.append(self.mod_state_filter)
+        self.btn_mod_refresh = Gtk.Button(label="Refresh")
+        self.btn_mod_refresh.connect("clicked", self._emit, "mod-refresh", None)
+        filter_row.append(self.btn_mod_refresh)
+        box.append(filter_row)
+
+        self.modules_list = Gtk.ListBox()
+        self.modules_list.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
+        box.append(self.modules_list)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.btn_mod_install = Gtk.Button(label="Install Selected")
+        self.btn_mod_install.add_css_class("suggested-action")
+        self.btn_mod_install.connect("clicked", self._on_mod_install_selected)
+        btn_row.append(self.btn_mod_install)
+        self.btn_mod_update = Gtk.Button(label="Update Selected")
+        self.btn_mod_update.connect("clicked", self._on_mod_update_selected)
+        btn_row.append(self.btn_mod_update)
+        self.btn_mod_code = Gtk.Button(label="Update Code…")
+        self.btn_mod_code.set_tooltip_text(
+            "git pull community + pip install + -u (instance must be stopped)")
+        self.btn_mod_code.connect("clicked", self._emit, "mod-update-code", None)
+        btn_row.append(self.btn_mod_code)
+        self.btn_mod_deps = Gtk.Button(label="Dependencies…")
+        self.btn_mod_deps.connect("clicked", self._emit, "mod-deps", None)
+        btn_row.append(self.btn_mod_deps)
+        self.btn_mod_scaffold = Gtk.Button(label="New Module…")
+        self.btn_mod_scaffold.connect("clicked", self._emit, "mod-scaffold", None)
+        btn_row.append(self.btn_mod_scaffold)
+        box.append(btn_row)
+
+        self._modules_cache: list = []
+        self._diff_cache: dict = {}
+        return box
+
+    def _selected_module_names(self, states=None) -> list:
+        names = []
+        for row in self.modules_list.get_selected_rows():
+            name = getattr(row, "module_name", None)
+            if not name:
+                continue
+            if states is not None:
+                st = next((m.get("state") for m in self._modules_cache
+                           if m.get("name") == name), None)
+                if st not in states:
+                    continue
+            names.append(name)
+        return names
+
+    def _on_mod_install_selected(self, _btn: Gtk.Button) -> None:
+        names = self._selected_module_names(states=("uninstalled", "to install"))
+        if not names:
+            names = self._selected_module_names()
+        self._emit(_btn, "mod-install", names)
+
+    def _on_mod_update_selected(self, _btn: Gtk.Button) -> None:
+        names = self._selected_module_names()
+        self._emit(_btn, "mod-update", names)
+
+    def _mod_state_category(self, mod: dict) -> str:
+        state = (mod.get("state") or "").strip()
+        if state == "installed":
+            try:
+                from odoo_vite.core.module_manager import _ver_tuple
+
+                installed = _ver_tuple(mod.get("installed_version") or "")
+                available = _ver_tuple(mod.get("available_version") or "")
+                latest = _ver_tuple(mod.get("latest_version") or "")
+                if available and available > installed:
+                    return "Upgradeable"
+                if latest and latest > installed:
+                    return "Upgradeable"
+            except Exception:
+                pass
+            return "Installed"
+        if state in ("to upgrade",):
+            return "Upgradeable"
+        if state in ("uninstalled", "to install"):
+            return "Installable"
+        return state.capitalize() or "Unknown"
+
+    def set_modules(self, modules: list, diff: dict | None = None) -> None:
+        """Fill the modules tab (window fetches in background)."""
+        self._modules_cache = list(modules or [])
+        self._diff_cache = dict(diff or {})
+        self._render_module_rows()
+
+    def _render_module_rows(self) -> None:
+        while True:
+            row = self.modules_list.get_row_at_index(0)
+            if row is None:
+                break
+            self.modules_list.remove(row)
+        needle = ""
+        try:
+            needle = (self.entry_mod_search.get_text() or "").strip().lower()
+        except Exception:
+            pass
+        try:
+            filt_item = self.mod_state_filter.get_selected_item()
+            filt = filt_item.get_string() if filt_item is not None else "All"
+        except Exception:
+            filt = "All"
+        for mod in self._modules_cache:
+            name = mod.get("name", "")
+            if needle and needle not in name.lower() and needle not in str(
+                    mod.get("summary", "")).lower():
+                continue
+            if filt != "All" and self._mod_state_category(mod) != filt:
+                continue
+            row = Gtk.ListBoxRow()
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            hbox.set_margin_start(8)
+            hbox.set_margin_end(8)
+            hbox.set_margin_top(4)
+            hbox.set_margin_bottom(4)
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            title = Gtk.Label(label=f"{name}  ({self._mod_state_category(mod)})",
+                              xalign=0)
+            vbox.append(title)
+            sub = Gtk.Label(
+                label=f"{mod.get('installed_version') or mod.get('available_version') or ''}"
+                      f"  ·  {mod.get('summary', '')}"[:160], xalign=0)
+            sub.add_css_class("dim-label")
+            vbox.append(sub)
+            info = (self._diff_cache or {}).get(name)
+            if info and info.get("status") not in (None, "in-sync"):
+                badge = Gtk.Label(label=f"⚠ {info.get('note', '')}", xalign=0, wrap=True)
+                badge.add_css_class("warning")
+                vbox.append(badge)
+            hbox.append(vbox)
+            if (mod.get("state") or "") == "installed":
+                btn = Gtk.Button(label="Uninstall")
+                btn.add_css_class("destructive-action")
+                btn.connect("clicked", self._emit, "mod-uninstall", name)
+                hbox.append(btn)
+            else:
+                btn = Gtk.Button(label="Install")
+                btn.connect("clicked", self._emit, "mod-install", [name])
+                hbox.append(btn)
+            row.set_child(hbox)
+            row.module_name = name  # type: ignore[attr-defined]
+            self.modules_list.append(row)
 
     # ---------------------------------------------------------------- actions
     def _emit(self, _btn: Gtk.Button, action: str, payload) -> None:
@@ -451,6 +634,14 @@ class InstanceDetailPage(Gtk.Box):
             self.stack.set_visible_child_name("empty")
             return
         self.lbl_name.set_text(inst.name)
+        self._stat_rows["db_created"].set_text(
+            "yes" if inst.db_created else "not yet (first Start will create it)")
+        self._stat_rows["mode"].set_text(
+            "Managed (least-privilege)" if (inst.provisioning_mode or "developer") == "managed"
+            else "Developer (CREATEDB role)")
+        self.show_repair_option(False)
+        self.lbl_mod_db.set_text(f"database: {inst.primary_db or '—'}")
+        self.set_modules([], {})
         self._stat_rows["db_created"].set_text(
             "yes" if inst.db_created else "not yet (first Start will create it)")
         self._stat_rows["mode"].set_text(

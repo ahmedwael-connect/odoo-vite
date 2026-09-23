@@ -24,17 +24,20 @@ def run_streaming(
     timeout: int = 1800,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
+    stdin_text: str | None = None,
 ) -> Result:
     """Run cmd, streaming each output line to progress_cb.
 
     data = {"lines": [...], "returncode": int, "cancelled": bool}.
     Non-zero exit (incl. cancellation) returns ok=False.
+    stdin_text (Sprint 6): piped to the child's stdin (e.g. odoo-bin shell).
     """
     try:
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            stdin=(subprocess.PIPE if stdin_text is not None else None),
             text=True,
             cwd=cwd,
             env=env,
@@ -42,6 +45,17 @@ def run_streaming(
         )
     except OSError as exc:
         return Result.failure(f"Cannot start '{cmd[0]}': {exc}")
+
+    if stdin_text is not None:
+        def _feed_stdin() -> None:
+            try:
+                assert proc.stdin is not None
+                proc.stdin.write(stdin_text)
+                proc.stdin.close()
+            except (OSError, ValueError, AssertionError):
+                pass
+
+        threading.Thread(target=_feed_stdin, daemon=True).start()
 
     if cancel is not None:
 
