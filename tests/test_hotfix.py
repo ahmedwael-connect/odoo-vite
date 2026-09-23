@@ -227,3 +227,62 @@ def test_discover_filter_logic():
     assert sum(1 for c in checks.values() if c.visible) == 10
     assert filter_checks(checks, "DB_01") == 1  # case-insensitive
     assert filter_checks(checks, "zzz") == 0
+
+
+# ------------------------------------------------- Sprint 6 Part A
+def test_discover_defaults_likely_only():
+    """A.1: only the likely group arrives pre-checked, rest visible+off."""
+    from odoo_vite.ui.window_main import discover_defaults
+
+    groups = {"likely": ["a"], "other": ["b"], "plain": ["c", "postgres"]}
+    assert discover_defaults(groups) == {"a": True, "b": False,
+                                         "c": False, "postgres": False}
+    assert discover_defaults({"likely": [], "other": [], "plain": []}) == {}
+
+
+def test_bind_check_highlight_tracks_state():
+    """A.2: checked rows get the always-visible class, unchecked lose it."""
+    from odoo_vite.ui.window_main import bind_check_highlight
+
+    class FakeCheck:
+        def __init__(self, active):
+            self._active = active
+            self.classes = set()
+            self.handlers = []
+
+        def get_active(self):
+            return self._active
+
+        def set_active(self, v):
+            self._active = v
+            for cb in self.handlers:
+                cb()
+
+        def add_css_class(self, c):
+            self.classes.add(c)
+
+        def remove_css_class(self, c):
+            self.classes.discard(c)
+
+        def connect(self, _sig, cb):
+            self.handlers.append(cb)
+
+    on = FakeCheck(True)
+    bind_check_highlight(on)
+    assert "discover-picked" in on.classes
+    on.set_active(False)
+    assert "discover-picked" not in on.classes
+    off = FakeCheck(False)
+    bind_check_highlight(off)
+    assert "discover-picked" not in off.classes
+
+
+def test_version_single_source():
+    """A.3: one constant feeds packaging metadata and the package."""
+    import re
+
+    from odoo_vite import __version__ as pkg_version
+    from odoo_vite.core.version import __version__ as core_version
+
+    assert pkg_version == core_version
+    assert re.fullmatch(r"\d+\.\d+\.\d+", core_version), core_version

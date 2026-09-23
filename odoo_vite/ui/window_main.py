@@ -43,6 +43,9 @@ PILL_CSS = """
 .status-draft { color: #e5a50a; }
 .error { color: #e01b24; }
 .warning { color: #e5a50a; }
+/* A.2: checked rows carry their own always-visible treatment (bold +
+   accent), independent of theme hover rendering. */
+.discover-picked { font-weight: bold; color: @accent_color; }
 """
 
 
@@ -128,6 +131,36 @@ def _finish_alert(dlg, task, default_id):
         return default_id
 
 
+def bind_check_highlight(check) -> None:
+    """A.2: mirror a CheckButton's state into an always-visible style.
+
+    Root cause investigated: Gtk.CheckButton state binding itself is correct
+    (constructor + set_active verified); the reported ambiguity is theme
+    rendering. This adds a deterministic treatment (bold + accent label via
+    .discover-picked) driven off the toggled signal, so selected rows read
+    clearly in any theme with or without hovering.
+    """
+
+    def _sync(*_args) -> None:
+        try:
+            active = bool(check.get_active())
+        except Exception:
+            return
+        try:
+            if active:
+                check.add_css_class("discover-picked")
+            else:
+                check.remove_css_class("discover-picked")
+        except Exception:
+            pass
+
+    try:
+        check.connect("toggled", _sync)
+    except Exception:
+        pass
+    _sync()
+
+
 def filter_checks(checks: dict, needle: str) -> int:
     """H-P1 client-side filter: show checks matching needle, return visible count."""
     needle = (needle or "").strip().lower()
@@ -161,6 +194,20 @@ def group_discover(entries: list, instance_version: str) -> dict:
             "plain": sorted(plain)}
 
 
+def discover_defaults(groups: dict) -> dict:
+    """A.1: only the 'likely' group arrives pre-checked.
+
+    Other groups stay visible and tickable (nothing hidden) — just not
+    pre-selected, matching what a user wants most of the time.
+    """
+    out = {}
+    for name in groups.get("likely", []):
+        out[name] = True
+    for name in groups.get("other", []) + groups.get("plain", []):
+        out[name] = False
+    return out
+
+
 class MainWindow(BaseWindow):  # type: ignore[misc]
     def __init__(self, app: Gtk.Application) -> None:
         super().__init__(application=app, title="Odoo Vite")
@@ -181,6 +228,25 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             self.set_content(outer)
 
         header = Adw.HeaderBar() if HAS_ADW else Gtk.HeaderBar()
+        # A.3: version under the title, sourced from core/version.py.
+        # (Neither Gtk nor Adw HeaderBar has set_subtitle — a two-line
+        # title widget is the supported equivalent.)
+        try:
+            from odoo_vite.core.version import __version__ as _app_version
+
+            _title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            _title_lbl = Gtk.Label(label="Odoo Vite")
+            _title_lbl.add_css_class("title")
+            _ver_lbl = Gtk.Label(label=f"v{_app_version}")
+            _ver_lbl.add_css_class("caption")
+            _ver_lbl.add_css_class("dim-label")
+            _title_box.append(_title_lbl)
+            _title_box.append(_ver_lbl)
+            header.set_title_widget(_title_box)
+            self.header_version = f"v{_app_version}"
+        except Exception:
+            self.header_version = ""
+        self.header_bar = header  # exposed for tests/smoke checks
         outer.append(header)
 
         # H-M3: global busy indicator for background lifecycle operations.
@@ -711,12 +777,14 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             listbox.append(lbl)
 
         shown = 0
+        defaults = discover_defaults(groups)
         sections = (
-            (f"Likely Odoo {instance_version or '?'}", groups["likely"], True, None),
-            ("Other Odoo databases", groups["other"], True, None),
-            ("Uninitialized / non-Odoo", groups["plain"], False, "expand"),
+            # A.1: only "likely" arrives pre-checked (see discover_defaults).
+            (f"Likely Odoo {instance_version or '?'}", groups["likely"], None),
+            ("Other Odoo databases", groups["other"], None),
+            ("Uninitialized / non-Odoo", groups["plain"], "expand"),
         )
-        for title, names, default_on, collapsed in sections:
+        for title, names, collapsed in sections:
             if not names:
                 continue
             container = listbox
@@ -731,7 +799,9 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             else:
                 _section(f"{title} ({len(names)})")
             for name in names[:200]:
-                check = Gtk.CheckButton(label=name, active=default_on)
+                check = Gtk.CheckButton(label=name,
+                                        active=defaults.get(name, False))
+                bind_check_highlight(check)
                 checks[name] = check
                 container.append(check)
                 shown += 1
@@ -1047,11 +1117,13 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         for db_name in (inst.tracked_dbs or []):
             check = Gtk.CheckButton(label=db_name + ("  (primary)" if db_name == inst.primary_db else ""))
             check.set_active(False)
+            bind_check_highlight(check)
             db_checks[db_name] = check
             box.append(check)
         if inst.primary_db and inst.primary_db not in db_checks:
             check = Gtk.CheckButton(label=f"{inst.primary_db}  (primary)")
             check.set_active(False)
+            bind_check_highlight(check)
             db_checks[inst.primary_db] = check
             box.append(check)
 
