@@ -7,6 +7,7 @@ import subprocess
 
 import pytest
 
+from odoo_vite.core.db_state import DbState
 from odoo_vite.core.instance import Instance
 from odoo_vite.core.registry import create_instance, get_instance
 from odoo_vite.core.result import Result
@@ -205,7 +206,9 @@ def test_remove_drops_checked_tracked_dbs(tmp_path, db, monkeypatch):
 
     dropped = []
     monkeypatch.setattr(db_manager, "server_reachable", lambda: True)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=False))
     monkeypatch.setattr(db_manager, "drop_database",
                         lambda name, *a, **k: dropped.append(name) or Result.success())
     inst = _mktracked(tmp_path)

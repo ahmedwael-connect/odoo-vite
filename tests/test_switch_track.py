@@ -5,6 +5,7 @@ import subprocess
 import pytest
 
 from odoo_vite.core import process_manager
+from odoo_vite.core.db_state import DbState
 from odoo_vite.core.instance import Instance
 from odoo_vite.core.registry import create_instance, get_instance, update_instance
 from odoo_vite.core.result import Result
@@ -88,9 +89,9 @@ def test_switch_running_to_existing_db(tmp_path, db, monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
     monkeypatch.setattr(process_manager, "_alive_pid",
                         lambda inst: 555 if alive["on"] else None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
-    monkeypatch.setattr(db_manager, "database_initialized",
-                        lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=True))
     base = tmp_path / "i"
     _fs(base)
     inst = _inst(base, status="running", pid=555)
@@ -114,7 +115,9 @@ def test_switch_running_to_new_db_uses_confirm_flow(tmp_path, db, monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
     monkeypatch.setattr(process_manager, "_alive_pid",
                         lambda inst: 666 if alive["on"] else None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: False)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=False,
+                                              initialized=False))
     base = tmp_path / "i"
     _fs(base)
     inst = _inst(base, status="running", pid=666)

@@ -100,8 +100,11 @@ def remove_instance(instance_id: str, drop_db: bool = False, db_path=None,
                 "Removal aborted: PostgreSQL is unreachable, so database "
                 "drops cannot be verified — start Postgres and retry "
                 "(files and registry row left intact)")
+        # Part A: one ground-truth read per database (no per-caller logic).
+        from odoo_vite.core.db_state import get_db_state
+
         for db_name in wanted:
-            if not db_manager.database_exists(db_name, inst.db_user, pw):
+            if not get_db_state(db_name, inst.db_user, pw).exists:
                 notes.append(f"database '{db_name}' did not exist — nothing to drop")
                 continue
             drop_res = db_manager.drop_database(db_name, inst.db_user, pw)

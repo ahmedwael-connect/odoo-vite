@@ -22,6 +22,8 @@ def test_core_has_no_gtk_imports():
         "odoo_vite.core.adopt",
         "odoo_vite.core.removal",
         "odoo_vite.core.settings",
+        "odoo_vite.core.db_state",
+        "odoo_vite.core.db_backup",
     ]
     for name in mods:
         for loaded in list(sys.modules):

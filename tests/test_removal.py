@@ -5,6 +5,7 @@ import shutil
 import pytest
 
 from odoo_vite.core import removal
+from odoo_vite.core.db_state import DbState
 from odoo_vite.core.instance import Instance
 from odoo_vite.core.registry import create_instance, get_instance, list_instances
 from odoo_vite.core.result import Result
@@ -55,7 +56,9 @@ def test_managed_remove_with_drop_db_order(tmp_path, db, monkeypatch):
     monkeypatch.setattr(process_manager, "stop_instance",
                         lambda *a, **k: calls.append("stop") or Result.success())
     monkeypatch.setattr(db_manager, "server_reachable", lambda: True)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=False))
     monkeypatch.setattr(db_manager, "drop_database",
                         lambda *a, **k: calls.append("drop") or Result.success())
     real_rmtree = shutil.rmtree
@@ -78,7 +81,9 @@ def test_managed_drop_failure_aborts_before_files(tmp_path, db, monkeypatch):
     from odoo_vite.core.result import Result
 
     monkeypatch.setattr(db_manager, "server_reachable", lambda: True)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=False))
     monkeypatch.setattr(db_manager, "drop_database",
                         lambda *a, **k: Result.failure("drop exploded"))
     inst = _managed(tmp_path)

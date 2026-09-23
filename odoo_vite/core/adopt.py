@@ -128,7 +128,6 @@ def adopt_instance(
     allow_plaintext: bool = False,
 ) -> Result:
     """Register an existing install as mode='adopted'. Touches no files."""
-    from odoo_vite.core import db_manager
     from odoo_vite.core.registry import (
         create_instance,
         get_db_password,
@@ -225,11 +224,13 @@ def adopt_instance(
 
     # If its database already exists *and is initialized*, future Starts
     # skip the create flow; otherwise the first start offers creation.
+    # Part A: single ground-truth read (not two independent probes).
     try:
+        from odoo_vite.core.db_state import get_db_state
+
         pw = get_db_password(inst) or _pick("db_password", "")
-        inst.db_created = (
-            db_manager.database_exists(primary_db, inst.db_user, pw or None)
-            and db_manager.database_initialized(primary_db, inst.db_user, pw or None))
+        _state = get_db_state(primary_db, inst.db_user, pw or None)
+        inst.db_created = bool(_state.exists and _state.initialized)
     except Exception:
         inst.db_created = False
 

@@ -143,6 +143,24 @@ def filter_checks(checks: dict, needle: str) -> int:
     return visible
 
 
+def group_discover(entries: list, instance_version: str) -> dict:
+    """Sprint 5 B.2 grouping (structure, never exclusion).
+
+    entries: [{name, initialized, odoo_major}]. Returns
+    {"likely": [...names], "other": [...], "plain": [...]}, each sorted.
+    """
+    me = (instance_version or "").strip()
+    likely, other, plain = [], [], []
+    for entry in entries:
+        name = entry.get("name", "")
+        if entry.get("initialized") and entry.get("odoo_major"):
+            (likely if entry["odoo_major"] == me else other).append(name)
+        else:
+            plain.append(name)
+    return {"likely": sorted(likely), "other": sorted(other),
+            "plain": sorted(plain)}
+
+
 class MainWindow(BaseWindow):  # type: ignore[misc]
     def __init__(self, app: Gtk.Application) -> None:
         super().__init__(application=app, title="Odoo Vite")
@@ -248,6 +266,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
 
     def _on_select(self, instance_id: str) -> None:
         self.detail.show_instance(instance_id)
+        self._refresh_detail_dbs(instance_id)
 
     # ---------------------------------------------------------------- polling
     def _poll_tick_soon(self) -> bool:
@@ -303,6 +322,18 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             self._remove_flow(instance_id)
         elif action == "secured":
             self.toast(str(payload or "Password secured"))
+        elif action == "init-db":
+            self._init_db_flow(instance_id, (payload or "").strip())
+        elif action == "backup-db":
+            self._backup_flow(instance_id, (payload or "").strip())
+        elif action == "drop-db":
+            self._drop_db_flow(instance_id, (payload or "").strip())
+        elif action == "restore":
+            self._restore_flow(instance_id)
+        elif action == "validate":
+            self._validate_flow(instance_id)
+        elif action == "refresh-states":
+            self._refresh_detail_dbs(instance_id)
 
     # ------------------------------------------------ H-M3 busy sweep
     # Every bg lifecycle op brackets itself with _op_start/_op_end (always on
@@ -616,39 +647,52 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         self._select_row(instance_id)
 
         def _work() -> None:
-            pw = None
-            try:
-                from odoo_vite.core.registry import get_db_password
+            from odoo_vite.core.db_state import get_db_state, odoo_major
+            from odoo_vite.core.registry import get_db_password
 
+            try:
                 pw = get_db_password(inst) or None
             except Exception:
                 pw = None
             res = db_manager.list_databases_for_user(inst.db_user, pw)
+            if not res.ok:
+                GLib.idle_add(self._show_result, instance_id, False, res.message)
+                return
+            tracked = set(inst.tracked_dbs or [])
+            entries = []
+            for name in (res.data or {}).get("databases", []):
+                if name in tracked:
+                    continue
+                try:
+                    st = get_db_state(name, inst.db_user, pw)
+                    entries.append({"name": name,
+                                    "initialized": st.initialized,
+                                    "odoo_major": odoo_major(st.odoo_version)})
+                except Exception:
+                    entries.append({"name": name, "initialized": False,
+                                    "odoo_major": ""})
             GLib.idle_add(self._show_discover_dialog, instance_id,
-                          res.ok, res.message,
-                          list((res.data or {}).get("databases", [])))
+                           entries, inst.version or "")
 
         threading.Thread(target=_work, daemon=True).start()
 
-    def _show_discover_dialog(self, instance_id: str, ok: bool,
-                              message: str, databases: list) -> bool:
+    def _show_discover_dialog(self, instance_id: str, entries: list,
+                              instance_version: str) -> bool:
         from odoo_vite.core.db_manager import track_database
 
         inst = get_instance(instance_id)
         if inst is None:
             self._op_end()
             return False
-        if not ok:
-            self._show_result(instance_id, False, message)
-            return False
-        tracked = set(inst.tracked_dbs or [])
-        fresh = [d for d in databases if d not in tracked]
-        if not fresh:
+        groups = group_discover(entries, instance_version)
+        total = sum(len(v) for v in groups.values())
+        if total == 0:
             self.toast("No new databases — everything found is tracked")
             self._op_end()
             return False
 
         # H-P1: searchable + scrollable checklist (client-side filter).
+        # B.2 grouping (structure, never exclusion) + H-P1 search/scroll.
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         search = Gtk.SearchEntry(placeholder_text="Filter databases…")
         outer.append(search)
@@ -660,13 +704,40 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         listbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         scrolled.set_child(listbox)
         checks: dict[str, Gtk.CheckButton] = {}
-        for name in fresh[:200]:
-            check = Gtk.CheckButton(label=name, active=True)
-            checks[name] = check
-            listbox.append(check)
-        if len(fresh) > 200:
+
+        def _section(title: str) -> None:
+            lbl = Gtk.Label(label=title, xalign=0)
+            lbl.add_css_class("heading")
+            listbox.append(lbl)
+
+        shown = 0
+        sections = (
+            (f"Likely Odoo {instance_version or '?'}", groups["likely"], True, None),
+            ("Other Odoo databases", groups["other"], True, None),
+            ("Uninitialized / non-Odoo", groups["plain"], False, "expand"),
+        )
+        for title, names, default_on, collapsed in sections:
+            if not names:
+                continue
+            container = listbox
+            if collapsed:
+                expander = Gtk.Expander(
+                    label=f"{title} ({len(names)}) — click to expand",
+                    expanded=False)
+                inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                expander.set_child(inner)
+                listbox.append(expander)
+                container = inner
+            else:
+                _section(f"{title} ({len(names)})")
+            for name in names[:200]:
+                check = Gtk.CheckButton(label=name, active=default_on)
+                checks[name] = check
+                container.append(check)
+                shown += 1
+        if total > shown:
             lbl = Gtk.Label(xalign=0)
-            lbl.set_text(f"…and {len(fresh) - 200} more (track by name instead)")
+            lbl.set_text(f"…and {total - shown} more (track by name instead)")
             lbl.add_css_class("dim-label")
             listbox.append(lbl)
 
@@ -694,8 +765,8 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         if HAS_ADW and HAS_ALERT:
             dlg = Adw.AlertDialog(
                 heading="Discover databases",
-                body=f"Found {len(fresh)} untracked database(s) for "
-                     f"user '{inst.db_user}'. Tick the ones to track:")
+                body=f"Grouped by likely relevance to Odoo {instance_version or '?'} "
+                     f"for user '{inst.db_user}' — nothing is hidden, tick what to track:")
             dlg.add_response("cancel", "Cancel")
             dlg.add_response("ok", "Track selected")
             dlg.set_response_appearance(
@@ -708,6 +779,246 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         else:
             # Fallback: track everything found, no per-item choice.
             _on_ok(True)
+        return False
+
+    # --------------------------------------- Sprint 5 Database Operations
+    def _init_db_flow(self, instance_id: str, db_name: str) -> None:
+        self._op_start()
+        self._select_row(instance_id)
+
+        def _work() -> None:
+            res = process_manager.initialize_database(instance_id, db_name)
+            GLib.idle_add(self._show_result, instance_id, res.ok, res.message)
+            GLib.idle_add(self._refresh_detail_dbs, instance_id)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _backup_flow(self, instance_id: str, db_name: str) -> None:
+        from datetime import datetime, timezone
+
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        default = f"{db_name}_{stamp}.dump"
+        if not hasattr(Gtk, "FileDialog"):
+            self.toast("File picker unavailable on this GTK version")
+            return
+        dlg = Gtk.FileDialog(title=f"Back up '{db_name}' as…")
+        dlg.set_initial_name(default)
+
+        def _chosen(d, result) -> None:
+            try:
+                target = d.save_finish(result)
+                dest = target.get_path() if target else None
+            except Exception:
+                return
+            if not dest:
+                return
+            self._op_start()
+
+            def _work() -> None:
+                from odoo_vite.core import db_backup
+                from odoo_vite.core.registry import get_db_password
+
+                try:
+                    pw = get_db_password(inst) or None
+                except Exception:
+                    pw = None
+                res = db_backup.backup_database(
+                    db_name, dest, db_user=inst.db_user, db_password=pw,
+                    instance_id=inst.id, instance_name=inst.name)
+                GLib.idle_add(self._show_result, instance_id, res.ok, res.message)
+                GLib.idle_add(self._refresh_detail_dbs, instance_id)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        dlg.save(self, None, _chosen)
+
+    def _drop_db_flow(self, instance_id: str, db_name: str) -> None:
+        """Standalone drop (B.4): primary row has no Drop button at all."""
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        if db_name == (inst.primary_db or ""):
+            self.toast("The primary database cannot be dropped here — "
+                       "switch primary first, or remove the instance")
+            return
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        entry = Gtk.Entry(placeholder_text=f"Type '{db_name}' to confirm")
+        box.append(entry)
+
+        def _on_ok(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            if entry.get_text().strip() != db_name:
+                self.toast("Name did not match — drop cancelled")
+                return
+            self._op_start()
+
+            def _work() -> None:
+                from odoo_vite.core import db_manager
+                from odoo_vite.core.registry import get_db_password
+
+                try:
+                    pw = get_db_password(inst) or None
+                except Exception:
+                    pw = None
+                # Part A: verify it exists first — never drop blind.
+                from odoo_vite.core.db_state import get_db_state
+
+                if not get_db_state(db_name, inst.db_user, pw).exists:
+                    GLib.idle_add(self._show_result, instance_id, True,
+                                  f"'{db_name}' does not exist — nothing to drop")
+                    return
+                res = db_manager.drop_database(db_name, inst.db_user, pw)
+                GLib.idle_add(self._show_result, instance_id, res.ok, res.message)
+                GLib.idle_add(self._refresh_detail_dbs, instance_id)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        if HAS_ADW and HAS_ALERT:
+            dlg = Adw.AlertDialog(
+                heading=f"Drop database '{db_name}'?",
+                body="This permanently deletes the database. The instance "
+                     "keeps running on its primary; the name stays tracked "
+                     "(untrack it separately if you no longer want it listed).")
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("ok", "Drop permanently")
+            dlg.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
+            dlg.set_extra_child(box)
+            dlg.set_default_response("cancel")
+            dlg.set_close_response("cancel")
+            dlg.choose(self, None,
+                       lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
+        else:
+            self._confirm_async(
+                f"Drop database '{db_name}'?",
+                "Type-to-confirm unavailable here — action cancelled.",
+                "Drop", lambda ok: None, destructive=True)
+
+    def _restore_flow(self, instance_id: str) -> None:
+        inst = get_instance(instance_id)
+        if inst is None or not hasattr(Gtk, "FileDialog"):
+            if inst is not None:
+                self.toast("File picker unavailable on this GTK version")
+            return
+        picker = Gtk.FileDialog(title="Select dump file to restore")
+
+        def _file_chosen(d, result) -> None:
+            try:
+                picked = d.open_finish(result)
+                dump = picked.get_path() if picked else None
+            except Exception:
+                return
+            if dump:
+                self._restore_dialog(instance_id, inst, dump)
+
+        picker.open(self, None, _file_chosen)
+
+    def _restore_dialog(self, instance_id: str, inst, dump: str) -> None:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(Gtk.Label(
+            label="Target database (will be DROPPED and recreated from the "
+                  "dump — never merged into live data):", xalign=0, wrap=True))
+        entry_target = Gtk.Entry(text=inst.primary_db or "")
+        box.append(entry_target)
+        entry_confirm = Gtk.Entry(
+            placeholder_text="Retype the target name to confirm")
+        box.append(entry_confirm)
+
+        def _on_ok(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            target = (entry_target.get_text() or "").strip()
+            if not target or entry_confirm.get_text().strip() != target:
+                self.toast("Names did not match — restore cancelled")
+                return
+            self._op_start()
+
+            def _work() -> None:
+                from odoo_vite.core import db_backup
+                from odoo_vite.core.registry import get_db_password
+
+                try:
+                    pw = get_db_password(inst) or None
+                except Exception:
+                    pw = None
+                res = db_backup.restore_database(
+                    dump, target, db_user=inst.db_user, db_password=pw)
+                GLib.idle_add(self._show_result, instance_id, res.ok, res.message)
+                GLib.idle_add(self._refresh_detail_dbs, instance_id)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        if HAS_ADW and HAS_ALERT:
+            dlg = Adw.AlertDialog(heading="Restore database",
+                                  body="Validate-first, drop-and-recreate semantics.")
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("ok", "Restore (drop + recreate)")
+            dlg.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
+            dlg.set_extra_child(box)
+            dlg.set_default_response("cancel")
+            dlg.set_close_response("cancel")
+            dlg.choose(self, None,
+                       lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
+        else:
+            self.toast("Restore dialog unavailable on this GTK version")
+
+    def _validate_flow(self, instance_id: str) -> None:
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        self._op_start()
+
+        def _work() -> None:
+            from odoo_vite.core.db_state import validate_db_config
+
+            try:
+                report = validate_db_config(inst)
+            except Exception as exc:
+                GLib.idle_add(self._show_result, instance_id, False,
+                              f"Validation crashed: {exc}")
+                return
+            GLib.idle_add(self._show_validate_report, instance_id, report)
+            GLib.idle_add(self._op_end)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _show_validate_report(self, instance_id: str, report: dict) -> bool:
+        checks = (report or {}).get("checks", [])
+        failed = [c for c in checks if c.get("ok") is False]
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        for check in checks:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            icon = "✅" if check.get("ok") is True else (
+                "❌" if check.get("ok") is False else "❔")
+            row.append(Gtk.Label(label=icon))
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            vbox.append(Gtk.Label(label=str(check.get("field", "?")), xalign=0))
+            detail = Gtk.Label(label=str(check.get("detail", "")), xalign=0, wrap=True)
+            detail.add_css_class("dim-label")
+            vbox.append(detail)
+            row.append(vbox)
+            box.append(row)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_min_content_height(min(320, 60 + 48 * max(len(checks), 1)))
+        scrolled.set_max_content_height(420)
+        scrolled.set_child(box)
+        summary = ("All checks passed" if not failed
+                   else f"{len(failed)} check(s) failing")
+        if HAS_ADW and HAS_ALERT:
+            dlg = Adw.AlertDialog(heading=f"Config validation: {summary}", body="")
+            dlg.add_response("ok", "Close")
+            dlg.set_extra_child(scrolled)
+            dlg.choose(self, None, lambda d, t: None)
+        else:
+            self._show_result(instance_id, not failed, summary)
+        if failed and self.detail.instance_id == instance_id:
+            self.detail.show_error(
+                "Config validation: " + "; ".join(
+                    f"{c['field']}: {c['detail']}" for c in failed[:3]))
         return False
 
     def _remove_flow(self, instance_id: str) -> None:
@@ -807,6 +1118,51 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         if self.detail.instance_id == instance_id:
             try:
                 self.detail.refresh_databases()
+            except Exception:
+                pass
+            # Part B: live per-DB state (bg fetch — never on the main loop).
+            threading.Thread(target=self._load_db_states,
+                             args=(instance_id,), daemon=True).start()
+        return False
+
+    def _load_db_states(self, instance_id: str) -> None:
+        from odoo_vite.core.db_state import get_db_state, human_size, odoo_major
+        from odoo_vite.core.registry import get_db_password
+
+        try:
+            inst = get_instance(instance_id)
+            if inst is None:
+                return
+            try:
+                pw = get_db_password(inst) or None
+            except Exception:
+                pw = None
+            names = list(dict.fromkeys(
+                (inst.tracked_dbs or []) + ([inst.primary_db] if inst.primary_db else [])))
+            states: dict = {}
+            for name in names:
+                try:
+                    st = get_db_state(name, inst.db_user, pw)
+                except Exception:
+                    continue
+                states[name] = {
+                    "exists": st.exists,
+                    "initialized": st.initialized,
+                    "odoo_version": st.odoo_version or "",
+                    "odoo_major": odoo_major(st.odoo_version),
+                    "size": human_size(st.size_bytes),
+                    "owner": st.owner or "",
+                }
+            GLib.idle_add(self._apply_db_states, instance_id,
+                           states, inst.version or "")
+        except Exception:
+            pass
+
+    def _apply_db_states(self, instance_id: str, states: dict,
+                         version: str) -> bool:
+        if self.detail.instance_id == instance_id:
+            try:
+                self.detail.set_db_states(states, version)
             except Exception:
                 pass
         return False

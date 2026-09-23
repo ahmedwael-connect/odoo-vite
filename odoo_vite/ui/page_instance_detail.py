@@ -215,6 +215,22 @@ class InstanceDetailPage(Gtk.Box):
         manage_row.append(btn_add)
         box.append(manage_row)
 
+        ops_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.btn_refresh_dbs = Gtk.Button(label="Refresh states")
+        self.btn_refresh_dbs.set_tooltip_text("Re-query Postgres for every tracked DB")
+        self.btn_refresh_dbs.connect("clicked", self._emit, "refresh-states", None)
+        ops_row.append(self.btn_refresh_dbs)
+        self.btn_restore = Gtk.Button(label="Restore…")
+        self.btn_restore.set_tooltip_text("Restore a pg_dump file into a database")
+        self.btn_restore.connect("clicked", self._emit, "restore", None)
+        ops_row.append(self.btn_restore)
+        self.btn_validate = Gtk.Button(label="Validate config")
+        self.btn_validate.set_tooltip_text(
+            "Compare odoo.conf db_* settings against live Postgres")
+        self.btn_validate.connect("clicked", self._emit, "validate", None)
+        ops_row.append(self.btn_validate)
+        box.append(ops_row)
+
         # ------------------------------------------------------ danger zone
         dz_title = Gtk.Label(label="Danger zone", xalign=0)
         dz_title.add_css_class("heading")
@@ -342,12 +358,17 @@ class InstanceDetailPage(Gtk.Box):
         self._emit(_btn, "untrack", db_name)
 
     def refresh_databases(self) -> None:
-        """Rebuild the dropdown + tracked list from the registry row."""
+        """Rebuild the dropdown + tracked list from the registry row.
+
+        Live state (size/version/initialized) arrives separately via
+        set_db_states(), filled by a background fetch owned by MainWindow.
+        """
         while True:
             row = self.tracked_list.get_row_at_index(0)
             if row is None:
                 break
             self.tracked_list.remove(row)
+        self._db_rows = {}
         inst = get_instance(self.instance_id) if self.instance_id else None
         tracked = list(inst.tracked_dbs) if inst and inst.tracked_dbs else []
         primary = inst.primary_db if inst else ""
@@ -361,19 +382,62 @@ class InstanceDetailPage(Gtk.Box):
         self._stat_rows["db"].set_text(primary or "—")
         for db_name in tracked:
             row = Gtk.ListBoxRow()
-            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             hbox.set_margin_start(10)
             hbox.set_margin_end(10)
             hbox.set_margin_top(4)
             hbox.set_margin_bottom(4)
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
             marker = "  ★ primary" if db_name == primary else ""
-            hbox.append(Gtk.Label(label=f"{db_name}{marker}", xalign=0,
-                                  hexpand=True))
+            vbox.append(Gtk.Label(label=f"{db_name}{marker}", xalign=0))
+            state_lbl = Gtk.Label(label="state: loading…", xalign=0)
+            state_lbl.add_css_class("dim-label")
+            vbox.append(state_lbl)
+            hbox.append(vbox)
+            btn_init = Gtk.Button(label="Init")
+            btn_init.set_tooltip_text("Initialize this database (-i base)")
+            btn_init.connect("clicked", self._emit, "init-db", db_name)
+            btn_init.set_visible(False)
+            hbox.append(btn_init)
+            btn_backup = Gtk.Button(label="Backup")
+            btn_backup.connect("clicked", self._emit, "backup-db", db_name)
+            hbox.append(btn_backup)
+            if db_name != primary:
+                btn_drop = Gtk.Button(label="Drop")
+                btn_drop.add_css_class("destructive-action")
+                btn_drop.connect("clicked", self._emit, "drop-db", db_name)
+                hbox.append(btn_drop)
             btn = Gtk.Button(label="Untrack")
             btn.connect("clicked", self._on_untrack, db_name)
             hbox.append(btn)
             row.set_child(hbox)
             self.tracked_list.append(row)
+            self._db_rows[db_name] = {"state": state_lbl, "init": btn_init}
+
+    def set_db_states(self, states: dict, instance_version: str = "") -> None:
+        """Fill live state into tracked rows (B.1 table + H.5-style badges)."""
+        for db_name, widgets in getattr(self, "_db_rows", {}).items():
+            info = (states or {}).get(db_name) or {}
+            parts = []
+            if info.get("size"):
+                parts.append(info["size"])
+            if info.get("odoo_version"):
+                parts.append(f"v{info['odoo_version']}")
+            state_txt = "initialized" if info.get("initialized") else (
+                "exists, not initialized" if info.get("exists", True) else "missing")
+            parts.append(state_txt)
+            widgets["state"].set_text(" · ".join(parts) if parts else "state: unknown")
+            mismatch = (info.get("initialized") and info.get("odoo_major")
+                        and instance_version
+                        and info["odoo_major"] != instance_version)
+            if mismatch:
+                widgets["state"].set_text(
+                    widgets["state"].get_text()
+                    + f"  ⚠ v{info['odoo_major']} ≠ instance v{instance_version}")
+                widgets["state"].add_css_class("warning")
+            else:
+                widgets["state"].remove_css_class("warning")
+            widgets["init"].set_visible(not info.get("initialized"))
 
     # ---------------------------------------------------------------- render
     def show_instance(self, instance_id: str | None) -> None:

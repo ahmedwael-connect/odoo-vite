@@ -297,41 +297,25 @@ def drop_database(
 def database_exists(
     db_name: str, db_user: str = "odoo", db_password: str | None = None
 ) -> bool:
-    """True if a Postgres database with this name exists (Sprint 3).
+    """Thin wrapper over db_state.get_db_state (Sprint 5 Part A)."""
+    try:
+        from odoo_vite.core.db_state import get_db_state
 
-    Never raises — any connection/auth failure reads as "unknown", i.e.
-    False, and the caller (first-start flow) treats surrounding context
-    accordingly. Extra db_user/db_password params beyond the spec's
-    `database_exists(db_name)` shape so probes can authenticate.
-    """
-    if not is_valid_identifier(db_name) or shutil.which("psql") is None:
+        return bool(get_db_state(db_name, db_user, db_password).exists)
+    except Exception:
         return False
-    env_extra = {"PGPASSWORD": db_password} if db_password else None
-    rc, out = _run(
-        ["psql", "-h", "localhost", "-U", db_user, "-d", "postgres",
-         "-tAc", f"SELECT 1 FROM pg_database WHERE datname = {_qliteral(db_name)}"],
-        env_extra=env_extra,
-    )
-    return rc == 0 and out.strip().startswith("1")
 
 
 def database_initialized(
     db_name: str, db_user: str = "odoo", db_password: str | None = None
 ) -> bool:
-    """True if db_name exists AND Odoo's base module is installed in it.
+    """Thin wrapper over db_state.get_db_state (Sprint 5 Part A)."""
+    try:
+        from odoo_vite.core.db_state import get_db_state
 
-    Distinguishes a working database from an empty leftover of an
-    interrupted `-i base` (which exists in the catalog but has no tables).
-    Never raises — unknown reads as False.
-    """
-    if not database_exists(db_name, db_user, db_password):
+        return bool(get_db_state(db_name, db_user, db_password).initialized)
+    except Exception:
         return False
-    rc, out = _run(
-        ["psql", "-h", "localhost", "-U", db_user, "-d", db_name,
-         "-tAc", "SELECT state FROM ir_module_module WHERE name = 'base'"],
-        env_extra={"PGPASSWORD": db_password} if db_password else None,
-    )
-    return rc == 0 and out.strip() == "installed"
 
 
 def list_databases_for_user(

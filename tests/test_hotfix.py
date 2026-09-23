@@ -144,11 +144,11 @@ def test_adopted_start_uses_recorded_venv(tmp_path, db, monkeypatch):
                     db_user="odoo", db_password="x", primary_db="ad_db",
                     status="stopped", db_created=True)
     assert create_instance(inst, db).ok
-    from odoo_vite.core import db_manager
+    from odoo_vite.core.db_state import DbState
 
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
-    monkeypatch.setattr(db_manager, "database_initialized",
-                        lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=True))
     res = process_manager.start_instance(inst.id, db_path=db)
     assert res.ok, res.message
     assert launched[0][0] == str(base / "venv" / "bin" / "python")

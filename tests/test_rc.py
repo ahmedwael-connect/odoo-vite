@@ -8,6 +8,7 @@ import time as _time
 import pytest
 
 from odoo_vite.core import process_manager
+from odoo_vite.core.db_state import DbState
 from odoo_vite.core.instance import Instance
 from odoo_vite.core.registry import (
     create_instance,
@@ -66,9 +67,9 @@ def test_bug1_double_start_launches_once(tmp_path, db, monkeypatch):
     from odoo_vite.core import db_manager
 
     # healthy instance (initialized DB) so both threads reach the launch gate
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
-    monkeypatch.setattr(db_manager, "database_initialized",
-                        lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=True))
     # shrink the liveness sleep so the test stays fast but racy
     # (bind the original first: process_manager.time IS the time module)
     _real_sleep = _time.sleep
@@ -141,9 +142,9 @@ def test_managed_first_start_uses_explicit_create(tmp_path, db, monkeypatch):
 
     monkeypatch.setattr(subprocess, "Popen", SlowPopen)
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: False)
-    monkeypatch.setattr(db_manager, "database_initialized",
-                        lambda *a, **k: False)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=False,
+                                              initialized=False))
     calls = []
     monkeypatch.setattr(
         db_manager, "create_database",
@@ -167,9 +168,9 @@ def test_managed_create_failure_aborts_before_launch(tmp_path, db, monkeypatch):
 
     monkeypatch.setattr(subprocess, "Popen", SlowPopen)
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: False)
-    monkeypatch.setattr(db_manager, "database_initialized",
-                        lambda *a, **k: False)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=False,
+                                              initialized=False))
     monkeypatch.setattr(db_manager, "create_database",
                         lambda *a, **k: Result.failure("pkexec dismissed"))
     base = tmp_path / "i"

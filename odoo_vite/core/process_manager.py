@@ -147,13 +147,15 @@ def start_instance(
             "set a primary database first"
         )
 
-    # BUG-3 (RC): ground truth is initialization state, not just the
-    # db_created flag. A launch can succeed (process stays up) while -i base
-    # later fails, leaving db_created=True on an empty DB — subsequent plain
-    # starts would then serve HTTP 500s forever with no recovery path.
+    # Part A (Sprint 5): ONE ground-truth probe for this start. Ground truth
+    # is initialization state, not just the db_created flag (BUG-3): a launch
+    # can succeed while -i base later fails, leaving db_created=True on an
+    # empty DB — subsequent plain starts would serve HTTP 500s forever.
+    from odoo_vite.core.db_state import get_db_state
+
     pw = _password_for(inst) or None
-    exists = db_manager.database_exists(target_db, inst.db_user, pw)
-    initialized = db_manager.database_initialized(target_db, inst.db_user, pw)
+    state = get_db_state(target_db, inst.db_user, pw)
+    exists, initialized = state.exists, state.initialized
     first_start = not bool(inst.db_created)
     needs_init = (not inst.db_created) or (not initialized)
 
@@ -189,7 +191,25 @@ def start_instance(
 
     cmd = _build_command(inst, target_db, needs_init)
 
-    reinit = False  # exists-but-empty DB: -i base below completes its init
+    reinit = bool(exists and not initialized)
+    # A.2 (reported bug): someone else's live DB on first touch goes STRAIGHT
+    # to the collision UI — the confirm callback (and its "this will create
+    # X" text) must never fire for a database that already exists. The old
+    # confirm-then-collide order showed users a create prompt for live DBs.
+    if exists and initialized and not inst.db_created:
+        preview = {
+            "instance_name": inst.name,
+            "db_name": target_db,
+            "conf_path": inst.conf_path,
+            "command": list(cmd),
+            "command_str": " ".join(cmd),
+            "reinit": False,
+        }
+        return Result.failure(
+            f"Database '{target_db}' already exists — refusing to "
+            "silently reuse or overwrite",
+            data={"collision": True, "db_name": target_db, "preview": preview},
+        )
     if needs_init:
         preview = {
             "instance_name": inst.name,
@@ -197,10 +217,10 @@ def start_instance(
             "conf_path": inst.conf_path,
             "command": list(cmd),
             "command_str": " ".join(cmd),
-            "reinit": bool(exists and not initialized),
+            "reinit": reinit,
         }
         if confirm_cb is None:
-            what = ("complete the initialization of" if preview["reinit"]
+            what = ("complete the initialization of" if reinit
                     else "create database")
             return Result.failure(
                 f"Start of '{inst.name}' would {what} "
@@ -214,14 +234,7 @@ def start_instance(
             return Result.failure(f"Confirmation step errored: {exc}")
         if not confirmed:
             return Result.failure("Database creation cancelled by user")
-        if exists and initialized and not inst.db_created:
-            return Result.failure(
-                f"Database '{target_db}' already exists — refusing to "
-                "silently reuse or overwrite",
-                data={"collision": True, "db_name": target_db, "preview": preview},
-            )
         # Exists-but-empty (interrupted setup): -i base below completes it.
-        reinit = bool(exists and not initialized)
 
         # H.1 managed mode: the role cannot create databases itself, so the
         # empty DB is created here as an explicit privileged op (the user
@@ -509,8 +522,11 @@ def switch_database(
                     f"(instance was stopped — not started)")
 
     pw = _password_for(inst) or None
-    ready = (db_manager.database_exists(target, inst.db_user, pw)
-             and db_manager.database_initialized(target, inst.db_user, pw))
+    # Part A: one ground-truth read decides plain start vs creation flow.
+    from odoo_vite.core.db_state import get_db_state
+
+    _state = get_db_state(target, inst.db_user, pw)
+    ready = _state.exists and _state.initialized
     if ready:
         # Known, initialized database: plain start with -d, no creation flow.
         start_res = start_instance(instance_id, database=target,
@@ -531,3 +547,76 @@ def switch_database(
     return Result.success(
         data={**(start_res.data or {}), "database": target, "started": True},
         message=f"Instance now serving '{target}'")
+
+
+def initialize_database(
+    instance_id: str,
+    db_name: str,
+    progress_cb: Callable[[str], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
+    db_path=None,
+) -> Result:
+    """Standalone `-i base` init for one database (Sprint 5, Ticket B.3).
+
+    Same command construction as first-Start, but decoupled: runs with
+    `--stop-after-init` so the process exits instead of serving, then
+    verifies initialization. Refuses while the instance is running on that
+    DB (concurrent init risk) and marks db_created on success.
+    """
+    from odoo_vite.core.db_manager import is_valid_identifier
+    from odoo_vite.core.db_state import get_db_state
+    from odoo_vite.core.proc import run_streaming
+    from odoo_vite.core.registry import get_instance, update_instance
+
+    inst = get_instance(instance_id, db_path)
+    if inst is None:
+        return Result.failure(f"No instance with id '{instance_id}'")
+    target = (db_name or "").strip()
+    if not is_valid_identifier(target):
+        return Result.failure(f"Invalid database name '{db_name}'")
+
+    # State first: an already-initialized DB is a no-op needing no venv,
+    # no running checks, no work at all.
+    pw = _password_for(inst) or None
+    state = get_db_state(target, inst.db_user, pw)
+    if state.error and not state.exists:
+        return Result.failure(f"Cannot inspect '{target}': {state.error}")
+    if state.exists and state.initialized:
+        update_instance(instance_id, db_path, db_created=True)
+        return Result.success(
+            data={"database": target, "initialized": True},
+            message=f"'{target}' is already initialized — nothing to do")
+
+    if _alive_pid(inst) is not None:
+        return Result.failure(
+            f"Stop '{inst.name}' first — initializing '{target}' while the "
+            "instance is running risks a half-migrated database")
+    venv_python = Path(inst.venv_path) / "bin" / "python" if inst.venv_path else None
+    odoo_bin = Path(inst.community_path) / "odoo-bin"
+    if not venv_python or not venv_python.is_file():
+        return Result.failure(f"Venv python missing at {venv_python or '(no venv recorded)'}")
+    if not odoo_bin.is_file():
+        return Result.failure(f"odoo-bin missing at {odoo_bin}")
+    if inst.conf_path and not Path(inst.conf_path).is_file():
+        return Result.failure(f"odoo.conf missing at {inst.conf_path}")
+
+    cmd = _build_command(inst, target, True) + ["--stop-after-init"]
+    res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel,
+                        timeout=1800)
+    if not res.ok:
+        tail = "\n".join((res.data or {}).get("lines", [])[-10:])
+        return Result.failure(
+            f"Initialization of '{target}' failed: {res.message}"
+            + (f"\n--- log tail ---\n{tail}" if tail else ""))
+    after = get_db_state(target, inst.db_user, pw)
+    if not after.initialized:
+        return Result.failure(
+            f"Init process ended but '{target}' is still not initialized — "
+            "check the log above")
+    update_instance(instance_id, db_path, db_created=True)
+    audit_log.log_event(inst.id, inst.name, "db_create",
+                        f"database '{target}' initialized standalone")
+    return Result.success(
+        data={"database": target, "initialized": True,
+              "odoo_version": after.odoo_version},
+        message=f"Database '{target}' initialized")

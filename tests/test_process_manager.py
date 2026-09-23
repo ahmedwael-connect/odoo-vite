@@ -10,6 +10,7 @@ import psutil
 import pytest
 
 from odoo_vite.core import process_manager
+from odoo_vite.core.db_state import DbState
 from odoo_vite.core.instance import Instance
 from odoo_vite.core.registry import get_instance, update_instance
 
@@ -70,8 +71,9 @@ def _inst(base, **overrides):
 def _no_collision(monkeypatch):
     from odoo_vite.core import db_manager
 
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: False)
-
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=False,
+                                              initialized=False))
 
 @pytest.fixture
 def _popen(monkeypatch):
@@ -136,8 +138,9 @@ def test_collision_returns_reuse_shape(db, fake_fs, _popen, monkeypatch):
     from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
-    monkeypatch.setattr(db_manager, "database_initialized", lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=True))
     inst = _inst(fake_fs)
     _register(inst, db)
     res = process_manager.start_instance(
@@ -153,9 +156,9 @@ def test_exists_but_empty_db_reinits_without_collision(
     from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
-    monkeypatch.setattr(db_manager, "database_initialized",
-                        lambda *a, **k: False)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=False))
     inst = _inst(fake_fs)
     _register(inst, db)
     res = process_manager.start_instance(
@@ -171,8 +174,9 @@ def test_second_start_skips_i_base_and_confirm(db, fake_fs, _popen, monkeypatch)
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
     # healthy second start: DB exists AND is initialized (else the recovery
     # confirm flow correctly engages — see BUG-3).
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
-    monkeypatch.setattr(db_manager, "database_initialized", lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=True))
     inst = _inst(fake_fs, db_created=True)
     _register(inst, db)
     res = process_manager.start_instance(inst.id, confirm_cb=None, db_path=db)
@@ -187,9 +191,9 @@ def test_uninitialized_db_reengages_confirm(db, fake_fs, _popen, monkeypatch):
     from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: False)
-    monkeypatch.setattr(db_manager, "database_initialized",
-                        lambda *a, **k: False)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=False,
+                                              initialized=False))
     inst = _inst(fake_fs, db_created=True)
     _register(inst, db)
     refused = process_manager.start_instance(inst.id, confirm_cb=None, db_path=db)
@@ -323,8 +327,9 @@ def test_restart_composes_stop_and_start(db, fake_fs, _popen, monkeypatch):
     from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
-    monkeypatch.setattr(db_manager, "database_exists", lambda *a, **k: True)
-    monkeypatch.setattr(db_manager, "database_initialized", lambda *a, **k: True)
+    monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
+                        lambda *a, **k: DbState(db_name="x", exists=True,
+                                              initialized=True))
     inst = _inst(fake_fs, db_created=True)
     _register(inst, db)
     res = process_manager.restart_instance(inst.id, db_path=db)
