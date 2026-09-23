@@ -32,6 +32,9 @@ def test_core_has_no_gtk_imports():
         "odoo_vite.core.log_search",
         "odoo_vite.core.log_doctor",
         "odoo_vite.core.profiler",
+        "odoo_vite.core.odoo_rpc",
+        "odoo_vite.core.odoo_inspect",
+        "odoo_vite.core.devtools_export",
     ]
     for name in mods:
         for loaded in list(sys.modules):
