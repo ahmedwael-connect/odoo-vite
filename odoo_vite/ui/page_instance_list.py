@@ -83,6 +83,8 @@ class InstanceRow(Gtk.ListBoxRow):
             self.lbl_name.set_text(name)
             self.lbl_name.set_tooltip_text(None)
         sub = f"{status.get('version', '')}  ·  :{status.get('port', '')}"
+        if status.get("description"):
+            sub += f"  ·  {status['description']}"
         if state == "running" and status.get("pid"):
             extra = f"  ·  pid {status['pid']}"
             if status.get("cpu_percent") is not None:
@@ -148,7 +150,8 @@ class InstanceListPage(Gtk.Box):
              "port": i.port, "version": i.version,
              "cpu_percent": None, "memory_mb": None,
              "password_storage": i.password_storage,
-             "provisioning_mode": i.provisioning_mode}
+             "provisioning_mode": i.provisioning_mode,
+             "description": i.description}
             for i in list_instances()
         ]
         self.set_statuses(statuses, allow_structural=True)

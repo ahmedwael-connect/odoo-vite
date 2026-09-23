@@ -145,9 +145,16 @@ def _one_shot_preconditions(inst, db_name: str, db_path=None):  # type: ignore[n
             f"Instance '{inst.name}' is running on '{db_name}' (pid {pid}) — "
             "stop it first; a one-shot writer must never run concurrently "
             "with the server on the same database")
-    venv_python = Path(inst.venv_path) / "bin" / "python" if inst.venv_path else None
+    from odoo_vite.core.instance import effective_python
+
+    _eff = effective_python(inst)
+    venv_python = Path(_eff) if _eff else None
     odoo_bin = Path(inst.community_path) / "odoo-bin"
-    if not venv_python or not venv_python.is_file():
+    if not venv_python:
+        return Result.failure(
+            f"No Python environment recorded for adopted instance '{inst.name}' — "
+            "open its detail page and set the venv Python path, then retry")
+    if not venv_python.is_file():
         return Result.failure(f"Venv python missing at {venv_python}")
     if not odoo_bin.is_file():
         return Result.failure(f"odoo-bin missing at {odoo_bin}")
@@ -167,7 +174,9 @@ def install_modules(instance, db_name: str, module_names: list[str],  # type: ig
     err = _one_shot_preconditions(instance, db_name, db_path)
     if err is not None:
         return err
-    cmd = [str(Path(instance.venv_path) / "bin" / "python"),
+    from odoo_vite.core.instance import effective_python
+
+    cmd = [effective_python(instance),
            str(Path(instance.community_path) / "odoo-bin"),
            "-c", instance.conf_path, "-d", db_name,
            "-i", ",".join(mods), "--stop-after-init"]
@@ -236,7 +245,9 @@ def update_code(instance, module_names: list[str], progress_cb=None,  # type: ig
     if not db_name:
         return Result.failure("Instance has no primary database to update")
     _emit(f"=== [3/3] odoo-bin -u {','.join(mods)} on '{db_name}' ===")
-    cmd = [str(Path(instance.venv_path) / "bin" / "python"),
+    from odoo_vite.core.instance import effective_python
+
+    cmd = [effective_python(instance),
            str(community / "odoo-bin"), "-c", instance.conf_path,
            "-d", db_name, "-u", ",".join(mods), "--stop-after-init"]
     updated = run_streaming(cmd, progress_cb=_emit, cancel=cancel, timeout=3600)
@@ -276,7 +287,9 @@ def uninstall_modules(instance, db_name: str, module_names: list[str],  # type: 
         "mods.button_immediate_uninstall()\n"
         "print('UNINSTALLED: ' + ','.join(sorted(mods.mapped('name'))))\n"
     )
-    cmd = [str(Path(instance.venv_path) / "bin" / "python"),
+    from odoo_vite.core.instance import effective_python
+
+    cmd = [effective_python(instance),
            str(Path(instance.community_path) / "odoo-bin"), "shell",
            "-c", instance.conf_path, "-d", db_name]
     res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel,

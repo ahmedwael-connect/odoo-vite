@@ -17,7 +17,6 @@ No GTK imports.
 from __future__ import annotations
 
 import ast
-import configparser
 import re
 from pathlib import Path
 
@@ -31,13 +30,15 @@ PORT_KEYS = ("xmlrpc_port", "http_port")
 
 
 def parse_conf(conf_path: str | Path) -> dict:
-    """Parse an Odoo conf file's [options] into a plain dict. Never raises."""
+    """Parse an Odoo conf file's [options] into a plain dict.
+
+    Sprint 7 consolidation: delegates to conf_manager.parse_conf_file (single
+    shared parser); behavior unchanged (options dict, {} on any error).
+    """
+    from odoo_vite.core.conf_manager import parse_conf_file
+
     try:
-        parser = configparser.RawConfigParser()
-        parser.read(str(conf_path), encoding="utf-8")
-        if not parser.has_section("options"):
-            return {}
-        return {k: v for k, v in parser.items("options")}
+        return parse_conf_file(conf_path).get("options", {})
     except Exception:
         return {}
 

@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS instances (
     last_error TEXT,
     db_created INTEGER NOT NULL DEFAULT 0,
     provisioning_mode TEXT NOT NULL DEFAULT 'developer',
+    description TEXT NOT NULL DEFAULT '',
+    workers INTEGER NOT NULL DEFAULT 0,
+    log_level TEXT NOT NULL DEFAULT 'info',
+    python_binary TEXT NOT NULL DEFAULT '',
+    addons_state TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT ''
 );
 """
@@ -58,7 +63,8 @@ _COLUMNS = [
     "enterprise_path", "custom_addons_path", "conf_path", "log_path", "port",
     "db_user", "db_password", "password_storage", "primary_db", "tracked_dbs",
     "auto_update_modules", "status", "pid", "last_error", "db_created",
-    "provisioning_mode", "created_at",
+    "provisioning_mode", "description", "workers", "log_level",
+    "python_binary", "addons_state", "created_at",
 ]
 
 # Sprint 2+3 additive migrations: (column, DDL fragment). Applied by
@@ -69,6 +75,11 @@ _MIGRATIONS = [
     ("last_error", "ALTER TABLE instances ADD COLUMN last_error TEXT"),
     ("db_created", "ALTER TABLE instances ADD COLUMN db_created INTEGER NOT NULL DEFAULT 0"),
     ("provisioning_mode", "ALTER TABLE instances ADD COLUMN provisioning_mode TEXT NOT NULL DEFAULT 'developer'"),
+    ("description", "ALTER TABLE instances ADD COLUMN description TEXT NOT NULL DEFAULT ''"),
+    ("workers", "ALTER TABLE instances ADD COLUMN workers INTEGER NOT NULL DEFAULT 0"),
+    ("log_level", "ALTER TABLE instances ADD COLUMN log_level TEXT NOT NULL DEFAULT 'info'"),
+    ("python_binary", "ALTER TABLE instances ADD COLUMN python_binary TEXT NOT NULL DEFAULT ''"),
+    ("addons_state", "ALTER TABLE instances ADD COLUMN addons_state TEXT NOT NULL DEFAULT ''"),
 ]
 
 KEYRING_SERVICE = "odoo-vite"
@@ -197,7 +208,7 @@ def update_instance(
         return Result.failure("Nothing to update (no valid fields given)")
     import json as _json
 
-    for key in ("tracked_dbs", "auto_update_modules"):
+    for key in ("tracked_dbs", "auto_update_modules", "addons_state"):
         if key in updates and isinstance(updates[key], (list, tuple)):
             updates[key] = _json.dumps(list(updates[key]))
     set_clause = ", ".join(f"{k} = :{k}" for k in updates)

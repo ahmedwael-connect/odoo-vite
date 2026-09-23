@@ -16,6 +16,20 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def effective_python(instance: "Instance") -> str:
+    """Interpreter command for an instance (Sprint 7.5 consolidation).
+
+    Explicit python_binary override wins (adopted/unusual setups); otherwise
+    the venv's own python. Single place — start/initialize/install/update/
+    uninstall/shell must all agree instead of each building the path.
+    """
+    override = (instance.python_binary or "").strip()
+    if override:
+        return override
+    venv = (instance.venv_path or "").strip()
+    return f"{venv}/bin/python" if venv else ""
+
+
 @dataclass
 class Instance:
     """One managed or adopted Odoo instance (maps 1:1 to the `instances` table)."""
@@ -50,6 +64,16 @@ class Instance:
     # Phase 1.5 H.1: privilege posture at creation ("developer" | "managed").
     # Legacy rows (NULL) read as "developer" — never auto-migrated.
     provisioning_mode: str = "developer"
+    # Sprint 7.5 metadata: description is registry-only; workers/log_level
+    # mirror real odoo.conf keys; python_binary is an explicit interpreter
+    # override (empty = venv's own python — the normal case).
+    description: str = ""
+    workers: int = 0
+    log_level: str = "info"
+    python_binary: str = ""
+    # Sprint 7.4: structured addons list [{path, enabled}] (JSON). Empty =
+    # not yet migrated (migrated lazily from the conf's addons_path string).
+    addons_state: list = field(default_factory=list)
     # Sprint 2: latest provisioning failure, so the wizard can offer Resume/Discard.
     last_error: str | None = None
     created_at: str = field(default_factory=_utcnow_iso)
@@ -81,6 +105,11 @@ class Instance:
             "last_error": self.last_error,
             "db_created": 1 if self.db_created else 0,
             "provisioning_mode": self.provisioning_mode or "developer",
+            "description": self.description or "",
+            "workers": int(self.workers or 0),
+            "log_level": self.log_level or "info",
+            "python_binary": self.python_binary or "",
+            "addons_state": json.dumps(self.addons_state or []),
             "created_at": self.created_at,
         }
 
@@ -129,6 +158,11 @@ class Instance:
             last_error=get("last_error"),
             db_created=bool(get("db_created")),
             provisioning_mode=get("provisioning_mode") or "developer",
+            description=get("description") or "",
+            workers=int(get("workers") or 0),
+            log_level=get("log_level") or "info",
+            python_binary=get("python_binary") or "",
+            addons_state=_loads(get("addons_state")),
             created_at=get("created_at") or _utcnow_iso(),
         )
 

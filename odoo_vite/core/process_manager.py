@@ -108,7 +108,9 @@ def _password_for(instance) -> str:  # type: ignore[no-untyped-def]
 
 
 def _build_command(instance, database: str, first_start: bool) -> list[str]:  # type: ignore[no-untyped-def]
-    venv_python = str(Path(instance.venv_path) / "bin" / "python")
+    from odoo_vite.core.instance import effective_python
+
+    venv_python = effective_python(instance)
     odoo_bin = str(Path(instance.community_path) / "odoo-bin")
     cmd = [venv_python, odoo_bin, "-c", instance.conf_path, "-d", database]
     if first_start:
@@ -171,7 +173,9 @@ def start_instance(
             if (inst.mode or "managed") == "adopted" else
             f"Instance '{inst.name}' has no venv path configured — re-run provisioning"
         )
-    venv_python = Path(inst.venv_path) / "bin" / "python"
+    from odoo_vite.core.instance import effective_python
+
+    venv_python = Path(effective_python(inst))
     odoo_bin = Path(inst.community_path) / "odoo-bin"
     if not venv_python.is_file():
         hint = ("re-run provisioning"
@@ -449,6 +453,7 @@ def get_statuses(db_path=None) -> list[dict]:
             "cpu_percent": None, "memory_mb": None,
             "password_storage": inst.password_storage,
             "provisioning_mode": inst.provisioning_mode,
+            "description": inst.description,
         }
         if (inst.status or "") != "running":
             out.append(entry)
@@ -591,7 +596,10 @@ def initialize_database(
         return Result.failure(
             f"Stop '{inst.name}' first — initializing '{target}' while the "
             "instance is running risks a half-migrated database")
-    venv_python = Path(inst.venv_path) / "bin" / "python" if inst.venv_path else None
+    from odoo_vite.core.instance import effective_python
+
+    _eff = effective_python(inst)
+    venv_python = Path(_eff) if _eff else None
     odoo_bin = Path(inst.community_path) / "odoo-bin"
     if not venv_python or not venv_python.is_file():
         return Result.failure(f"Venv python missing at {venv_python or '(no venv recorded)'}")

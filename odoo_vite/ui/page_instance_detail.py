@@ -33,6 +33,7 @@ class InstanceDetailPage(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._on_action = on_action
         self.instance_id: str | None = None
+        self._running = False
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
@@ -72,6 +73,8 @@ class InstanceDetailPage(Gtk.Box):
         self.tab_stack.add_titled(self._build_overview(), "overview", "Overview")
         self.tab_stack.add_titled(self._build_databases(), "databases", "Databases")
         self.tab_stack.add_titled(self._build_modules(), "modules", "Modules")
+        self.tab_stack.add_titled(self._build_configuration(), "configuration",
+                                  "Configuration")
         outer.append(self.tab_stack)
         scrolled = Gtk.ScrolledWindow(vexpand=True)
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -83,6 +86,9 @@ class InstanceDetailPage(Gtk.Box):
         self.lbl_name = Gtk.Label(xalign=0)
         self.lbl_name.add_css_class("title-1")
         box.append(self.lbl_name)
+        self.lbl_desc = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_desc.add_css_class("dim-label")
+        box.append(self.lbl_desc)
         self.lbl_sub = Gtk.Label(xalign=0)
         self.lbl_sub.add_css_class("dim-label")
         box.append(self.lbl_sub)
@@ -428,6 +434,226 @@ class InstanceDetailPage(Gtk.Box):
             row.module_name = name  # type: ignore[attr-defined]
             self.modules_list.append(row)
 
+
+    # ------------------------------------------------------- configuration
+    COMMON_KEYS = ["db_host", "db_port", "db_user", "xmlrpc_port", "logfile"]
+    LOG_LEVELS = ["info", "debug", "debug_sql", "warning", "error", "critical"]
+
+    def _build_configuration(self) -> Gtk.Widget:
+        box = self._tab_box()
+        title = Gtk.Label(label="Configuration (odoo.conf)", xalign=0)
+        title.add_css_class("heading")
+        box.append(title)
+        self.lbl_conf_path = Gtk.Label(xalign=0)
+        self.lbl_conf_path.add_css_class("dim-label")
+        box.append(self.lbl_conf_path)
+
+        self.conf_table = Gtk.ListBox()
+        self.conf_table.set_selection_mode(Gtk.SelectionMode.NONE)
+        box.append(self.conf_table)
+
+        form_title = Gtk.Label(label="Edit common keys", xalign=0)
+        form_title.add_css_class("heading")
+        box.append(form_title)
+        self.conf_entries = {}
+        for key in self.COMMON_KEYS:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row.append(Gtk.Label(label=key, xalign=0, width_request=110))
+            entry = Gtk.Entry(hexpand=True)
+            row.append(entry)
+            box.append(row)
+            self.conf_entries[key] = entry
+        if True:  # addons_path is managed, not typed: read-only + manager link
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row.append(Gtk.Label(label="addons_path", xalign=0, width_request=110))
+            self.lbl_addons_ro = Gtk.Label(xalign=0, hexpand=True, wrap=True)
+            self.lbl_addons_ro.add_css_class("dim-label")
+            row.append(self.lbl_addons_ro)
+            btn_addons = Gtk.Button(label="Manage…")
+            btn_addons.connect("clicked", self._emit, "addons-manage", None)
+            row.append(btn_addons)
+            box.append(row)
+
+        raw_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.entry_raw_key = Gtk.Entry(hexpand=True, placeholder_text="raw key")
+        raw_row.append(self.entry_raw_key)
+        self.entry_raw_value = Gtk.Entry(
+            hexpand=True, placeholder_text="value (empty deletes the key)")
+        raw_row.append(self.entry_raw_value)
+        btn_raw = Gtk.Button(label="Set")
+        btn_raw.connect("clicked", self._on_raw_set)
+        raw_row.append(btn_raw)
+        box.append(raw_row)
+
+        self.lbl_conf_notice = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_conf_notice.add_css_class("warning")
+        box.append(self.lbl_conf_notice)
+
+        save_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.btn_conf_save = Gtk.Button(label="Save changes")
+        self.btn_conf_save.add_css_class("suggested-action")
+        self.btn_conf_save.connect("clicked", self._on_conf_save)
+        save_row.append(self.btn_conf_save)
+        self.btn_conf_restore = Gtk.Button(label="Restore last backup")
+        self.btn_conf_restore.connect("clicked", self._emit, "conf-restore", None)
+        save_row.append(self.btn_conf_restore)
+        box.append(save_row)
+
+        adv_title = Gtk.Label(label="Advanced", xalign=0)
+        adv_title.add_css_class("heading")
+        box.append(adv_title)
+        self.btn_conf_regen = Gtk.Button(label="Regenerate from registry…")
+        self.btn_conf_regen.set_tooltip_text(
+            "Rebuild [options] from registry fields (overwrites manual edits)")
+        self.btn_conf_regen.connect("clicked", self._emit, "conf-regenerate", None)
+        box.append(self.btn_conf_regen)
+
+        meta_title = Gtk.Label(label="Metadata", xalign=0)
+        meta_title.add_css_class("heading")
+        box.append(meta_title)
+        box.append(Gtk.Label(label="Description (registry only, for organization)",
+                             xalign=0))
+        self.entry_description = Gtk.Entry(hexpand=True)
+        box.append(self.entry_description)
+        workers_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        workers_row.append(Gtk.Label(label="Workers", xalign=0))
+        self.spin_workers = Gtk.SpinButton.new_with_range(0, 64, 1)
+        workers_row.append(self.spin_workers)
+        self.drop_log_level = Gtk.DropDown(
+            model=Gtk.StringList.new(self.LOG_LEVELS))
+        workers_row.append(Gtk.Label(label="Log level", xalign=0))
+        workers_row.append(self.drop_log_level)
+        box.append(workers_row)
+        box.append(Gtk.Label(
+            label="Workers: 0 = single-process dev mode (the default so far). "
+                  "Above 0 needs a free gevent/longpolling port and more RAM; "
+                  "cron moves to a dedicated worker. When in doubt, keep 0.",
+            xalign=0, wrap=True))
+        py_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        py_row.append(Gtk.Label(label="Custom interpreter", xalign=0))
+        self.entry_python = Gtk.Entry(
+            hexpand=True, placeholder_text="empty = venv's own python")
+        py_row.append(self.entry_python)
+        btn_py_browse = Gtk.Button(label="Browse…")
+        btn_py_browse.connect("clicked", self._on_browse_python)
+        py_row.append(btn_py_browse)
+        box.append(py_row)
+        self.err_python = Gtk.Label(xalign=0)
+        self.err_python.add_css_class("error")
+        box.append(self.err_python)
+        btn_meta_save = Gtk.Button(label="Save metadata")
+        btn_meta_save.connect("clicked", self._on_meta_save)
+        box.append(btn_meta_save)
+        self._conf_options = {}
+        self._running = False
+        return box
+
+    def refresh_conf(self) -> None:
+        """Reload the conf table + editors from disk (local, instant)."""
+        from odoo_vite.core import conf_manager
+
+        while True:
+            row = self.conf_table.get_row_at_index(0)
+            if row is None:
+                break
+            self.conf_table.remove(row)
+        inst = get_instance(self.instance_id) if self.instance_id else None
+        if inst is None or not inst.conf_path:
+            self.lbl_conf_path.set_text("No conf recorded.")
+            self._conf_options = {}
+            return
+        self.lbl_conf_path.set_text(inst.conf_path)
+        res = conf_manager.read_conf(inst.conf_path)
+        if not res.ok:
+            row = Gtk.ListBoxRow()
+            row.set_child(Gtk.Label(label=f"Cannot read conf: {res.message}",
+                                    xalign=0))
+            self.conf_table.append(row)
+            self._conf_options = {}
+            return
+        self._conf_options = dict(res.data["options"])
+        for key, value in res.data["options"].items():
+            row = Gtk.ListBoxRow()
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            hbox.set_margin_start(8)
+            hbox.set_margin_end(8)
+            hbox.append(Gtk.Label(label=key, xalign=0, hexpand=True))
+            val = Gtk.Label(label=value, xalign=1, selectable=True)
+            val.add_css_class("dim-label")
+            hbox.append(val)
+            row.set_child(hbox)
+            self.conf_table.append(row)
+        for key, entry in self.conf_entries.items():
+            entry.set_text(self._conf_options.get(key, ""))
+        self.lbl_addons_ro.set_text(self._conf_options.get("addons_path", "—"))
+        info = conf_manager.conf_backup_info(inst.conf_path)
+        self.btn_conf_restore.set_sensitive(info is not None)
+        self.btn_conf_restore.set_tooltip_text(
+            f"Restore from {info['path']}" if info else "No backup yet")
+        self.entry_description.set_text(inst.description or "")
+        self.spin_workers.set_value(inst.workers or 0)
+        try:
+            self.drop_log_level.set_selected(
+                self.LOG_LEVELS.index(inst.log_level or "info"))
+        except ValueError:
+            self.drop_log_level.set_selected(0)
+        self.entry_python.set_text(inst.python_binary or "")
+
+    def _on_conf_save(self, _btn: Gtk.Button) -> None:
+        changes = {}
+        for key, entry in self.conf_entries.items():
+            new = entry.get_text()
+            old = self._conf_options.get(key, "")
+            if new != old:
+                changes[key] = new
+        if not changes:
+            self.lbl_conf_notice.set_text("No changes to save.")
+            return
+        self._emit(_btn, "conf-save", changes)
+
+    def _on_raw_set(self, _btn: Gtk.Button) -> None:
+        key = (self.entry_raw_key.get_text() or "").strip()
+        if not key:
+            self.lbl_conf_notice.set_text("Enter a key name first.")
+            return
+        value = self.entry_raw_value.get_text()
+        self.entry_raw_key.set_text("")
+        self.entry_raw_value.set_text("")
+        self._emit(_btn, "conf-save",
+                   {key: (None if value == "" else value)})
+
+    def _on_browse_python(self, _btn: Gtk.Button) -> None:
+        if hasattr(Gtk, "FileDialog"):
+            dlg = Gtk.FileDialog(title="Select Python interpreter")
+            dlg.open(self.get_root(), None, self._on_python_chosen)
+        else:
+            self.err_python.set_text("File picker unavailable on this GTK.")
+
+    def _on_python_chosen(self, dlg, result) -> None:
+        try:
+            picked = dlg.open_finish(result)
+            path = picked.get_path() if picked else None
+        except Exception:
+            return
+        if path:
+            self.entry_python.set_text(path)
+
+    def _on_meta_save(self, _btn: Gtk.Button) -> None:
+        import os
+
+        pybin = (self.entry_python.get_text() or "").strip()
+        if pybin and not (os.path.isfile(pybin) and os.access(pybin, os.X_OK)):
+            self.err_python.set_text(f"Not an executable: {pybin}")
+            return
+        self.err_python.set_text("")
+        item = self.drop_log_level.get_selected_item()
+        self._emit(_btn, "meta-save", {
+            "description": self.entry_description.get_text(),
+            "workers": int(self.spin_workers.get_value_as_int()),
+            "log_level": item.get_string() if item is not None else "info",
+            "python_binary": pybin,
+        })
+
     # ---------------------------------------------------------------- actions
     def _emit(self, _btn: Gtk.Button, action: str, payload) -> None:
         if self._on_action is not None and self.instance_id is not None:
@@ -634,6 +860,10 @@ class InstanceDetailPage(Gtk.Box):
             self.stack.set_visible_child_name("empty")
             return
         self.lbl_name.set_text(inst.name)
+        self.lbl_desc.set_text(inst.description or "")
+        self.lbl_desc.set_visible(bool(inst.description))
+        self.refresh_conf()
+        self.lbl_conf_notice.set_text("")
         self._stat_rows["db_created"].set_text(
             "yes" if inst.db_created else "not yet (first Start will create it)")
         self._stat_rows["mode"].set_text(
@@ -682,6 +912,7 @@ class InstanceDetailPage(Gtk.Box):
         self.lbl_sub.set_text(
             f"{status.get('version', '')}  ·  {state.capitalize()}")
         running = state == "running"
+        self._running = running
         self.btn_start.set_visible(not running)
         self.btn_stop.set_visible(running)
         self.btn_restart.set_visible(running)
