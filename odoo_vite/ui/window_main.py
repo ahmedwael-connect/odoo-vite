@@ -11,7 +11,7 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("Adw", "1")
@@ -1916,7 +1916,15 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
                 hbox.append(check)
                 lbl = Gtk.Label(label=entry.get("path", ""), xalign=0, hexpand=True,
                                 wrap=True)
+                lbl.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+                lbl.set_max_width_chars(46)
                 hbox.append(lbl)
+                btn_edit = Gtk.Button(label="Edit")
+                btn_edit.set_tooltip_text(
+                    "Change this path string (e.g. folder renamed/moved)")
+                btn_edit.connect("clicked", self._addons_edit, entries, entry,
+                                 _rebuild)
+                hbox.append(btn_edit)
                 btn_up = Gtk.Button(label="↑")
                 btn_up.connect("clicked", self._addons_move, entries, entry,
                                -1, _rebuild)
@@ -2016,6 +2024,58 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
                        lambda d, t: _apply(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.toast("Addon manager needs libadwaita dialogs")
+
+    def _addons_edit(self, _btn, entries: list, entry: dict,
+                     rebuild=None) -> None:
+        """9.3 Edit: change an entry's path string in place (rename/move)."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(Gtk.Label(label="New path for this entry:", xalign=0))
+        field = Gtk.Entry(text=entry.get("path", ""))
+        box.append(field)
+
+        def _on_ok(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            new_path = (field.get_text() or "").strip()
+            # NOTE: AlertDialog closes on response, so validation failures
+            # toast (they couldn't stay visible in a closed dialog).
+            if not new_path:
+                self.toast("Path must not be empty — edit cancelled")
+                return
+            if new_path != entry.get("path") and new_path in [
+                    e.get("path") for e in entries]:
+                self.toast("That path is already in the list — edit cancelled")
+                return
+            entry["path"] = new_path
+            from odoo_vite.core import addon_paths
+
+            if not addon_paths.looks_like_addons_folder(new_path):
+                self.toast("Saved — note: no subfolder with __manifest__.py "
+                           "found there")
+            if rebuild is not None:
+                try:
+                    rebuild()
+                except Exception:
+                    pass
+            try:
+                _dlg_holder["dlg"].close()
+            except Exception:
+                pass
+
+        _dlg_holder: dict = {}
+        if HAS_ADW and HAS_ALERT:
+            dlg = Adw.AlertDialog(heading="Edit addon path", body="")
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("ok", "Save")
+            dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+            dlg.set_extra_child(box)
+            dlg.set_default_response("cancel")
+            dlg.set_close_response("cancel")
+            _dlg_holder["dlg"] = dlg
+            dlg.choose(self, None,
+                       lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
+        else:
+            self.toast("Edit dialog unavailable on this GTK version")
 
     def _addons_move(self, _btn, entries: list, entry: dict, delta: int,
                      rebuild=None) -> None:

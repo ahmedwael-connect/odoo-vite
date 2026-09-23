@@ -666,6 +666,9 @@ class InstanceDetailPage(Gtk.Box):
     LOG_MODEL_CAP = 5000
 
     def _build_logs(self) -> Gtk.Widget:
+        # 9.1: controls (search/doctor) sit ABOVE the greedy tail view, so
+        # they are reachable without scrolling. Result/finding lists live in
+        # capped scrollers; only the tail expands.
         from gi.repository import Gio as _Gio
 
         box = self._tab_box()
@@ -673,11 +676,14 @@ class InstanceDetailPage(Gtk.Box):
         title = Gtk.Label(label="Logs", xalign=0, hexpand=True)
         title.add_css_class("heading")
         toolbar.append(title)
-        self.btn_log_pause = Gtk.ToggleButton(label="Pause")
-        self.btn_log_pause.set_tooltip_text(
-            "Freeze auto-scroll (also pauses automatically when you scroll up)")
-        self.btn_log_pause.connect("toggled", self._on_log_pause_toggled)
-        toolbar.append(self.btn_log_pause)
+        # 9.2: "Follow" toggle (ON = live-follow). Auto-pauses on scroll-up,
+        # auto-resumes at the bottom; toggling off forces pause.
+        self.btn_log_follow = Gtk.ToggleButton(label="Follow", active=True)
+        self.btn_log_follow.set_tooltip_text(
+            "Follow new lines as they arrive (pauses automatically when you "
+            "scroll up to read)")
+        self.btn_log_follow.connect("toggled", self._on_log_follow_toggled)
+        toolbar.append(self.btn_log_follow)
         self.btn_doctor = Gtk.Button(label="Run Doctor")
         self.btn_doctor.set_tooltip_text("Scan the log for known failure signatures")
         self.btn_doctor.connect("clicked", self._emit, "log-doctor", None)
@@ -694,7 +700,8 @@ class InstanceDetailPage(Gtk.Box):
         box.append(toolbar)
 
         self.lbl_log_paused = Gtk.Label(
-            label="⏸ paused — scroll to the bottom to resume live follow",
+            label="⏸ not following — scroll to the bottom or toggle Follow "
+                  "to resume",
             xalign=0)
         self.lbl_log_paused.add_css_class("warning")
         self.lbl_log_paused.set_visible(False)
@@ -702,17 +709,6 @@ class InstanceDetailPage(Gtk.Box):
         self.lbl_log_note = Gtk.Label(xalign=0, wrap=True)
         self.lbl_log_note.add_css_class("dim-label")
         box.append(self.lbl_log_note)
-
-        self.log_store = _Gio.ListStore(item_type=Gtk.StringObject)
-        factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", self._on_log_row_setup)
-        factory.connect("bind", self._on_log_row_bind)
-        self.log_view = Gtk.ListView(model=Gtk.NoSelection(model=self.log_store),
-                                     factory=factory)
-        self.log_scrolled = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
-        self.log_scrolled.set_min_content_height(220)
-        self.log_scrolled.set_child(self.log_view)
-        box.append(self.log_scrolled)
 
         search_title = Gtk.Label(label="Search (full file, streamed)", xalign=0)
         search_title.add_css_class("heading")
@@ -733,12 +729,31 @@ class InstanceDetailPage(Gtk.Box):
         box.append(self.lbl_search_status)
         self.search_results = Gtk.ListBox()
         self.search_results.set_selection_mode(Gtk.SelectionMode.NONE)
-        box.append(self.search_results)
+        search_scrolled = Gtk.ScrolledWindow()
+        search_scrolled.set_min_content_height(0)
+        search_scrolled.set_max_content_height(170)
+        search_scrolled.set_child(self.search_results)
+        box.append(search_scrolled)
 
         self.doctor_list = Gtk.ListBox()
         self.doctor_list.set_selection_mode(Gtk.SelectionMode.NONE)
         self.doctor_list.set_visible(False)
-        box.append(self.doctor_list)
+        doctor_scrolled = Gtk.ScrolledWindow()
+        doctor_scrolled.set_min_content_height(0)
+        doctor_scrolled.set_max_content_height(170)
+        doctor_scrolled.set_child(self.doctor_list)
+        box.append(doctor_scrolled)
+
+        self.log_store = _Gio.ListStore(item_type=Gtk.StringObject)
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._on_log_row_setup)
+        factory.connect("bind", self._on_log_row_bind)
+        self.log_view = Gtk.ListView(model=Gtk.NoSelection(model=self.log_store),
+                                     factory=factory)
+        self.log_scrolled = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        self.log_scrolled.set_min_content_height(200)
+        self.log_scrolled.set_child(self.log_view)
+        box.append(self.log_scrolled)
 
         slow_title = Gtk.Label(label="Slow queries (pg_stat_statements)", xalign=0)
         slow_title.add_css_class("heading")
@@ -753,7 +768,11 @@ class InstanceDetailPage(Gtk.Box):
         box.append(slow_row)
         self.slow_list = Gtk.ListBox()
         self.slow_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        box.append(self.slow_list)
+        slow_scrolled = Gtk.ScrolledWindow()
+        slow_scrolled.set_min_content_height(0)
+        slow_scrolled.set_max_content_height(150)
+        slow_scrolled.set_child(self.slow_list)
+        box.append(slow_scrolled)
 
         self._log_follower = None
         self._log_poll_id = 0
@@ -780,10 +799,14 @@ class InstanceDetailPage(Gtk.Box):
         except Exception:
             pass
 
-    def _on_log_pause_toggled(self, btn) -> None:
-        paused = bool(btn.get_active())
-        self._log_follow = not paused
-        self.lbl_log_paused.set_visible(paused)
+    def _on_log_follow_toggled(self, btn) -> None:
+        # 9.2: ON = following. Toggling off forces pause; toggling back on
+        # resumes immediately (scrolls to end on next batch).
+        following = bool(btn.get_active())
+        self._log_follow = following
+        self.lbl_log_paused.set_visible(not following)
+        if following:
+            self._scroll_log_to_end()
 
     def _on_profile_clicked(self, _btn) -> None:
         item = self.drop_profile_dur.get_selected_item()
@@ -850,8 +873,16 @@ class InstanceDetailPage(Gtk.Box):
             adj = self.log_scrolled.get_vadjustment()
         except Exception:
             pass
+        # 9.2: toggle ON means "follow when at bottom" (auto-pause on
+        # scroll-up, auto-resume at bottom); toggle OFF forces pause.
         follow = self._log_follow
-        if adj is not None and not self.btn_log_pause.get_active():
+        try:
+            toggle_on = bool(self.btn_log_follow.get_active())
+        except Exception:
+            toggle_on = True
+        if not toggle_on:
+            follow = False
+        elif adj is not None:
             try:
                 follow = adj.get_value() >= adj.get_upper() - adj.get_page_size() - 8
             except Exception:
@@ -862,12 +893,16 @@ class InstanceDetailPage(Gtk.Box):
         if over > 0:
             self.log_store.splice(0, over, [])
         try:
-            paused = (not follow) or self.btn_log_pause.get_active()
-            self.lbl_log_paused.set_visible(paused)
+            self.lbl_log_paused.set_visible(not follow)
         except Exception:
             pass
-        if follow and not self.btn_log_pause.get_active():
-            self._scroll_log_to_end()
+        if follow:
+            try:
+                following = bool(self.btn_log_follow.get_active())
+            except Exception:
+                following = True
+            if following:
+                self._scroll_log_to_end()
 
     def _scroll_log_to_end(self) -> None:
         try:
