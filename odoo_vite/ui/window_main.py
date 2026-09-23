@@ -162,6 +162,20 @@ def bind_check_highlight(check) -> None:
     _sync()
 
 
+def diff_record_values(current: dict, new: dict) -> dict:
+    """Changed fields {key: (old, new)} for the update-preview dialog.
+
+    Compares stringified values (Odoo round-trips most scalars through
+    text); relational blobs are skipped upstream, never diffed here.
+    """
+    current = current or {}
+    changed = {}
+    for key, value in (new or {}).items():
+        if str(current.get(key)) != str(value):
+            changed[key] = (current.get(key), value)
+    return changed
+
+
 def filter_checks(checks: dict, needle: str) -> int:
     """H-P1 client-side filter: show checks matching needle, return visible count."""
     needle = (needle or "").strip().lower()
@@ -1889,6 +1903,14 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
                 GLib.idle_add(self._show_result, instance_id, False,
                               "Instance disappeared")
                 return
+            # v2 verification: workers>0 pre-check runs before ANY write —
+            # a busy longpolling port refuses the whole save (registry and
+            # conf stay consistent) with the holder named.
+            pre = conf_manager.check_workers_prereqs(
+                int(meta.get("workers", 0) or 0), inst.conf_path)
+            if not pre.ok:
+                GLib.idle_add(self._show_result, instance_id, False, pre.message)
+                return
             res = update_instance(
                 instance_id,
                 description=meta.get("description", ""),
@@ -2702,8 +2724,7 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
                 return
             # update: explicit changed-fields preview before commit
             current = record or {}
-            changed = {k: (current.get(k), v) for k, v in values.items()
-                       if str(current.get(k)) != str(v)}
+            changed = diff_record_values(current, values)
             if not changed:
                 self.toast("No changes vs current values")
                 return

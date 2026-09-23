@@ -231,6 +231,11 @@ def test_record_crud_guards(monkeypatch):
     assert not odoo_inspect.create_record(_client(), "m", {}).ok
     assert not odoo_inspect.update_record(_client(), "m", 1, {}).ok
     assert not odoo_inspect.delete_record(_client(), "m", "xx").ok
+    # v2 verification: ir.* system models are unconditionally un-deletable
+    blocked = odoo_inspect.delete_record(_client(), "ir.module.module", 1, "x")
+    assert not blocked.ok and "off-limits" in blocked.message
+    blocked = odoo_inspect.delete_record(_client(), "ir.actions.server", 1)
+    assert not blocked.ok
 
     def _fake(url, db, uid, pw, model, method, args=None, kwargs=None,
               timeout=15):
@@ -284,3 +289,41 @@ def test_editor_detection_and_open(monkeypatch, tmp_path):
 
 class DummyProc:
     pass
+
+
+def test_diff_record_values():
+    """v2 verification: update preview shows exactly the changed fields."""
+    from odoo_vite.ui.window_main import diff_record_values
+
+    assert diff_record_values({"a": 1, "b": "x"}, {"a": 1, "b": "y"}) == {
+        "b": ("x", "y")}
+    assert diff_record_values({"a": 1}, {"a": 1}) == {}
+    assert diff_record_values({}, {"a": 1}) == {"a": (None, 1)}
+
+
+def test_workers_precheck():
+    """v2 verification: busy longpolling port refuses workers>0 loudly."""
+    import socket as _socket
+
+    from odoo_vite.core import conf_manager
+
+    res = conf_manager.check_workers_prereqs(0, "/nonexistent.conf")
+    assert res.ok  # single-process needs nothing
+    assert not conf_manager.check_workers_prereqs("x", "/nonexistent.conf").ok
+    held = _socket.socket()
+    held.bind(("127.0.0.1", 0))
+    held.listen(1)  # bound-only sockets are invisible; servers listen
+    busy_port = held.getsockname()[1]
+    import tempfile as _tf
+
+    with _tf.NamedTemporaryFile("w", suffix=".conf", delete=False) as fh:
+        fh.write("[options]\nlongpolling_port = %d\n" % busy_port)
+        conf = fh.name
+    try:
+        res = conf_manager.check_workers_prereqs(2, conf)
+        assert not res.ok and str(busy_port) in res.message
+        assert "held by" in res.message  # names the holder via psutil
+    finally:
+        held.close()
+    res = conf_manager.check_workers_prereqs(2, conf)
+    assert res.ok and res.data["port"] == busy_port

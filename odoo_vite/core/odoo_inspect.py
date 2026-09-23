@@ -200,9 +200,20 @@ def update_record(client: dict, model: str, record_id: int,
 def delete_record(client: dict, model: str, record_id: int,
                   display_name: str = "") -> Result:
     """Unlink one record. The UI type-to-confirms display_name first —
-    this function just executes (and re-verifies existence first)."""
+    this function just executes (and re-verifies existence first).
+
+    Hard rule (v2 verification): ir.* system models cannot be deleted
+    through this tool at all — no confirmation can override it. Deleting
+    framework metadata rows has no legitimate admin use case and risks an
+    unbootable database.
+    """
     if not (model or "").strip():
         return Result.failure("Model is required")
+    model = model.strip()
+    if model.startswith("ir."):
+        return Result.failure(
+            f"Refusing to delete from system model '{model}' — framework "
+            "metadata rows are off-limits to the Record Browser, no exceptions")
     try:
         record_id = int(record_id)
     except (TypeError, ValueError):

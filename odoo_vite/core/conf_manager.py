@@ -216,3 +216,62 @@ def regenerate_conf(instance) -> Result:  # type: ignore[no-untyped-def]
     return Result.success(
         data={**(res.data or {}), "preserved_sections": sorted(extras)},
         message=(res.message or "") + f" (preserved {sorted(extras)})")
+
+
+def check_workers_prereqs(workers: int, conf_path: str | Path) -> Result:
+    """Pre-check for workers>0 (v2 verification): the gevent/longpolling
+    port must be free or Odoo crashes on boot with a confusing bind error.
+
+    Reads longpolling_port (else gevent_port, else default 8072) from the
+    live conf. Socket-bind test; on conflict, names the holding process
+    best-effort via psutil. Never raises.
+    """
+    try:
+        count = int(workers or 0)
+    except (TypeError, ValueError):
+        return Result.failure(f"Invalid workers value '{workers}'")
+    if count <= 0:
+        return Result.success(
+            data={"port": None},
+            message="Single-process mode — no extra prerequisites")
+    port = 8072
+    try:
+        sections = parse_conf_file(conf_path)
+        options = sections.get("options", {})
+        for key in ("longpolling_port", "gevent_port"):
+            if str(options.get(key, "")).strip().isdigit():
+                port = int(str(options[key]).strip())
+                break
+    except Exception:
+        pass
+    import socket as _socket
+
+    try:
+        probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        try:
+            probe.bind(("127.0.0.1", port))
+        finally:
+            probe.close()
+        return Result.success(
+            data={"port": port},
+            message=f"workers={count} OK (longpolling port {port} is free; "
+                    "expect higher RAM use, cron in a dedicated worker)")
+    except OSError:
+        pass
+    holder = ""
+    try:
+        import psutil as _psutil
+
+        for conn in _psutil.net_connections(kind="inet"):
+            try:
+                if conn.laddr and conn.laddr.port == port and conn.pid:
+                    proc = _psutil.Process(conn.pid)
+                    holder = f" (held by pid {conn.pid} {proc.name()})"
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return Result.failure(
+        f"Refusing workers={count}: longpolling port {port} is busy{holder}. "
+        "Free it or set longpolling_port/gevent_port to a free port first.")
