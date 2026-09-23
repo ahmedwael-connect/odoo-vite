@@ -25,6 +25,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from odoo_vite.core.instance import effective_python
 from odoo_vite.core.result import Result
 
 
@@ -145,8 +146,6 @@ def _one_shot_preconditions(inst, db_name: str, db_path=None):  # type: ignore[n
             f"Instance '{inst.name}' is running on '{db_name}' (pid {pid}) — "
             "stop it first; a one-shot writer must never run concurrently "
             "with the server on the same database")
-    from odoo_vite.core.instance import effective_python
-
     _eff = effective_python(inst)
     venv_python = Path(_eff) if _eff else None
     odoo_bin = Path(inst.community_path) / "odoo-bin"
@@ -174,8 +173,6 @@ def install_modules(instance, db_name: str, module_names: list[str],  # type: ig
     err = _one_shot_preconditions(instance, db_name, db_path)
     if err is not None:
         return err
-    from odoo_vite.core.instance import effective_python
-
     cmd = [effective_python(instance),
            str(Path(instance.community_path) / "odoo-bin"),
            "-c", instance.conf_path, "-d", db_name,
@@ -245,8 +242,6 @@ def update_code(instance, module_names: list[str], progress_cb=None,  # type: ig
     if not db_name:
         return Result.failure("Instance has no primary database to update")
     _emit(f"=== [3/3] odoo-bin -u {','.join(mods)} on '{db_name}' ===")
-    from odoo_vite.core.instance import effective_python
-
     cmd = [effective_python(instance),
            str(community / "odoo-bin"), "-c", instance.conf_path,
            "-d", db_name, "-u", ",".join(mods), "--stop-after-init"]
@@ -261,7 +256,7 @@ def update_code(instance, module_names: list[str], progress_cb=None,  # type: ig
                           message=f"Updated {', '.join(mods)} (code+deps+data)")
 
 
-def uninstall_modules(instance, db_name: str, module_names: list[str],  # type: ignore[no-untyped-def]
+def uninstall_modules(instance, db_name: str, module_names: list[str],
                       progress_cb=None, cancel=None, db_path=None) -> Result:
     """Uninstall via `odoo-bin shell` + button_immediate_uninstall (B.4).
 
@@ -287,8 +282,6 @@ def uninstall_modules(instance, db_name: str, module_names: list[str],  # type: 
         "mods.button_immediate_uninstall()\n"
         "print('UNINSTALLED: ' + ','.join(sorted(mods.mapped('name'))))\n"
     )
-    from odoo_vite.core.instance import effective_python
-
     cmd = [effective_python(instance),
            str(Path(instance.community_path) / "odoo-bin"), "shell",
            "-c", instance.conf_path, "-d", db_name]
@@ -438,3 +431,90 @@ def get_dependency_graph(instance, db_name: str, db_path=None) -> Result:  # typ
     return Result.success(
         data={"nodes": nodes, "edges": edges, "database": db_name},
         message=f"{len(nodes)} module(s), {len(edges)} dependenc(ies)")
+
+
+def run_module_tests(instance, db_name: str, module_name: str,  # type: ignore[no-untyped-def]
+                     progress_cb=None, cancel=None, db_path=None) -> Result:
+    """Run one module's test suite on a NON-primary database (Sprint 11.3).
+
+    Target selection (explicit, never silent): missing DB → `-i <module>
+    --test-enable` (creates + installs + tests in one shot); existing DB →
+    `-u <module> --test-enable` (faster, preserves). The primary database
+    is REFUSED outright — tests create/modify/destroy data. Flags
+    --test-enable/--stop-after-init are stable across 15.0–19.0.
+    """
+    from odoo_vite.core.db_state import get_db_state
+    from odoo_vite.core.proc import run_streaming
+
+    module = (module_name or "").strip()
+    if not module:
+        return Result.failure("Module name is required")
+    target = (db_name or "").strip()
+    if not target:
+        return Result.failure("Target test database is required")
+    if target == (instance.primary_db or "").strip():
+        return Result.failure(
+            f"Refusing to run tests on '{target}' — it is this instance's "
+            "PRIMARY database. Pick (or type) a disposable test database; "
+            "tests can create, modify and destroy data")
+    venv_python = Path(effective_python(instance))
+    odoo_bin = Path(instance.community_path) / "odoo-bin"
+    if not venv_python.is_file():
+        return Result.failure(f"Venv python missing at {venv_python}")
+    if not odoo_bin.is_file():
+        return Result.failure(f"odoo-bin missing at {odoo_bin}")
+    if inst_conf_missing(instance):
+        return Result.failure(f"odoo.conf missing at {instance.conf_path}")
+    if _running_on(instance, target, db_path) is not None:
+        return Result.failure(
+            f"Instance is running on '{target}' — stop it first; test runs "
+            "must own their database")
+    state = get_db_state(target, instance.db_user or "odoo",
+                         _password_for(instance) or None)
+    if state.error and not state.exists:
+        return Result.failure(f"Cannot inspect '{target}': {state.error}")
+    if state.exists and state.initialized:
+        mode, flag = "update-in-place (-u)", ["-u", module]
+    else:
+        mode, flag = ("create+install (-i)"
+                      if not state.exists else "initialize+install (-i)", ["-i", module])
+    cmd = [str(venv_python), str(odoo_bin), "-c", instance.conf_path,
+           "-d", target, *flag, "--test-enable", "--stop-after-init"]
+    res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel,
+                        timeout=3600)
+    summary = parse_test_summary((res.data or {}).get("lines", []))
+    if not res.ok:
+        return Result.failure(
+            f"Test run failed to complete ({mode}): {res.message}",
+            data={"summary": summary, "database": target, "module": module})
+    return Result.success(
+        data={"summary": summary, "database": target, "module": module,
+              "mode": mode},
+        message=(f"Tests {summary['status']} for '{module}' "
+                  f"({summary['ran']} ran): {summary['text'][:160]}"))
+
+
+def inst_conf_missing(instance) -> bool:  # type: ignore[no-untyped-def]
+    return bool(instance.conf_path) and not Path(instance.conf_path).is_file()
+
+
+def parse_test_summary(lines: list[str]) -> dict:
+    """Parse unittest-style tail: 'Ran N tests' + 'OK' / 'FAILED (...)'."""
+    import re as _re
+
+    tail = "\n".join(lines[-30:] if lines else [])
+    ran = 0
+    match = _re.search(r"Ran (\d+) tests?", tail)
+    if match:
+        try:
+            ran = int(match.group(1))
+        except ValueError:
+            ran = 0
+    status, text = "unknown", ""
+    if _re.search(r"^OK(\s|$)", tail, _re.MULTILINE):
+        status, text = "passed", "OK"
+    else:
+        fail = _re.search(r"^FAILED( \(.*\))?", tail, _re.MULTILINE)
+        if fail:
+            status, text = "failed", f"FAILED{fail.group(1) or ''}".strip()
+    return {"ran": ran, "status": status, "text": text or tail[-200:]}

@@ -111,6 +111,18 @@ class InstanceDetailPage(Gtk.Box):
         btn_row.append(self.btn_browser)
         box.append(btn_row)
 
+        dev_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.check_devmode = Gtk.CheckButton(label="Dev Mode (auto-restart on file changes)")
+        self.check_devmode.set_tooltip_text(
+            "Watches custom/community/enterprise addons; restarts the instance "
+            "after ~1s of file quiet. Restarts are logged in App events.")
+        self.check_devmode.connect("toggled", self._on_devmode_toggled)
+        dev_row.append(self.check_devmode)
+        self.lbl_devmode = Gtk.Label(xalign=0)
+        self.lbl_devmode.add_css_class("dim-label")
+        dev_row.append(self.lbl_devmode)
+        box.append(dev_row)
+
         self.lbl_error = Gtk.Label(xalign=0, wrap=True, selectable=True)
         self.lbl_error.add_css_class("error")
         box.append(self.lbl_error)
@@ -1109,7 +1121,114 @@ class InstanceDetailPage(Gtk.Box):
         self._records_cache = []
         self._records_offset = 0
         self._records_model = ""
+
+        shell_title = Gtk.Label(label="Odoo Shell (interactive)", xalign=0)
+        shell_title.add_css_class("heading")
+        box.append(shell_title)
+        box.append(Gtk.Label(
+            label="Direct subprocess REPL — no network hop. Validates "
+                  "venv/odoo-bin/conf/database before spawning.",
+            xalign=0, wrap=True))
+        shell_btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.btn_shell_start = Gtk.Button(label="Start shell")
+        self.btn_shell_start.connect("clicked", self._emit, "shell-start", None)
+        shell_btn_row.append(self.btn_shell_start)
+        self.btn_shell_stop = Gtk.Button(label="Stop shell")
+        self.btn_shell_stop.connect("clicked", self._emit, "shell-stop", None)
+        shell_btn_row.append(self.btn_shell_stop)
+        self.lbl_shell_status = Gtk.Label(xalign=0, hexpand=True)
+        self.lbl_shell_status.add_css_class("dim-label")
+        shell_btn_row.append(self.lbl_shell_status)
+        box.append(shell_btn_row)
+        self.shell_output = Gtk.TextView(editable=False, monospace=True,
+                                         hexpand=True)
+        shell_scrolled = Gtk.ScrolledWindow()
+        shell_scrolled.set_min_content_height(200)
+        shell_scrolled.set_max_content_height(320)
+        shell_scrolled.set_child(self.shell_output)
+        box.append(shell_scrolled)
+        shell_in_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.entry_shell_in = Gtk.Entry(hexpand=True,
+                                        placeholder_text=">>> type python, Enter to send")
+        self.entry_shell_in.connect("activate", self._on_shell_send)
+        shell_in_row.append(self.entry_shell_in)
+        btn_shell_send = Gtk.Button(label="Send")
+        btn_shell_send.connect("clicked", self._on_shell_send)
+        shell_in_row.append(btn_shell_send)
+        box.append(shell_in_row)
+
+        test_title = Gtk.Label(label="Run module tests", xalign=0)
+        test_title.add_css_class("heading")
+        box.append(test_title)
+        test_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.entry_test_module = Gtk.Entry(hexpand=True,
+                                           placeholder_text="module technical name")
+        test_row.append(self.entry_test_module)
+        self.entry_test_db = Gtk.Entry(hexpand=True,
+                                       placeholder_text="test database")
+        test_row.append(self.entry_test_db)
+        self.btn_test_run = Gtk.Button(label="Run Tests")
+        self.btn_test_run.add_css_class("suggested-action")
+        self.btn_test_run.connect("clicked", self._emit, "test-run", None)
+        test_row.append(self.btn_test_run)
+        box.append(test_row)
+        box.append(Gtk.Label(
+            label="Defaults to <primary>_test. NEVER the primary database — "
+                  "refused outright. Missing DBs are created+installed (-i); "
+                  "existing ones are updated+tested (-u).",
+            xalign=0, wrap=True))
         return box
+
+    def _on_devmode_toggled(self, btn) -> None:
+        try:
+            active = bool(btn.get_active())
+        except Exception:
+            return
+        self._emit(btn, "devmode", active)
+
+    def set_devmode_state(self, on: bool, note: str = "") -> None:
+        try:
+            self.check_devmode.set_active(bool(on))
+        except Exception:
+            pass
+        try:
+            self.lbl_devmode.set_text(note)
+        except Exception:
+            pass
+
+    def _on_shell_send(self, *_args) -> None:
+        try:
+            text = self.entry_shell_in.get_text() or ""
+        except Exception:
+            return
+        if not text.strip():
+            return
+        try:
+            self.entry_shell_in.set_text("")
+        except Exception:
+            pass
+        self._emit(None, "shell-send", text)
+
+    def shell_append(self, lines: list) -> None:
+        try:
+            buf = self.shell_output.get_buffer()
+            for line in lines or []:
+                buf.insert(buf.get_end_iter(), line + "\n")
+        except Exception:
+            pass
+
+    def shell_set_status(self, text: str) -> None:
+        try:
+            self.lbl_shell_status.set_text(text)
+        except Exception:
+            pass
+
+    def test_fields(self):
+        try:
+            return ((self.entry_test_module.get_text() or "").strip(),
+                    (self.entry_test_db.get_text() or "").strip())
+        except Exception:
+            return "", ""
 
     # ------------------------------------------------------- dev accessors
     # (Window flows read these; rendering stays here.)
@@ -1482,6 +1601,12 @@ class InstanceDetailPage(Gtk.Box):
             self.stack.set_visible_child_name("empty")
             return
         self.lbl_name.set_text(inst.name)
+        try:
+            self.shell_output.get_buffer().set_text("")
+            self.shell_set_status("")
+            self.entry_test_db.set_text(f"{(inst.primary_db or 'odoo').strip()}_test")
+        except Exception:
+            pass
         self.lbl_desc.set_text(inst.description or "")
         self.lbl_desc.set_visible(bool(inst.description))
         self.refresh_conf()
