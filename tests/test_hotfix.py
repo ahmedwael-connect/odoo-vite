@@ -211,7 +211,7 @@ def test_remove_aborts_drops_when_server_down(tmp_path, db, monkeypatch):
 # ------------------------------------------------------------------ H-P1
 def test_discover_filter_logic():
     """H-P1 client-side filter (GTK-free fakes — pytest-safe headless)."""
-    from odoo_vite.ui.window_main import filter_checks
+    from odoo_vite.ui.flows.dialogs import filter_checks
 
     class FakeCheck:
         def __init__(self):
@@ -232,7 +232,7 @@ def test_discover_filter_logic():
 # ------------------------------------------------- Sprint 6 Part A
 def test_discover_defaults_likely_only():
     """A.1: only the likely group arrives pre-checked, rest visible+off."""
-    from odoo_vite.ui.window_main import discover_defaults
+    from odoo_vite.ui.flows.instance_lifecycle import discover_defaults
 
     groups = {"likely": ["a"], "other": ["b"], "plain": ["c", "postgres"]}
     assert discover_defaults(groups) == {"a": True, "b": False,
@@ -242,7 +242,7 @@ def test_discover_defaults_likely_only():
 
 def test_bind_check_highlight_tracks_state():
     """A.2: checked rows get the always-visible class, unchecked lose it."""
-    from odoo_vite.ui.window_main import bind_check_highlight
+    from odoo_vite.ui.flows.dialogs import bind_check_highlight
 
     class FakeCheck:
         def __init__(self, active):
