@@ -101,3 +101,29 @@ def test_progress_dialog_helper_is_module_level():
         "build_progress_dialog must be a module-level def in flows.dialogs "
         "(regression: it once nested silently inside filter_checks)"
     )
+
+
+def test_no_bare_self_dialog_parents():
+    """REG.1: dialog parents must be `self.win`, never bare `self`.
+
+    The R.5 move rewrote `self.X` attribute access but left bare `self`
+    passed as a dialog parent (`dlg.choose(self, ...)`), which breaks the
+    call silently (button "does nothing"). Whitespace-collapsed so
+    multi-line calls (e.g. `select_folder(\\n self, ...)`) are caught too.
+    """
+    import re
+
+    problems = {}
+    for path in FLOW_FILES:
+        if path.parent.name != "flows":
+            continue
+        flat = re.sub(r"\s+", " ", path.read_text())
+        hits = []
+        for pat in (r"\.(choose|select_folder|save|open)\(\s*self\s*,",
+                    r"transient_for\s*=\s*self\s*[,)]",
+                    r"set_transient_for\(\s*self\s*\)"):
+            hits += re.findall(pat, flat)
+        if hits:
+            problems[path.name] = hits
+    assert not problems, (
+        f"bare `self` used as dialog parent (use `self.win`): {problems}")

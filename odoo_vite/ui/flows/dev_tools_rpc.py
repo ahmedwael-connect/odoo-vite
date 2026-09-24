@@ -401,7 +401,7 @@ class DevToolsRpcFlows:
                 dlg2.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
                 dlg2.set_default_response("cancel")
                 dlg2.set_close_response("cancel")
-                dlg2.choose(self, None,
+                dlg2.choose(self.win, None,
                             lambda d, t: _commit(_finish_alert(d, t, "cancel") == "ok"))
             else:
                 _commit(True)
@@ -417,7 +417,7 @@ class DevToolsRpcFlows:
             dlg.set_extra_child(box)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.win.toast("Record editor needs libadwaita dialogs")
@@ -494,7 +494,7 @@ class DevToolsRpcFlows:
             dlg.set_extra_child(box)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.win.toast("Delete needs libadwaita dialogs")

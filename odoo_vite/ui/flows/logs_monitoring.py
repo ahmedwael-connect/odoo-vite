@@ -239,7 +239,7 @@ class LogsMonitoringFlows:
                 dlg.add_response("ok", "Close")
                 dlg.set_extra_child(scrolled)
                 dlg.set_size_request(720, 520)
-                dlg.choose(self, None, lambda d, t: None)
+                dlg.choose(self.win, None, lambda d, t: None)
                 shown = True
         except Exception:
             shown = False

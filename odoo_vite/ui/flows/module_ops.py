@@ -215,7 +215,7 @@ class ModuleOpsFlows:
             dlg.set_extra_child(box)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _go(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.win._confirm_async("Update code and modules?",
@@ -389,7 +389,7 @@ class ModuleOpsFlows:
             dlg.add_response("ok", "Close")
             dlg.set_extra_child(outer)
             dlg.set_size_request(680, 560)
-            dlg.choose(self, None, lambda d, t: None)
+            dlg.choose(self.win, None, lambda d, t: None)
         else:
             self.win.toast(f"{len(nodes)} modules, {len(edges)} edges (no dialog backend)")
         return False
@@ -469,7 +469,7 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
             dlg.set_extra_child(box)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.win._confirm_async(heading, command, confirm_label, _on_ok)

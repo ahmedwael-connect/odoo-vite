@@ -245,7 +245,7 @@ class ConfigurationFlows:
                 return
             dlg = Gtk.FileDialog(title="Select addons folder")
             dlg.select_folder(
-                self, None,
+                self.win, None,
                 lambda d, t: _folder_picked(d, t, picked, path_lbl))
 
         def _folder_picked(dlg, result, picked, path_lbl) -> None:
@@ -307,7 +307,7 @@ class ConfigurationFlows:
             dlg.set_extra_child(outer)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _apply(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.win.toast("Addon manager needs libadwaita dialogs")
@@ -360,7 +360,7 @@ class ConfigurationFlows:
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
             _dlg_holder["dlg"] = dlg
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.win.toast("Edit dialog unavailable on this GTK version")
