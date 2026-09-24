@@ -8,11 +8,13 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from odoo_vite.ui_qt import load_qt_style
 from odoo_vite.ui_qt.main_window import QtMainWindow
 
 
 def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
+    load_qt_style(app)
     window = QtMainWindow()
     window.show()
     return app.exec()

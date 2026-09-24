@@ -21,8 +21,8 @@ dependencies = [
 authors = [{ name = "Odoo Vite Team" }]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
-dev = ["pytest>=8.0"]
+test = ["pytest>=8.0", "pytest-qt>=4.0"]
+dev = ["pytest>=8.0", "pytest-qt>=4.0"]
 
 [tool.setuptools.packages.find]
 include = ["odoo_vite*"]

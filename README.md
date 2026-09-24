@@ -43,6 +43,14 @@ pip install --break-system-packages -r requirements.txt
 python3 main.py            # or: python3 -m odoo_vite.main
 ```
 
+> **Qt migration preview (PSQ):** `python3 -m odoo_vite.ui_qt.main_qt`
+> launches the in-progress Qt6 frontend (empty shell reading the same
+> registry). `python3 main.py` remains the GTK app and the default —
+> use it for all real work until the PSQ-10 cutover. Under X/Xvfb the Qt
+> build needs `LD_LIBRARY_PATH=$HOME/.local/usr/lib/x86_64-linux-gnu`
+> (user-space `libxcb-cursor0`, see `docs/qt-architecture.md`); tests use
+> `QT_QPA_PLATFORM=offscreen` and need nothing extra.
+
 On first launch the app creates `~/.local/share/odoo-vite/` (registry +
 audit log + instance folders). Open **Preferences** to choose Developer vs
 Managed provisioning mode before creating instances.
