@@ -364,7 +364,7 @@ class InstanceLifecycleFlows:
             dlg.set_extra_child(outer)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
         else:
             # Fallback: track everything found, no per-item choice.
@@ -431,7 +431,7 @@ class InstanceLifecycleFlows:
             dlg.set_extra_child(box)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
-            dlg.choose(self, None,
+            dlg.choose(self.win, None,
                        lambda d, t: _on_ok(_finish_alert(d, t, "cancel") == "ok"))
         else:
             self.win._confirm_async(
