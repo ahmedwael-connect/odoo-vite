@@ -71,6 +71,18 @@ class OverviewTab:
 
         self.lbl_enterprise = Gtk.Label(xalign=0, wrap=True)
         box.append(self.lbl_enterprise)
+        ent_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.btn_ent_load = Gtk.Button(label="Load Enterprise…")
+        self.btn_ent_load.set_tooltip_text(
+            "Clone your licensed Enterprise remote and wire it in")
+        self.btn_ent_load.connect("clicked", self._emit, "ent-load", None)
+        ent_row.append(self.btn_ent_load)
+        self.btn_ent_unload = Gtk.Button(label="Unload Enterprise")
+        self.btn_ent_unload.set_tooltip_text(
+            "Stop using Enterprise addons (files are kept on disk)")
+        self.btn_ent_unload.connect("clicked", self._emit, "ent-unload", None)
+        ent_row.append(self.btn_ent_unload)
+        box.append(ent_row)
 
         stats_title = Gtk.Label(label="Stats", xalign=0)
         stats_title.add_css_class("heading")

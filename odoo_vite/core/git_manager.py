@@ -124,6 +124,50 @@ def list_odoo_branches(search: str = "", refresh: bool = False) -> Result:
 # ---------------------------------------------------------------------------
 # Sprint 2: community clone
 
+def clone_repo(
+    url: str,
+    branch: str,
+    dest_dir: str | Path,
+    progress_cb: Callable[[str], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
+    label: str = "repo",
+) -> Result:
+    """Shallow-clone any git repo/branch into `dest_dir` (must not exist
+    non-empty). Shared engine behind clone_instance() and enterprise load —
+    one cloner, not two. Auth comes from the user's own git/SSH setup;
+    failures (including auth errors) surface verbatim, never worked around.
+    `label` names the clone in messages (e.g. "Odoo 17.0").
+    """
+    if shutil.which("git") is None:
+        return Result.failure("git is not installed (required for cloning)")
+    if not (url or "").strip():
+        return Result.failure("No git URL given")
+    dest = Path(dest_dir).expanduser()
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return Result.failure(f"Cannot create {dest.parent}: {exc}")
+    if dest.exists() and any(dest.iterdir()):
+        return Result.failure(
+            f"Destination {dest} already exists and is not empty "
+            "(refusing to overwrite)"
+        )
+    cmd = [
+        "git", "clone", "--branch", branch, "--depth", "1",
+        url.strip(), str(dest),
+    ]
+    res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel, timeout=1800)
+    if not res.ok:
+        return Result.failure(
+            f"git clone of {label} failed: {res.message}",
+            data={"path": str(dest), **(res.data or {})},
+        )
+    return Result.success(
+        data={"path": str(dest)},
+        message=f"{label} cloned to {dest}",
+    )
+
+
 def clone_instance(
     version: str,
     dest_path: str | Path,
@@ -136,8 +180,6 @@ def clone_instance(
     streaming git output line-by-line to progress_cb. Cancellable via
     `cancel` (the git child is terminated, not orphaned).
     """
-    if shutil.which("git") is None:
-        return Result.failure("git is not installed (required for cloning)")
     dest = Path(dest_path).expanduser()
     community = dest / "community"
     try:
@@ -149,15 +191,15 @@ def clone_instance(
             f"Destination {community} already exists and is not empty "
             "(resume logic lives in provisioning; refusing to overwrite)"
         )
-    cmd = [
-        "git", "clone", "--branch", version, "--depth", "1",
-        ODOO_REPO_URL, str(community),
-    ]
-    res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel, timeout=1800)
+    res = clone_repo(ODOO_REPO_URL, version, community,
+                     progress_cb=progress_cb, cancel=cancel,
+                     label=f"Odoo {version}")
     if not res.ok:
         return Result.failure(
-            f"git clone of Odoo {version} failed: {res.message}",
-            data={"community_path": str(community), **(res.data or {})},
+            res.message,
+            data={"community_path": str(community),
+                  **{k: v for k, v in (res.data or {}).items()
+                     if k != "path"}},
         )
     return Result.success(
         data={"community_path": str(community)},

@@ -22,7 +22,6 @@ except (ImportError, ValueError):
     Adw = None  # type: ignore
     HAS_ADW = False
 
-from odoo_vite.core.adopt import check_enterprise_match  # noqa: E402
 from odoo_vite.core.registry import get_instance, update_instance  # noqa: E402
 from odoo_vite.ui.detail_tabs.configuration import ConfigurationTab  # noqa: E402
 from odoo_vite.ui.detail_tabs.databases import DatabasesTab  # noqa: E402
@@ -1190,25 +1189,47 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
             f"{mem:.0f} MB" if mem is not None else "—")
 
     def _refresh_enterprise_badge(self, inst) -> None:
-        if not inst.enterprise_path:
-            self.lbl_enterprise.set_visible(False)
-            return
+        # ENT.1: always-visible tri-state badge driven by
+        # enterprise.detect_enterprise (valid / invalid-path / community).
         try:
-            info = check_enterprise_match(inst.version, inst.enterprise_path)
+            from odoo_vite.core import enterprise as _ent
+
+            res = _ent.detect_enterprise(inst)
+            state = res.data.get("state", "community") if res.ok else "community"
+            major = res.data.get("enterprise_major", "") if res.ok else ""
+            match = res.data.get("match") if res.ok else None
         except Exception:
-            info = {"match": None, "enterprise_major": ""}
+            state, major, match = "community", "", None
+        try:
+            self.lbl_enterprise.remove_css_class("warning")
+        except Exception:
+            pass
         self.lbl_enterprise.set_visible(True)
-        if info.get("match") is True:
+        if state == "valid" and match is True:
             self.lbl_enterprise.set_text(
-                f"Enterprise addons {info.get('enterprise_major')} ✓ "
-                f"match Odoo {inst.version}.")
-        elif info.get("match") is False:
+                f"Enterprise addons {major} ✓ match Odoo {inst.version}.")
+        elif state == "valid" and match is False:
             self.lbl_enterprise.set_text(
-                f"⚠ Enterprise addons {info.get('enterprise_major')} do NOT "
-                f"match Odoo {inst.version} — verify compatibility.")
-        else:
+                f"⚠ Enterprise addons {major} do NOT match Odoo "
+                f"{inst.version} — verify compatibility.")
+            self.lbl_enterprise.add_css_class("warning")
+        elif state == "invalid":
+            self.lbl_enterprise.set_text(
+                "⚠ Enterprise path is set but not recognizable — check "
+                "the folder (Unload clears it without deleting files).")
+            self.lbl_enterprise.add_css_class("warning")
+        elif state == "valid":
             self.lbl_enterprise.set_text(
                 "Enterprise addons set, version unknown — verify compatibility.")
+        else:
+            self.lbl_enterprise.set_text(
+                "Community edition — no Enterprise configured.")
+        try:
+            self.btn_ent_load.set_visible(state != "valid")
+            self.btn_ent_unload.set_visible(bool(
+                (inst.enterprise_path or "").strip()))
+        except Exception:
+            pass
 
     def show_error(self, message: str) -> None:
         self.lbl_error.set_text(message)

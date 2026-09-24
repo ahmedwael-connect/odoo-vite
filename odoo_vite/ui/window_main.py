@@ -69,6 +69,9 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         from odoo_vite.ui.flows.backup_schedules import (  # noqa: E402
             BackupSchedulesFlows)
         self.sched_flows = BackupSchedulesFlows(self)
+        from odoo_vite.ui.flows.enterprise_ops import (  # noqa: E402
+            EnterpriseFlows)
+        self.ent_flows = EnterpriseFlows(self)
         self._shell_sessions: dict = {}
         self._shell_timer_id = 0
         self._dev_watches: dict = {}
@@ -430,6 +433,10 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             self.sched_flows._sched_run_now_flow(instance_id, str(payload or ""))
         elif action == "backups-browse":
             self.sched_flows._backups_browse_dialog(instance_id)
+        elif action == "ent-load":
+            self.ent_flows._ent_load_dialog(instance_id)
+        elif action == "ent-unload":
+            self.ent_flows._ent_unload_flow(instance_id)
         elif action == "conf-save":
             self.config_flows._conf_save_flow(instance_id, payload or {})
         elif action == "conf-restore":
