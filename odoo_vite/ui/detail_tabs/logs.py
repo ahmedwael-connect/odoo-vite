@@ -26,6 +26,13 @@ class LogsTab:
             "scroll up to read)")
         self.btn_log_follow.connect("toggled", self._on_log_follow_toggled)
         toolbar.append(self.btn_log_follow)
+        # REG.5: clears the displayed rows only — never touches the log file.
+        self.btn_log_clear = Gtk.Button(label="Clear view")
+        self.btn_log_clear.set_tooltip_text(
+            "Clear the displayed rows only (the log file on disk is "
+            "untouched — new lines keep arriving)")
+        self.btn_log_clear.connect("clicked", self._on_log_clear_view)
+        toolbar.append(self.btn_log_clear)
         self.btn_doctor = Gtk.Button(label="Run Doctor")
         self.btn_doctor.set_tooltip_text("Scan the log for known failure signatures")
         self.btn_doctor.connect("clicked", self._emit, "log-doctor", None)

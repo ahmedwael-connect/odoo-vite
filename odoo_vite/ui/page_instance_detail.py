@@ -360,6 +360,14 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
         if following:
             self._scroll_log_to_end()
 
+    def _on_log_clear_view(self, _btn) -> None:
+        # REG.5: clear the DISPLAYED rows only. The follower keeps its file
+        # offset, so new lines keep arriving; the file on disk is untouched.
+        try:
+            self.log_store.splice(0, self.log_store.get_n_items(), [])
+        except Exception:
+            pass
+
     def _on_profile_clicked(self, _btn) -> None:
         item = self.drop_profile_dur.get_selected_item()
         text = item.get_string() if item is not None else "10s"
