@@ -205,6 +205,8 @@ class ConfigurationFlows:
                                 wrap=True)
                 lbl.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
                 lbl.set_max_width_chars(46)
+                # F2.2: full path on hover — very long paths still truncate.
+                lbl.set_tooltip_text(entry.get("path", ""))
                 hbox.append(lbl)
                 btn_edit = Gtk.Button(label="Edit")
                 btn_edit.set_tooltip_text(
@@ -304,6 +306,11 @@ class ConfigurationFlows:
             dlg.add_response("cancel", "Cancel")
             dlg.add_response("ok", "Apply changes")
             dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+            # F2.2: wide enough for realistic 46-char paths + row buttons;
+            # height still follows content; user-resizable (never disabled).
+            # NOTE: Adw.AlertDialog.set_content_width segfaults on libadwaita
+            # 1.5 (verified), so the width floor lives on the list scroller.
+            scrolled.set_min_content_width(620)
             dlg.set_extra_child(outer)
             dlg.set_default_response("cancel")
             dlg.set_close_response("cancel")
