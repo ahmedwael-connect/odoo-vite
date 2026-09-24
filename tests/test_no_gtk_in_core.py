@@ -1,6 +1,14 @@
-"""Architectural guardrail (§1.1): core/ must import zero GTK modules."""
+"""Architectural guardrail (§1.1): core/ must import zero GTK modules.
 
-import importlib
+Verified in a FRESH interpreter (PSQ-1 lesson): in-process sys.modules
+deletion splits module identity and breaks string-target monkeypatching
+in later tests; snapshot-diffs are blind to pre-imported GUI modules.
+The fresh interpreter also makes the old keyring/gi-residue purge
+unnecessary — nothing triggers backend discovery on bare core imports.
+"""
+
+import json
+import subprocess
 import sys
 
 
@@ -39,18 +47,21 @@ def test_core_has_no_gtk_imports():
         "odoo_vite.core.devwatch",
         "odoo_vite.core.backup_scheduler",
     ]
-    for name in mods:
-        for loaded in list(sys.modules):
-            if loaded == name or loaded.startswith(name + "."):
-                del sys.modules[loaded]
-    # Also purge GUI modules: keyring's backend discovery lazily imports gi
-    # (libsecret backend) when store_db_password runs in earlier tests — that
-    # residue must not be mistaken for a core/ top-level GTK import.
-    for loaded in list(sys.modules):
-        if loaded == "gi" or loaded.startswith(
-                ("gi.", "gtk", "Gtk", "Adw", "adw")):
-            del sys.modules[loaded]
-    for name in mods:
-        importlib.import_module(name)
-    bad = [m for m in sys.modules if m == "gi" or m.startswith(("gi.", "gtk", "Gtk", "Adw", "adw"))]
+    probe = (
+        "import sys, importlib, json; "
+        f"mods = {mods!r}; "
+        "bad = []\n"
+        "for _m in mods:\n"
+        "    importlib.import_module(_m)\n"
+        "for _m in sys.modules:\n"
+        "    if _m == 'gi' or _m.startswith("
+        "('gi.', 'gtk', 'Gtk', 'Adw', 'adw')):\n"
+        "        bad.append(_m)\n"
+        "print(json.dumps(sorted(bad)))"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True,
+        timeout=120)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    bad = json.loads(proc.stdout)
     assert not bad, f"core pulled in GUI modules: {bad}"
