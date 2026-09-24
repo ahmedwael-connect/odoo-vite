@@ -12,8 +12,9 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
+from odoo_vite.core import process_manager  # noqa: E402
 from odoo_vite.core.registry import get_instance, update_instance  # noqa: E402
-from odoo_vite.ui import HAS_ADW, HAS_ALERT  # noqa: E402
+from odoo_vite.ui import Adw, HAS_ADW, HAS_ALERT  # noqa: E402
 from odoo_vite.ui.flows.dialogs import _finish_alert  # noqa: E402
 
 

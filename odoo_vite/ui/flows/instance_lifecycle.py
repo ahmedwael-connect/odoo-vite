@@ -12,13 +12,45 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from odoo_vite.core import process_manager  # noqa: E402
 from odoo_vite.core.registry import get_instance, update_instance  # noqa: E402
-from odoo_vite.ui import HAS_ADW, HAS_ALERT  # noqa: E402
+from odoo_vite.ui import Adw, HAS_ADW, HAS_ALERT  # noqa: E402
 from odoo_vite.ui.flows.dialogs import (  # noqa: E402
     _ask_blocking,
     _finish_alert,
     bind_check_highlight,
     filter_checks,
 )
+
+
+def group_discover(entries: list, instance_version: str) -> dict:
+    """Sprint 5 B.2 grouping (structure, never exclusion).
+
+    entries: [{name, initialized, odoo_major}]. Returns
+    {"likely": [...names], "other": [...], "plain": [...]}, each sorted.
+    """
+    me = (instance_version or "").strip()
+    likely, other, plain = [], [], []
+    for entry in entries:
+        name = entry.get("name", "")
+        if entry.get("initialized") and entry.get("odoo_major"):
+            (likely if entry["odoo_major"] == me else other).append(name)
+        else:
+            plain.append(name)
+    return {"likely": sorted(likely), "other": sorted(other),
+            "plain": sorted(plain)}
+
+
+def discover_defaults(groups: dict) -> dict:
+    """A.1: only the 'likely' group arrives pre-checked.
+
+    Other groups stay visible and tickable (nothing hidden) — just not
+    pre-selected, matching what a user wants most of the time.
+    """
+    out = {}
+    for name in groups.get("likely", []):
+        out[name] = True
+    for name in groups.get("other", []) + groups.get("plain", []):
+        out[name] = False
+    return out
 
 
 class InstanceLifecycleFlows:

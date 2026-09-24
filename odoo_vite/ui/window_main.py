@@ -6,12 +6,11 @@ and DB-collision dialogs, pill CSS. Uses libadwaita when available.
 """
 
 import threading
-from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk, Pango  # noqa: E402
+from gi.repository import GLib, Gtk  # noqa: E402
 
 try:
     gi.require_version("Adw", "1")
@@ -56,38 +55,6 @@ PILL_CSS = """
 # NOTE: these block the calling thread waiting on a GTK dialog, so they must
 # be called from a background thread (all lifecycle flows are). They marshal
 # the dialog itself onto the main loop via GLib.idle_add.
-
-
-def group_discover(entries: list, instance_version: str) -> dict:
-    """Sprint 5 B.2 grouping (structure, never exclusion).
-
-    entries: [{name, initialized, odoo_major}]. Returns
-    {"likely": [...names], "other": [...], "plain": [...]}, each sorted.
-    """
-    me = (instance_version or "").strip()
-    likely, other, plain = [], [], []
-    for entry in entries:
-        name = entry.get("name", "")
-        if entry.get("initialized") and entry.get("odoo_major"):
-            (likely if entry["odoo_major"] == me else other).append(name)
-        else:
-            plain.append(name)
-    return {"likely": sorted(likely), "other": sorted(other),
-            "plain": sorted(plain)}
-
-
-def discover_defaults(groups: dict) -> dict:
-    """A.1: only the 'likely' group arrives pre-checked.
-
-    Other groups stay visible and tickable (nothing hidden) — just not
-    pre-selected, matching what a user wants most of the time.
-    """
-    out = {}
-    for name in groups.get("likely", []):
-        out[name] = True
-    for name in groups.get("other", []) + groups.get("plain", []):
-        out[name] = False
-    return out
 
 
 class MainWindow(BaseWindow):  # type: ignore[misc]
@@ -426,13 +393,6 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         return False
 
     # ----------------------------------------------------------------- actions
-    def _progress_dialog(self, title: str):
-        # Sprint R shim: moved to flows.dialogs.build_progress_dialog; kept
-        # until R.4/R.7 move the remaining callers, then deleted.
-        from odoo_vite.ui.flows.dialogs import build_progress_dialog
-
-        return build_progress_dialog(self, title)
-
     def _on_row_action(self, action: str, instance_id: str, payload=None) -> None:
         if action == "start":
             self.lifecycle.start_flow(instance_id)

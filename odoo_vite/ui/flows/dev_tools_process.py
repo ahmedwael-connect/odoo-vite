@@ -9,7 +9,10 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from odoo_vite.core.registry import get_instance, update_instance  # noqa: E402
 from odoo_vite.ui import HAS_ADW, HAS_ALERT  # noqa: E402
-from odoo_vite.ui.flows.dialogs import _finish_alert  # noqa: E402
+from odoo_vite.ui.flows.dialogs import (  # noqa: E402
+    _finish_alert,
+    build_progress_dialog,
+)
 
 
 
@@ -362,7 +365,7 @@ class DevToolsProcessFlows:
             if not confirmed:
                 return
             self.win._op_start()
-            dlg, append, done = self.win._progress_dialog(
+            dlg, append, done = build_progress_dialog(self.win, 
                 f"Tests: {module} on {target}")
             dlg.present()
 

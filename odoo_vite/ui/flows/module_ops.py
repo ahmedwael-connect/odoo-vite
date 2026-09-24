@@ -5,6 +5,7 @@ confirm-command dialog and record diff helper. `self.win` is the MainWindow.
 """
 
 import threading
+from pathlib import Path
 
 import gi
 
@@ -12,8 +13,11 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from odoo_vite.core.registry import get_instance  # noqa: E402
-from odoo_vite.ui import HAS_ADW, HAS_ALERT  # noqa: E402
-from odoo_vite.ui.flows.dialogs import _finish_alert  # noqa: E402
+from odoo_vite.ui import Adw, HAS_ADW, HAS_ALERT  # noqa: E402
+from odoo_vite.ui.flows.dialogs import (  # noqa: E402
+    _finish_alert,
+    build_progress_dialog,
+)
 
 
 class ModuleOpsFlows:
@@ -86,7 +90,7 @@ class ModuleOpsFlows:
             if not confirmed:
                 return
             self.win._op_start()
-            dlg, append, done = self.win._progress_dialog(
+            dlg, append, done = build_progress_dialog(self.win, 
                 f"Install {', '.join(names)}")
             dlg.present()
 
@@ -128,7 +132,7 @@ class ModuleOpsFlows:
             if not confirmed:
                 return
             self.win._op_start()
-            dlg, append, done = self.win._progress_dialog(
+            dlg, append, done = build_progress_dialog(self.win, 
                 f"Update {', '.join(names)}")
             dlg.present()
 
@@ -248,7 +252,7 @@ class ModuleOpsFlows:
 
 
     def _run_update_code(self, instance_id: str, inst, mods: list) -> None:
-        dlg, append, done = self.win._progress_dialog("Update code + modules")
+        dlg, append, done = build_progress_dialog(self.win, "Update code + modules")
         dlg.present()
 
         def _feed(line: str) -> None:
@@ -276,7 +280,7 @@ class ModuleOpsFlows:
             if not confirmed:
                 return
             self.win._op_start()
-            dlg, append, done = self.win._progress_dialog(f"Uninstall {name}")
+            dlg, append, done = build_progress_dialog(self.win, f"Uninstall {name}")
             dlg.present()
 
             def _feed(line: str) -> None:

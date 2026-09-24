@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from odoo_vite.ui import HAS_ADW, HAS_ALERT  # noqa: E402
+from odoo_vite.ui import Adw, HAS_ADW, HAS_ALERT  # noqa: E402
 
 def _ask_blocking(parent, heading, body, responses, default_id="cancel",
                   entry_default=None):
@@ -131,46 +131,46 @@ def filter_checks(checks: dict, needle: str) -> int:
     return visible
 
 
-    def build_progress_dialog(parent, title: str):
-        """Modal log dialog for long module ops. Returns (dialog, append, done)."""
-        dlg = Gtk.Dialog(title=title, transient_for=parent, modal=True,
-                         use_header_bar=True, default_width=620, default_height=420)
-        dlg.add_button("Close", Gtk.ResponseType.CLOSE)
-        close_btn = dlg.get_widget_for_response(Gtk.ResponseType.CLOSE)
+def build_progress_dialog(parent, title: str):
+    """Modal log dialog for long module ops. Returns (dialog, append, done)."""
+    dlg = Gtk.Dialog(title=title, transient_for=parent, modal=True,
+                     use_header_bar=True, default_width=620, default_height=420)
+    dlg.add_button("Close", Gtk.ResponseType.CLOSE)
+    close_btn = dlg.get_widget_for_response(Gtk.ResponseType.CLOSE)
+    if close_btn is not None:
+        close_btn.set_sensitive(False)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    box.set_margin_start(12)
+    box.set_margin_end(12)
+    box.set_margin_top(12)
+    box.set_margin_bottom(12)
+    spin_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    spinner = Gtk.Spinner(spinning=True)
+    spin_row.append(spinner)
+    status = Gtk.Label(xalign=0, hexpand=True)
+    status.add_css_class("dim-label")
+    spin_row.append(status)
+    box.append(spin_row)
+    scrolled = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+    view = Gtk.TextView(editable=False, monospace=True)
+    scrolled.set_child(view)
+    box.append(scrolled)
+    dlg.get_content_area().append(box)
+
+    def _append(line: str) -> None:
+        buf = view.get_buffer()
+        buf.insert(buf.get_end_iter(), line + "\n")
+        adj = scrolled.get_vadjustment()
+        if adj is not None:
+            adj.set_value(adj.get_upper())
+        status.set_text(line[-120:])
+
+    def _done(ok: bool, message: str) -> None:
+        _append(("Done: " if ok else "FAILED: ") + message)
+        spinner.stop()
         if close_btn is not None:
-            close_btn.set_sensitive(False)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        spin_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        spinner = Gtk.Spinner(spinning=True)
-        spin_row.append(spinner)
-        status = Gtk.Label(xalign=0, hexpand=True)
-        status.add_css_class("dim-label")
-        spin_row.append(status)
-        box.append(spin_row)
-        scrolled = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
-        view = Gtk.TextView(editable=False, monospace=True)
-        scrolled.set_child(view)
-        box.append(scrolled)
-        dlg.get_content_area().append(box)
+            close_btn.set_sensitive(True)
 
-        def _append(line: str) -> None:
-            buf = view.get_buffer()
-            buf.insert(buf.get_end_iter(), line + "\n")
-            adj = scrolled.get_vadjustment()
-            if adj is not None:
-                adj.set_value(adj.get_upper())
-            status.set_text(line[-120:])
-
-        def _done(ok: bool, message: str) -> None:
-            _append(("Done: " if ok else "FAILED: ") + message)
-            spinner.stop()
-            if close_btn is not None:
-                close_btn.set_sensitive(True)
-
-        dlg.connect("response", lambda *_a: dlg.close())
-        return dlg, _append, _done
+    dlg.connect("response", lambda *_a: dlg.close())
+    return dlg, _append, _done
 

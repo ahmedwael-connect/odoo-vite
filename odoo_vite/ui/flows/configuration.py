@@ -9,10 +9,10 @@ import threading
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 from odoo_vite.core.registry import get_instance, update_instance  # noqa: E402
-from odoo_vite.ui import HAS_ADW, HAS_ALERT  # noqa: E402
+from odoo_vite.ui import Adw, HAS_ADW, HAS_ALERT  # noqa: E402
 from odoo_vite.ui.flows.dialogs import (  # noqa: E402
     _finish_alert,
     bind_check_highlight,
