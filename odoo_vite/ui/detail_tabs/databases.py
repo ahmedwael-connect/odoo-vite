@@ -70,6 +70,29 @@ class DatabasesTab:
         self.btn_validate.connect("clicked", self._emit, "validate", None)
         ops_row.append(self.btn_validate)
         box.append(ops_row)
+
+        sched_title = Gtk.Label(label="Scheduled backups", xalign=0)
+        sched_title.add_css_class("heading")
+        box.append(sched_title)
+        self.lbl_sched_status = Gtk.Label(xalign=0, wrap=True)
+        self.lbl_sched_status.add_css_class("dim-label")
+        box.append(self.lbl_sched_status)
+        self.sched_list = Gtk.ListBox()
+        self.sched_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        box.append(self.sched_list)
+        sched_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.btn_sched_add = Gtk.Button(label="Add schedule…")
+        self.btn_sched_add.set_tooltip_text(
+            "Back up on a cron schedule, even when Odoo Vite is closed")
+        self.btn_sched_add.connect("clicked", self._emit, "sched-add", None)
+        sched_row.append(self.btn_sched_add)
+        self.btn_backups_browse = Gtk.Button(label="Browse backups…")
+        self.btn_backups_browse.set_tooltip_text(
+            "List, restore, or delete scheduled backup files")
+        self.btn_backups_browse.connect(
+            "clicked", self._emit, "backups-browse", None)
+        sched_row.append(self.btn_backups_browse)
+        box.append(sched_row)
         return box
 
     # ---------------------------------------------------------------- modules

@@ -107,3 +107,46 @@ def test_due_schedules_minute_match(tmp_path):
     # Disabled schedules are never due.
     bs.set_enabled(res.data["id"], False, db_path=db)
     assert bs.due_schedules(datetime.now(), db_path=db) == []
+
+
+def test_list_backup_files_from_sidecars(tmp_path):
+    import json
+    import time
+
+    root = tmp_path / "backups"
+    d = root / "Inst" / "db1"
+    d.mkdir(parents=True)
+    (d / "20240101-020000.dump").write_bytes(b"data")
+    (d / "20240101-020000.dump.meta.json").write_text(json.dumps(
+        {"db_name": "db1", "instance_name": "Inst"}))
+    (d / "20240102-020000.dump").write_bytes(b"data2")
+    files = bs.list_backup_files(root=root)
+    assert [f["path"] for f in files] == [
+        str(d / "20240102-020000.dump"), str(d / "20240101-020000.dump")]
+    assert files[1]["meta"]["db_name"] == "db1"
+    assert files[0]["meta"] == {}
+    inst_files = bs.list_backup_files("Inst", root=root)
+    assert len(inst_files) == 2  # sidecar-less file shown (unattributed)
+    other_files = bs.list_backup_files("Other", root=root)
+    assert len(other_files) == 1  # only the unattributed one
+
+
+def test_list_backup_files_missing_root(tmp_path):
+    assert bs.list_backup_files(root=tmp_path / "nope") == []
+
+
+def test_delete_backup_file_audited(tmp_path):
+    from odoo_vite.core import audit as _audit
+
+    d = tmp_path / "b"
+    d.mkdir()
+    dump = d / "x.dump"
+    dump.write_bytes(b"data")
+    (d / "x.dump.meta.json").write_text("{}")
+    res = bs.delete_backup_file(dump)
+    assert res.ok, res.message
+    assert not dump.exists()
+    assert not (d / "x.dump.meta.json").exists()
+    events = _audit.read_events(limit=5)
+    assert any(e.get("action") == "backup-delete" for e in events)
+    assert not bs.delete_backup_file(d / "gone.dump").ok

@@ -66,6 +66,9 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         from odoo_vite.ui.flows.dev_tools_rpc import DevToolsRpcFlows  # noqa: E402
         self.dev_rpc = DevToolsRpcFlows(self)
         self.dev_proc = DevToolsProcessFlows(self)
+        from odoo_vite.ui.flows.backup_schedules import (  # noqa: E402
+            BackupSchedulesFlows)
+        self.sched_flows = BackupSchedulesFlows(self)
         self._shell_sessions: dict = {}
         self._shell_timer_id = 0
         self._dev_watches: dict = {}
@@ -329,6 +332,7 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
     def _on_select(self, instance_id: str) -> None:
         self.detail.show_instance(instance_id)
         self.db_ops._refresh_detail_dbs(instance_id)
+        self.sched_flows._refresh_schedules(instance_id)
         self.module_ops._load_modules(instance_id)
         try:
             self.detail.set_devmode_state(
@@ -416,6 +420,16 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
             self.db_ops._validate_flow(instance_id)
         elif action == "refresh-states":
             self.db_ops._refresh_detail_dbs(instance_id)
+        elif action == "sched-add":
+            self.sched_flows._sched_add_dialog(instance_id)
+        elif action == "sched-delete":
+            self.sched_flows._sched_delete_flow(instance_id, str(payload or ""))
+        elif action == "sched-toggle":
+            self.sched_flows._sched_toggle_flow(instance_id, str(payload or ""))
+        elif action == "sched-run-now":
+            self.sched_flows._sched_run_now_flow(instance_id, str(payload or ""))
+        elif action == "backups-browse":
+            self.sched_flows._backups_browse_dialog(instance_id)
         elif action == "conf-save":
             self.config_flows._conf_save_flow(instance_id, payload or {})
         elif action == "conf-restore":

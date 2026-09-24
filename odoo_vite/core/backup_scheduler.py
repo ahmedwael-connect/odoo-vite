@@ -440,6 +440,60 @@ def run_schedule(schedule_id: str, db_path=None) -> Result:
     _record_run(schedule_id, True, msg, db_path)
     return Result.success(data={"dumps": made}, message=msg)
 
+# ------------------------------------------------------------------ file index
+# BK.4: the sidecar JSON next to each dump IS the index — no second store.
+# Only the scheduled-backups root is scanned; manual backups saved by the
+# user to arbitrary locations (Sprint 5 file picker) are NOT discoverable
+# here — documented limitation, not reconstructed history.
+
+
+def list_backup_files(instance_name: str | None = None,
+                      root: str | Path | None = None) -> list[dict]:
+    """Newest-first dump entries under the scheduled-backups root."""
+    base = Path(root).expanduser() if root else Path(
+        DEFAULT_BACKUPS_ROOT).expanduser()
+    if not base.is_dir():
+        return []
+    out = []
+    for dump in sorted(base.rglob("*.dump"),
+                       key=lambda p: p.stat().st_mtime
+                       if p.exists() else 0, reverse=True):
+        try:
+            st = dump.stat()
+        except OSError:
+            continue
+        meta: dict = {}
+        sidecar = Path(str(dump) + ".meta.json")
+        if sidecar.is_file():
+            try:
+                meta = json.loads(sidecar.read_text())
+            except (OSError, ValueError):
+                meta = {}
+        if instance_name and (meta.get("instance_name") or "") != instance_name:
+            # Sidecar-less files can't be attributed — show them only in
+            # the unfiltered view rather than guessing.
+            if meta:
+                continue
+        out.append({"path": str(dump), "mtime": st.st_mtime,
+                    "size": st.st_size, "meta": meta})
+    return out
+
+
+def delete_backup_file(dump_path: str | Path,
+                       audit_tag: str = "manual-delete") -> Result:
+    """Delete one dump + sidecar with audit. Confirmed by caller first."""
+    from odoo_vite.core import audit as _audit
+
+    target = Path(dump_path).expanduser()
+    try:
+        target.unlink()
+        Path(str(target) + ".meta.json").unlink(missing_ok=True)
+    except OSError as exc:
+        return Result.failure(f"Cannot delete {target}: {exc}")
+    _audit.log_event("", "", "backup-delete",
+                     f"{audit_tag}: deleted {target}")
+    return Result.success(message=f"Deleted {target.name}")
+
 # ------------------------------------------------------------------ OS timer
 # BK.2: one static minutely systemd USER timer + due-check in the runner.
 # Per-schedule units would rot (stale timers for deleted/disabled

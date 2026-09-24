@@ -1035,6 +1035,71 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
                 widgets["state"].remove_css_class("warning")
             widgets["init"].set_visible(not info.get("initialized"))
 
+    def refresh_schedules(self, scheds: list, status: dict) -> None:
+        """Render scheduler state + per-schedule rows (BK.3)."""
+        from odoo_vite.core import backup_scheduler as _bs
+
+        if status.get("active"):
+            state_txt = "Scheduler: active (runs while app is closed)"
+        elif status.get("installed"):
+            state_txt = ("Scheduler: installed but not running — "
+                         "create a schedule to re-enable it")
+        else:
+            state_txt = ("Scheduler: not installed — creating a schedule "
+                         "installs the per-minute systemd timer")
+        try:
+            self.lbl_sched_status.set_text(state_txt)
+        except Exception:
+            pass
+        while True:
+            row = self.sched_list.get_row_at_index(0)
+            if row is None:
+                break
+            self.sched_list.remove(row)
+        for sched in scheds or []:
+            try:
+                nxt = _bs.describe(sched.cron if hasattr(sched, "cron")
+                                   else sched.get("cron", ""))
+            except Exception:
+                nxt = ""
+            dbs = ", ".join(sched.databases if hasattr(sched, "databases")
+                            else sched.get("databases", []))
+            last = (sched.last_run if hasattr(sched, "last_run")
+                    else sched.get("last_run", "")) or "never"
+            st = (sched.last_status if hasattr(sched, "last_status")
+                  else sched.get("last_status", "")) or "—"
+            sid = sched.id if hasattr(sched, "id") else sched.get("id", "")
+            on = bool(sched.enabled if hasattr(sched, "enabled")
+                      else sched.get("enabled", True))
+            row = Gtk.ListBoxRow()
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            hbox.set_margin_start(10)
+            hbox.set_margin_end(10)
+            hbox.set_margin_top(4)
+            hbox.set_margin_bottom(4)
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            cron = sched.cron if hasattr(sched, "cron") else sched.get("cron", "")
+            vbox.append(Gtk.Label(
+                label=f"{dbs}  ·  {cron}"
+                      f"{'' if on else '  (disabled)'}", xalign=0))
+            sub = Gtk.Label(label=f"{nxt}  ·  last: {last}  ·  {st}", xalign=0)
+            sub.add_css_class("dim-label")
+            vbox.append(sub)
+            hbox.append(vbox)
+            btn_run = Gtk.Button(label="Run Now")
+            btn_run.set_tooltip_text("Back up immediately, outside the schedule")
+            btn_run.connect("clicked", self._emit, "sched-run-now", sid)
+            hbox.append(btn_run)
+            btn_toggle = Gtk.Button(label="Disable" if on else "Enable")
+            btn_toggle.connect("clicked", self._emit, "sched-toggle", sid)
+            hbox.append(btn_toggle)
+            btn_del = Gtk.Button(label="Delete")
+            btn_del.add_css_class("destructive-action")
+            btn_del.connect("clicked", self._emit, "sched-delete", sid)
+            hbox.append(btn_del)
+            row.set_child(hbox)
+            self.sched_list.append(row)
+
     # ---------------------------------------------------------------- render
     def show_instance(self, instance_id: str | None) -> None:
         self.instance_id = instance_id
