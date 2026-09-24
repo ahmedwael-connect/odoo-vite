@@ -55,6 +55,24 @@ operation's duration (parent them or store on the controller); connect
 `finished` to `thread.quit` + `deleteLater` cleanup. One-shot per
 operation — same as the GTK app's one-daemon-thread-per-flow pattern.
 
+In practice, don't hand-roll the above: use
+`odoo_vite.ui_qt.workers.run_in_background(host, core_fn, on_done_slot,
+...)`, which implements exactly this pattern. Three rules it encodes
+(each verified the hard way — a live warning, a silent stall, or a
+teardown abort respectively):
+
+1. The worker must have NO parent (`moveToThread` refuses parented
+   objects), but PySide6 connections do NOT keep the receiver alive —
+   so the helper anchors the worker on the thread object. Without the
+   anchor the worker is GC'd on return and the slot never fires.
+2. `on_done` is delivered via a small forwarder QObject living on the
+   GUI thread. A plain-Python callable connected directly would run in
+   the WORKER thread (AutoConnection has no affinity to key off) —
+   silently violating the discipline this section states.
+3. Teardown chain: worker result → forwarder (GUI) → `thread.quit()` →
+   `deleteLater` on thread/worker/forwarder. Never destroy a QThread
+   while its thread is still running (abort at teardown).
+
 ## Layering
 
 - `core/` imports neither `gi` nor `PySide6`/`shiboken6`

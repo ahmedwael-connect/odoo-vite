@@ -25,6 +25,32 @@ def _inst_dict(iid="x1", name="Demo", status="stopped"):
             "db_user": "odoo"}
 
 
+def test_worker_runs_off_gui_thread(qapp, qtbot):
+    """moveToThread refuses parented workers — run_in_background must not
+    parent the worker (verified live warning otherwise)."""
+    from PySide6.QtCore import QObject, QThread
+
+    from odoo_vite.ui_qt.workers import CoreWorker
+
+    host = QObject()
+    seen = {}
+    main_thread = QThread.currentThread()
+
+    def _done(ok, message, data):
+        seen["slot_thread_is_main"] = (QThread.currentThread() is main_thread)
+
+    def _core_fn():
+        seen["worker_off_main"] = (QThread.currentThread() is not main_thread)
+        return Result(ok=True, message="x", data={})
+
+    worker = CoreWorker(_core_fn)
+    assert worker.parent() is None
+    run_in_background(host, _core_fn, _done)
+    qtbot.wait(2000)
+    assert seen.get("worker_off_main") is True
+    assert seen.get("slot_thread_is_main") is True
+
+
 def test_worker_delivers_result_to_gui(qapp, qtbot):
     from PySide6.QtCore import QObject
 
