@@ -25,6 +25,12 @@ def test_unit_text_sane():
     assert "Type=oneshot" in service
     assert "OnCalendar=minutely" in timer
     assert "WantedBy=timers.target" in timer
+    # WorkingDirectory must be the project root (parent of the odoo_vite
+    # package), or `python -m` fails — caught live by E2E once.
+    _, default_timer = bs.timer_unit_text()
+    root = Path(bs.__file__).resolve().parents[2]
+    assert f"WorkingDirectory={root}" in _
+    assert (root / "odoo_vite" / "__init__.py").is_file()
 
 
 def test_timer_status_without_systemctl(monkeypatch, tmp_path):

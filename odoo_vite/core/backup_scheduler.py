@@ -516,7 +516,8 @@ def timer_unit_text(python_exe: str | None = None,
     import sys as _sys
 
     exe = python_exe or _sys.executable
-    app_dir = app_dir or str(Path(__file__).resolve().parents[1])
+    # parents: core/ -> odoo_vite/ -> project root (what `python -m` needs).
+    app_dir = app_dir or str(Path(__file__).resolve().parents[2])
     service = (
         "[Unit]\n"
         "Description=Odoo Vite scheduled backups (due-check)\n"
