@@ -58,8 +58,18 @@ H-M1; the Configuration tab and sidebar got it in Sprint 8 A.1.
   opt-out only, audited).
 
 ## Confirmation tiers
-
 - Type-to-confirm: managed remove, standalone DB drop, restore-into-existing.
 - Light confirm: adopted unregister, switch-to-new-DB (via Start flow).
 - Always show the exact command/database when creation or deletion is on
   the table — never a generic "are you sure".
+
+## Test layout at scale (REG.3, same class as Sprint 11 devwatch dotfiles)
+
+- Any layout/rendering change must be exercised against a realistically
+  large dataset for at least one tab/list (the odoo_19_adopted instance's
+  1500-module list is the standing fixture) — GTK sizing/scroll bugs
+  involving shared containers only manifest at scale, never on small test
+  instances.
+- Each tab owns its scroll container (`_scroll_wrap` per tab); never one
+  shared ScrolledWindow around a multi-tab Stack — the tallest tab drives
+  the viewport for all the others.

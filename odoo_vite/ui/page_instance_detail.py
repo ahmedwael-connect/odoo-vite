@@ -69,26 +69,41 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
         box.set_margin_bottom(16)
         return box
 
+    def _scroll_wrap(self, child: Gtk.Widget) -> Gtk.Widget:
+        # REG.3: each tab scrolls in its OWN ScrolledWindow. A single shared
+        # scroller around the whole Stack lets the tallest tab (e.g. Modules
+        # with 600+ rows) drive the viewport size for every other tab,
+        # producing long blank scrolls on light tabs like Overview.
+        scrolled = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_child(child)
+        return scrolled
+
     def _build_content(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.tab_stack = Gtk.Stack()
         self.tab_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.tab_stack.set_vexpand(True)
+        self.tab_stack.set_hexpand(True)
         switcher = Gtk.StackSwitcher(stack=self.tab_stack)
         switcher.set_halign(Gtk.Align.CENTER)
         switcher.set_margin_top(6)
         outer.append(switcher)
-        self.tab_stack.add_titled(self._build_overview(), "overview", "Overview")
-        self.tab_stack.add_titled(self._build_databases(), "databases", "Databases")
-        self.tab_stack.add_titled(self._build_modules(), "modules", "Modules")
-        self.tab_stack.add_titled(self._build_devtools(), "devtools", "Dev Tools")
-        self.tab_stack.add_titled(self._build_logs(), "logs", "Logs")
-        self.tab_stack.add_titled(self._build_configuration(), "configuration",
-                                  "Configuration")
+        self.tab_stack.add_titled(self._scroll_wrap(self._build_overview()),
+                                  "overview", "Overview")
+        self.tab_stack.add_titled(self._scroll_wrap(self._build_databases()),
+                                  "databases", "Databases")
+        self.tab_stack.add_titled(self._scroll_wrap(self._build_modules()),
+                                  "modules", "Modules")
+        self.tab_stack.add_titled(self._scroll_wrap(self._build_devtools()),
+                                  "devtools", "Dev Tools")
+        self.tab_stack.add_titled(self._scroll_wrap(self._build_logs()),
+                                  "logs", "Logs")
+        self.tab_stack.add_titled(
+            self._scroll_wrap(self._build_configuration()), "configuration",
+            "Configuration")
         outer.append(self.tab_stack)
-        scrolled = Gtk.ScrolledWindow(vexpand=True)
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_child(outer)
-        return scrolled
+        return outer
 
     def _selected_module_names(self, states=None) -> list:
         names = []
