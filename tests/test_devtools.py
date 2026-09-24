@@ -293,7 +293,7 @@ class DummyProc:
 
 def test_diff_record_values():
     """v2 verification: update preview shows exactly the changed fields."""
-    from odoo_vite.ui.window_main import diff_record_values
+    from odoo_vite.ui.flows.module_ops import diff_record_values
 
     assert diff_record_values({"a": 1, "b": "x"}, {"a": 1, "b": "y"}) == {
         "b": ("x", "y")}
