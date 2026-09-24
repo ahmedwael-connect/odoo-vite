@@ -38,17 +38,8 @@ from odoo_vite.ui.wizard_create_instance import CreateInstanceWizard  # noqa: E4
 
 POLL_MS = 2000
 
-PILL_CSS = """
-.status-running { color: #2ec27e; font-weight: bold; }
-.status-stopped { color: #9a9996; }
-.status-error { color: #e01b24; font-weight: bold; }
-.status-draft { color: #e5a50a; }
-.error { color: #e01b24; }
-.warning { color: #e5a50a; }
-/* A.2: checked rows carry their own always-visible treatment (bold +
-   accent), independent of theme hover rendering. */
-.discover-picked { font-weight: bold; color: @accent_color; }
-"""
+# NOTE (UX-1.1): app CSS moved to ui/style.css, loaded once via
+# odoo_vite.ui.load_app_css(). Class names kept identical.
 
 
 # ------------------------------------------------ blocking dialog helpers
@@ -80,10 +71,9 @@ class MainWindow(BaseWindow):  # type: ignore[misc]
         self._dev_watches: dict = {}
         self._devmode_timer_id = 0
 
-        css = Gtk.CssProvider()
-        css.load_from_string(PILL_CSS)
-        Gtk.StyleContext.add_provider_for_display(
-            self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        from odoo_vite.ui import load_app_css  # noqa: E402
+
+        load_app_css(self.get_display())
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         if HAS_ADW and hasattr(Adw, "ToastOverlay"):

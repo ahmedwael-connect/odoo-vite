@@ -20,3 +20,15 @@ except (ImportError, ValueError):
     HAS_ADW = False
     HAS_NAV_VIEW = False
     HAS_ALERT = False
+
+
+def load_app_css(display) -> None:
+    """Load ui/style.css once at startup (UX-1.1 design tokens)."""
+    from pathlib import Path  # noqa: E402
+
+    from gi.repository import Gtk  # noqa: E402
+
+    css = Gtk.CssProvider()
+    css.load_from_path(str(Path(__file__).with_name("style.css")))
+    Gtk.StyleContext.add_provider_for_display(
+        display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)

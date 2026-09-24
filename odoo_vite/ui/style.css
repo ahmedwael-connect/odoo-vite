@@ -1,0 +1,49 @@
+/* Odoo Vite design tokens (UX-1.1). Single source of truth for app styling.
+ * Loaded once at startup via odoo_vite.ui.load_app_css().
+ *
+ * SPACING SCALE (px): 4 / 8 / 12 / 16 / 24 / 32
+ *   4  = tight (icon-text gaps, dense rows)
+ *   8  = compact (related controls in a row)
+ *   12 = default (dialog content margins, card padding)
+ *   16 = section (tab content margins, separated groups)
+ *   24 = loose (wizard pages, major sections)
+ *   32 = page (top-level breathing room, rare)
+ * Margins/spacing set in code MUST use one of these values.
+ *
+ * COLORS: semantic roles only — never raw hex for success/warning/error/
+ * info/selected. Values come from libadwaita's public named colors so they
+ * adapt to light/dark theme changes. (Fallback: on plain GTK without the
+ * Adwaita theme, rules referencing unknown names are dropped and widgets
+ * render uncolored — graceful, never broken.)
+ *
+ * CORNERS: use .ov-card (12px) for grouped content; dialogs/buttons keep
+ * the toolkit default radius.
+ *
+ * FONTS: no explicit sizes in app code — use libadwaita type classes:
+ *   headings -> .title (window/dialog titles) or .heading (section titles)
+ *   body     -> default widget font
+ *   secondary-> .caption.dim-label
+ *   logs/code-> .monospace (libadwaita) or Gtk.TextView(monospace=True)
+ */
+
+/* --- semantic status pills (migrated from inline PILL_CSS, same roles) --- */
+.status-running { color: @success_color; font-weight: bold; }
+.status-stopped { color: #9a9996; } /* deliberate exception: neutral gray has
+  no libadwaita semantic var; verified readable on light + dark themes */
+.status-error { color: @error_color; font-weight: bold; }
+.status-draft { color: @warning_color; }
+
+/* --- semantic message roles --- */
+.error { color: @error_color; }
+.warning { color: @warning_color; }
+
+/* --- selected-row treatment: always visible, never hover-only (UX-2
+ * selection component reuses this; A.2 rule from Sprint 8) --- */
+.discover-picked { font-weight: bold; color: @accent_color; }
+
+/* --- layout utilities matching the spacing scale --- */
+.ov-section { padding: 16px; }   /* tab content, separated groups */
+.ov-card { padding: 12px; border-radius: 12px; }  /* grouped content */
+.ov-dialog { padding: 12px; }    /* dialog content areas */
+.ov-compact { padding: 8px; }    /* dense rows */
+.ov-tight { padding: 4px; }      /* icon-text gaps */
