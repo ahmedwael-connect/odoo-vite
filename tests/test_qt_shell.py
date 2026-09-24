@@ -22,9 +22,11 @@ def test_qt_shell_boots_with_real_instances(qapp):
     win = QtMainWindow()
     win.show()
     expected = list_instances()
-    assert win.sidebar.count() == max(len(expected), 1)
+    rows = win.sidebar._list.visible_count()
+    assert rows == max(len(expected), 1)
     if expected:
-        assert expected[0].name in win.sidebar.item(0).text()
+        assert win.sidebar._list.select_id(expected[0].id)
+        assert win.sidebar.selected_id() == expected[0].id
     assert win.stack.count() >= 1
     win.close()
 

@@ -274,6 +274,18 @@ class SelectionList(QWidget):
             return None
         return indexes[0].data(_ID_ROLE)
 
+    def select_id(self, item_id) -> bool:
+        """Select a row by id (headers never match). Returns found."""
+        model = self.view.model()
+        for row in range(model.rowCount()):
+            index = model.index(row, 0)
+            if index.data(_HEADER_ROLE):
+                continue
+            if index.data(_ID_ROLE) == item_id:
+                self.view.setCurrentIndex(index)
+                return True
+        return False
+
     def visible_count(self) -> int:
         return self._model.rowCount()
 
