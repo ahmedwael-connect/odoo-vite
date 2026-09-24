@@ -17,6 +17,7 @@ field is therefore fixed at "custom" in v1 and documents that choice.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
@@ -438,3 +439,121 @@ def run_schedule(schedule_id: str, db_path=None) -> Result:
         f"; {len(failures)} failed ({'; '.join(failures)})" if failures else "")
     _record_run(schedule_id, True, msg, db_path)
     return Result.success(data={"dumps": made}, message=msg)
+
+# ------------------------------------------------------------------ OS timer
+# BK.2: one static minutely systemd USER timer + due-check in the runner.
+# Per-schedule units would rot (stale timers for deleted/disabled
+# schedules); a single timer has no lifecycle to reconcile — the runner
+# evaluates cron expressions itself every minute. User scope, so no
+# privilege escalation involved.
+
+TIMER_NAME = "odoo-vite-backup"
+
+
+def _unit_dir() -> Path:
+    override = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(override).expanduser() if override else Path.home() / ".config"
+    return base / "systemd" / "user"
+
+
+def timer_unit_text(python_exe: str | None = None,
+                    app_dir: str | None = None) -> tuple[str, str]:
+    """(service_text, timer_text). Pure function — unit-tested."""
+    import sys as _sys
+
+    exe = python_exe or _sys.executable
+    app_dir = app_dir or str(Path(__file__).resolve().parents[1])
+    service = (
+        "[Unit]\n"
+        "Description=Odoo Vite scheduled backups (due-check)\n"
+        "After=network-online.target\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        f"WorkingDirectory={app_dir}\n"
+        f"ExecStart={exe} -m odoo_vite.backup_runner --check-due\n"
+    )
+    timer = (
+        "[Unit]\n"
+        "Description=Odoo Vite scheduled backups (every minute)\n"
+        "[Timer]\n"
+        "OnCalendar=minutely\n"
+        "[Install]\n"
+        "WantedBy=timers.target\n"
+    )
+    return service, timer
+
+
+def _systemctl(*args: str) -> tuple[int, str]:
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    if _shutil.which("systemctl") is None:
+        return 127, "systemctl not found"
+    try:
+        proc = _subprocess.run(
+            ["systemctl", "--user", *args], capture_output=True, text=True,
+            timeout=30)
+    except (OSError, _subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def timer_status() -> dict:
+    """Installed/enabled/active state of the backup timer (never raises)."""
+    info: dict = {"installed": False, "enabled": False, "active": False,
+                  "detail": ""}
+    service = _unit_dir() / f"{TIMER_NAME}.timer"
+    info["installed"] = service.is_file()
+    if not info["installed"]:
+        return info
+    code, _ = _systemctl("is-enabled", f"{TIMER_NAME}.timer")
+    info["enabled"] = code == 0
+    code, _ = _systemctl("is-active", f"{TIMER_NAME}.timer")
+    info["active"] = code == 0
+    return info
+
+
+def install_timer() -> Result:
+    """Write units, reload, enable --now. Idempotent."""
+    import sys as _sys
+
+    try:
+        unit_dir = _unit_dir()
+        unit_dir.mkdir(parents=True, exist_ok=True)
+        service_text, timer_text = timer_unit_text()
+        (unit_dir / f"{TIMER_NAME}.service").write_text(service_text)
+        (unit_dir / f"{TIMER_NAME}.timer").write_text(timer_text)
+    except OSError as exc:
+        return Result.failure(f"Cannot write timer units: {exc}")
+    code, out = _systemctl("daemon-reload")
+    if code not in (0, 127):
+        return Result.failure(f"daemon-reload failed: {out.strip()}")
+    if code == 127:
+        return Result.failure(
+            "Units written but systemctl not available — "
+            "enable the timer manually once systemd is present")
+    code, out = _systemctl("enable", "--now", f"{TIMER_NAME}.timer")
+    if code != 0:
+        return Result.failure(f"Could not enable timer: {out.strip()}")
+    # Refresh ExecStart if the interpreter moved (venv recreated, etc.).
+    return Result.success(message="Backup timer installed and running")
+
+
+def remove_timer() -> Result:
+    """Disable + delete units. Idempotent; schedules in the registry stay."""
+    code, _ = _systemctl("disable", "--now", f"{TIMER_NAME}.timer")
+    removed = []
+    for suffix in ("service", "timer"):
+        try:
+            path = _unit_dir() / f"{TIMER_NAME}.{suffix}"
+            if path.is_file():
+                path.unlink()
+                removed.append(suffix)
+        except OSError:
+            pass
+    _systemctl("daemon-reload")
+    if code not in (0, 1, 127):
+        return Result.failure("Could not disable timer cleanly")
+    return Result.success(
+        message="Backup timer removed"
+        + (f" ({', '.join(removed)} deleted)" if removed else ""))
