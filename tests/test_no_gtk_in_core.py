@@ -37,6 +37,7 @@ def test_core_has_no_gtk_imports():
         "odoo_vite.core.devtools_export",
         "odoo_vite.core.odoo_shell",
         "odoo_vite.core.devwatch",
+        "odoo_vite.core.backup_scheduler",
     ]
     for name in mods:
         for loaded in list(sys.modules):
