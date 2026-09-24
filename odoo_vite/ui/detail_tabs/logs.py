@@ -127,4 +127,7 @@ class LogsTab:
         self._log_poll_id = 0
         self._log_follow = True
         self._log_path = ""
+        # F2.3: start_log_poll usually runs while this tab is hidden, so its
+        # scroll-to-end is dropped on the unmapped widget. Re-scroll on map.
+        self.log_scrolled.connect("map", self._on_log_mapped)
         return box

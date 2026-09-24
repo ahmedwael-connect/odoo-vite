@@ -368,6 +368,56 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
         except Exception:
             pass
 
+    def _on_log_mapped(self, _scrolled) -> None:
+        # F2.3: see comment at the connect() site in detail_tabs/logs.py.
+        try:
+            follow = bool(self._log_follow) and bool(
+                self.btn_log_follow.get_active())
+        except Exception:
+            return
+        if follow:
+            self._ensure_follow_landing()
+
+    def _ensure_follow_landing(self) -> None:
+        # F2.3: ListView layout settles over several frames and any single
+        # scroll issued mid-flux (vadjustment set_value AND ListView
+        # scroll_to — both verified swallowed) is lost. Converge instead:
+        # retry until the viewport is actually at the bottom or tries run
+        # out. Single-flight; the normal per-tick follow logic takes over
+        # afterwards (including respecting manual scroll-up).
+        if getattr(self, "_follow_landing", False):
+            return
+        self._follow_landing = True
+        state = {"tries": 20}
+
+        def _tick() -> bool:
+            try:
+                follow = bool(self._log_follow) and bool(
+                    self.btn_log_follow.get_active())
+            except Exception:
+                follow = False
+            if not follow:
+                self._follow_landing = False
+                return False
+            try:
+                adj = self.log_scrolled.get_vadjustment()
+                value, upper = adj.get_value(), adj.get_upper()
+                page = adj.get_page_size()
+            except Exception:
+                self._follow_landing = False
+                return False
+            if value >= upper - page - 8 or state["tries"] <= 0:
+                self._follow_landing = False
+                return False
+            state["tries"] -= 1
+            self._scroll_log_to_end()
+            return True
+
+        try:
+            GLib.timeout_add(150, _tick)
+        except Exception:
+            self._follow_landing = False
+
     def _on_profile_clicked(self, _btn) -> None:
         item = self.drop_profile_dur.get_selected_item()
         text = item.get_string() if item is not None else "10s"
@@ -397,6 +447,7 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
         self.lbl_log_note.set_text(
             f"Tailing {self._log_path} (last {len(initial)} lines shown)")
         self._scroll_log_to_end()
+        self._ensure_follow_landing()
         self._log_poll_id = GLib.timeout_add(1000, self._log_poll_tick)
 
     def stop_log_poll(self) -> None:
@@ -444,7 +495,16 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
             follow = False
         elif adj is not None:
             try:
-                follow = adj.get_value() >= adj.get_upper() - adj.get_page_size() - 8
+                # F2.3: judge against where the bottom was BEFORE this batch
+                # arrived, not after. A few new rows grow upper by more than
+                # the 8px slack, so a user sitting at the bottom would read
+                # as "not at bottom" and stall forever. Allowance = batch
+                # size × measured mean row height.
+                n0 = self.log_store.get_n_items()
+                mean_row = adj.get_upper() / n0 if n0 > 0 else 24
+                slack = 8 + len(lines) * mean_row
+                follow = (adj.get_value() >=
+                          adj.get_upper() - adj.get_page_size() - slack)
             except Exception:
                 pass
         for line in lines:
@@ -462,9 +522,28 @@ class InstanceDetailPage(Gtk.Box, OverviewTab, DatabasesTab, ModulesTab,
             except Exception:
                 following = True
             if following:
-                self._scroll_log_to_end()
+                # Converge (single-flight) rather than one blind scroll:
+                # layout ripple from the append can leave a single
+                # scroll_to ~one row above flush bottom.
+                self._ensure_follow_landing()
 
     def _scroll_log_to_end(self) -> None:
+        # F2.3: use the ListView's own scroll_to, not raw vadjustment math.
+        # The list lays rows out lazily over several frames; a synchronous
+        # set_value lands mid-layout and GTK's own anchoring then moves the
+        # viewport again (observed: value 5000 -> 3844 half a second later),
+        # permanently stranding follow "not at bottom". scroll_to is queued
+        # in the widget and applied by its own layout, so it survives flux.
+        # scroll_to alone only guarantees the last row is *visible* (it can
+        # stop ~38px above true bottom), so pin flush with set_value after —
+        # effective once layout settles, harmless while in flux.
+        try:
+            n = self.log_store.get_n_items()
+            if n > 0:
+                self.log_view.scroll_to(
+                    n - 1, Gtk.ListScrollFlags.NONE, None)
+        except Exception:
+            pass
         try:
             adj = self.log_scrolled.get_vadjustment()
             if adj is not None:
