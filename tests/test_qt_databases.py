@@ -120,3 +120,24 @@ def _drain_workers():
     yield
     from odoo_vite.ui_qt.workers import wait_for_background
     assert wait_for_background(), "background workers did not finish"
+
+
+def test_track_many_batches_sequentially(qapp, qtbot, tmp_path, monkeypatch):
+    """Lost-update regression: 3 parallel tracks kept only 1 (live E2E).
+    track_many must land all of them."""
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance, get_instance
+    from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "batch.db"))
+    inst = Instance(name="Batch", version="17.0", path=str(tmp_path),
+                    port=8099, primary_db="main", tracked_dbs=["main"])
+    assert create_instance(inst).ok
+    flows = LifecycleFlows()
+    messages = []
+    flows.message.connect(messages.append)
+    flows.track_many(inst.id, ["a1", "a2", "a3"])
+    qtbot.wait(4000)
+    tracked = get_instance(inst.id).tracked_dbs
+    assert sorted(tracked) == ["a1", "a2", "a3", "main"], tracked
+    assert any("3 database" in m for m in messages)

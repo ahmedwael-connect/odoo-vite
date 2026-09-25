@@ -15,6 +15,8 @@ from PySide6.QtCore import QObject, Signal
 from odoo_vite.ui_qt.workers import run_in_background
 from odoo_vite.core import (  # noqa: E402
     db_manager, process_manager, removal)
+from odoo_vite.core.db_manager import (  # noqa: E402
+    track_database, untrack_database)
 from odoo_vite.core.db_state import get_db_state, odoo_major  # noqa: E402
 from odoo_vite.core.registry import (  # noqa: E402
     get_db_password, get_instance)
@@ -107,6 +109,33 @@ class LifecycleFlows(QObject):
     def untrack(self, instance_id: str, db_name: str) -> None:
 
         self._run_op("untrack", untrack_database, instance_id, db_name)
+
+    def track_many(self, instance_id: str, db_names: list) -> None:
+        """Track several DBs in ONE worker, sequentially.
+
+        track_database is read-modify-write on tracked_dbs — N parallel
+        workers lose updates (verified live: 1 of 3 survived). Batching
+        here, not in core/ (which stays single-op by design).
+        """
+
+        def _work():
+            done, failed = [], []
+            for name in db_names:
+                res = track_database(instance_id, name)
+                (done if res.ok else failed).append(name)
+            if failed and not done:
+                return Result.failure(
+                    f"Could not track: {', '.join(failed)}")
+            msg = f"Tracking {len(done)} database(s)"
+            if failed:
+                msg += f" ({len(failed)} failed: {', '.join(failed)})"
+            return Result(ok=True, message=msg, data={"tracked": done})
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            self.message.emit(message)
+            self.refreshRequested.emit()
+
+        run_in_background(self, _work, _done)
 
     # ------------------------------------------------------------ discover
 

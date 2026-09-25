@@ -83,10 +83,23 @@ class QtMainWindow(QMainWindow):
         self.refresh_all()
         self._poll_busy = False
         self._poll = QTimer(self)
-        self._poll = QTimer(self)
         self._poll.setInterval(POLL_MS)
         self._poll.timeout.connect(self._poll_tick)
         self._poll.start()
+
+    def closeEvent(self, event) -> None:
+        # Never destroy a window with workers in flight: QThread destroyed
+        # while running aborts the process (verified live at app quit).
+        try:
+            self._poll.stop()
+        except Exception:
+            pass
+        try:
+            from odoo_vite.ui_qt.workers import wait_for_background
+            wait_for_background(timeout_s=20.0)
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------ data
 
@@ -308,11 +321,11 @@ class QtMainWindow(QMainWindow):
             btn_cancel.clicked.connect(dlg.reject)
             if dlg.exec() != QDialog.Accepted:
                 return
-            for db_name in picker.checked_ids():
-                self.flows.track(instance_id, db_name)
-            self._on_flow_message(
-                f"Tracking {len(picker.checked_ids())} database(s)")
+            self.flows.track_many(instance_id, picker.checked_ids())
 
+        self.flows.discover_entries(instance_id, _on_ready)
+
+        
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),
                                 payload.get("body", ""), "Confirm")

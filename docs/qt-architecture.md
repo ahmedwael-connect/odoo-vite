@@ -72,6 +72,12 @@ teardown abort respectively):
 3. Teardown chain: worker result → forwarder (GUI) → `thread.quit()` →
    `deleteLater` on thread/worker/forwarder. Never destroy a QThread
    while its thread is still running (abort at teardown).
+4. Shutdown: the main window's closeEvent stops the poll timer and drains
+   workers (wait_for_background) before accepting the close — quitting
+   with workers in flight aborts identically to test teardown.
+5. Batch read-modify-write core calls (e.g. tracking N databases) in ONE
+   worker, sequentially — parallel workers lose updates against
+   registry state (verified live: 1 of 3 tracks survived).
 
 ## Layering
 
