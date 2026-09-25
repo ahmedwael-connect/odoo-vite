@@ -3,5 +3,6 @@
 
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows  # noqa: F401
 from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows  # noqa: F401
+from odoo_vite.ui_qt.flows.modules import ModuleFlows  # noqa: F401
 
-__all__ = ["DatabaseFlows", "LifecycleFlows"]
+__all__ = ["DatabaseFlows", "LifecycleFlows", "ModuleFlows"]

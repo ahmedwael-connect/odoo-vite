@@ -274,6 +274,14 @@ class SelectionList(QWidget):
             return None
         return indexes[0].data(_ID_ROLE)
 
+    def current_id(self):
+        """Keyboard/current row id — works in any selection mode
+        (selection model is NoSelection in multi mode)."""
+        index = self.view.currentIndex()
+        if not index.isValid() or index.data(_HEADER_ROLE):
+            return None
+        return index.data(_ID_ROLE)
+
     def select_id(self, item_id) -> bool:
         """Select a row by id (headers never match). Returns found."""
         model = self.view.model()

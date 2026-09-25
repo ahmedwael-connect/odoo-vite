@@ -6,6 +6,8 @@ page composition, 2s get_statuses() polling (QThread worker, queued
 results), flow controllers, toasts. No feature logic.
 """
 
+from datetime import datetime, timezone
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QDialog,
@@ -28,13 +30,16 @@ from odoo_vite.core.registry import get_instance, list_instances
 from odoo_vite.core.version import __version__
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows, group_discover_entries
 from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows
+from odoo_vite.ui_qt.flows.modules import ModuleFlows
 from odoo_vite.ui_qt.views.databases import DatabasesPage
+from odoo_vite.ui_qt.views.modules import ModulesPage
 from odoo_vite.ui_qt.views.overview import OverviewPage
 from odoo_vite.ui_qt.views.sidebar import InstanceSidebar
 from odoo_vite.ui_qt.widgets.dialogs import ask_confirm, ask_confirm_typed
 from odoo_vite.ui_qt.widgets.selection_list import SelectionList
 from odoo_vite.ui_qt.widgets.toasts import Toaster
-from odoo_vite.ui_qt.workers import run_in_background
+from odoo_vite.ui_qt.workers import (  # noqa: E402
+    run_in_background, wait_for_background)
 
 POLL_MS = 2000
 
@@ -65,6 +70,9 @@ class QtMainWindow(QMainWindow):
         self.databases = DatabasesPage(self)
         self.databases.actionRequested.connect(self._on_db_action)
         self.stack.addTab(self.databases, "Databases")
+        self.modules = ModulesPage(self)
+        self.modules.actionRequested.connect(self._on_mod_action)
+        self.stack.addTab(self.modules, "Modules")
         splitter.addWidget(self.stack)
         splitter.setSizes([260, 740])
 
@@ -77,6 +85,10 @@ class QtMainWindow(QMainWindow):
         self.db_flows.refreshRequested.connect(self.refresh_all)
         self.db_flows.statesReady.connect(self._on_db_states)
         self.db_flows.reportReady.connect(self._on_validate_report)
+        self.mod_flows = ModuleFlows(self)
+        self.mod_flows.message.connect(self._on_flow_message)
+        self.mod_flows.refreshRequested.connect(self.refresh_all)
+        self.mod_flows.modulesReady.connect(self._on_modules_ready)
 
         self.statusBar().showMessage("Ready")
         self.stack.setEnabled(False)
@@ -95,7 +107,6 @@ class QtMainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            from odoo_vite.ui_qt.workers import wait_for_background
             wait_for_background(timeout_s=20.0)
         except Exception:
             pass
@@ -143,7 +154,9 @@ class QtMainWindow(QMainWindow):
         if inst is not None:
             self.overview.show_instance(inst)
             self.databases.show_instance(inst)
+            self.modules.show_instance(inst)
             self.db_flows.refresh_states(instance_id)
+            self.mod_flows.refresh_modules(instance_id)
         self.stack.setEnabled(True)
 
     def _on_action(self, action: str, instance_id: str) -> None:
@@ -219,8 +232,6 @@ class QtMainWindow(QMainWindow):
     def _backup_picker(self, instance_id: str, db_name: str) -> None:
         if not db_name:
             return
-        from datetime import datetime, timezone
-
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         dest, _ = QFileDialog.getSaveFileName(
             self, f"Back up '{db_name}' as…", f"{db_name}_{stamp}.dump",
@@ -326,6 +337,26 @@ class QtMainWindow(QMainWindow):
         self.flows.discover_entries(instance_id, _on_ready)
 
         
+    def _on_modules_ready(self, instance_id: str, modules: list,
+                          diff: dict, error: str) -> None:
+        if instance_id == self._current_id:
+            self.modules.set_modules(modules, diff, error)
+
+    def _on_mod_action(self, action: str, instance_id: str,
+                       payload) -> None:
+        if action == "mod-refresh":
+            self.mod_flows.refresh_modules(instance_id)
+        elif action == "mod-install":
+            self.mod_flows.install(instance_id, payload or [])
+        elif action == "mod-update":
+            self.mod_flows.update(instance_id, payload or [])
+        elif action == "mod-uninstall":
+            self.mod_flows.uninstall(instance_id, str(payload or ""))
+        elif action == "mod-update-code":
+            self.mod_flows.update_code(instance_id)
+        elif action == "mod-deps":
+            self.mod_flows.show_deps(instance_id, str(payload or ""))
+
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),
                                 payload.get("body", ""), "Confirm")
