@@ -19,6 +19,12 @@ from odoo_vite.ui_qt.views.sidebar import InstanceSidebar  # noqa: E402
 from odoo_vite.ui_qt.workers import run_in_background  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _isolated_registry(tmp_path, monkeypatch):
+    """Qt tests never touch the real registry (keyring/dbus abort risk)."""
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "qt-lc.db"))
+
+
 def _inst_dict(iid="x1", name="Demo", status="stopped"):
     return {"id": iid, "name": name, "status": status, "version": "17.0",
             "port": 8069, "path": "/tmp/x", "primary_db": "d",
@@ -146,3 +152,11 @@ def test_flows_discover_unknown_instance(qapp, qtbot):
     flows.discover_entries("no-such-id", payloads.append)
     qtbot.wait(3000)
     assert payloads and payloads[0]["ok"] is False
+
+
+@pytest.fixture(autouse=True)
+def _drain_workers():
+    """No QThread may outlive its test (teardown abort otherwise)."""
+    yield
+    from odoo_vite.ui_qt.workers import wait_for_background
+    assert wait_for_background(), "background workers did not finish"

@@ -1,17 +1,23 @@
-"""Qt main window shell (PSQ-1.2, wired in PSQ-3): header, sidebar,
-stacked content area.
+"""Qt main window shell (PSQ-1.2, wired PSQ-3/PSQ-4): header, sidebar,
+tabbed content area.
 
 Same information architecture as the GTK MainWindow. Owns: sidebar +
-Overview page composition, 2s get_statuses() polling (QThread worker,
-queued results), LifecycleFlows controller, toasts. No feature logic.
+page composition, 2s get_statuses() polling (QThread worker, queued
+results), flow controllers, toasts. No feature logic.
 """
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QListWidget,
     QMainWindow,
+    QPushButton,
     QSplitter,
-    QStackedWidget,
+    QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -20,10 +26,13 @@ from PySide6.QtWidgets import (
 from odoo_vite.core.process_manager import get_statuses
 from odoo_vite.core.registry import get_instance, list_instances
 from odoo_vite.core.version import __version__
+from odoo_vite.ui_qt.flows.databases import DatabaseFlows, group_discover_entries
 from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows
+from odoo_vite.ui_qt.views.databases import DatabasesPage
 from odoo_vite.ui_qt.views.overview import OverviewPage
 from odoo_vite.ui_qt.views.sidebar import InstanceSidebar
-from odoo_vite.ui_qt.widgets.dialogs import ask_confirm
+from odoo_vite.ui_qt.widgets.dialogs import ask_confirm, ask_confirm_typed
+from odoo_vite.ui_qt.widgets.selection_list import SelectionList
 from odoo_vite.ui_qt.widgets.toasts import Toaster
 from odoo_vite.ui_qt.workers import run_in_background
 
@@ -49,15 +58,13 @@ class QtMainWindow(QMainWindow):
         self.sidebar.instanceSelected.connect(self._on_select)
         splitter.addWidget(self.sidebar)
 
-        self.stack = QStackedWidget()
+        self.stack = QTabWidget()
         self.overview = OverviewPage(self)
         self.overview.actionRequested.connect(self._on_action)
-        self.stack.addWidget(self.overview)
-        empty = QWidget()
-        empty_layout = QVBoxLayout(empty)
-        empty_layout.addWidget(QLabel("Select an instance"))
-        empty_layout.addStretch(1)
-        self.stack.addWidget(empty)
+        self.stack.addTab(self.overview, "Overview")
+        self.databases = DatabasesPage(self)
+        self.databases.actionRequested.connect(self._on_db_action)
+        self.stack.addTab(self.databases, "Databases")
         splitter.addWidget(self.stack)
         splitter.setSizes([260, 740])
 
@@ -65,9 +72,17 @@ class QtMainWindow(QMainWindow):
         self.flows.message.connect(self._on_flow_message)
         self.flows.refreshRequested.connect(self.refresh_all)
         self.flows.confirmNeeded.connect(self._on_confirm_needed)
+        self.db_flows = DatabaseFlows(self)
+        self.db_flows.message.connect(self._on_flow_message)
+        self.db_flows.refreshRequested.connect(self.refresh_all)
+        self.db_flows.statesReady.connect(self._on_db_states)
+        self.db_flows.reportReady.connect(self._on_validate_report)
 
         self.statusBar().showMessage("Ready")
+        self.stack.setEnabled(False)
         self.refresh_all()
+        self._poll_busy = False
+        self._poll = QTimer(self)
         self._poll = QTimer(self)
         self._poll.setInterval(POLL_MS)
         self._poll.timeout.connect(self._poll_tick)
@@ -87,7 +102,15 @@ class QtMainWindow(QMainWindow):
                 self.overview.refresh_status(inst)
 
     def _poll_tick(self) -> None:
+        # Overlap guard (GTK _poll_busy parity): a slow poll must not pile
+        # workers behind it — and a test/app teardown must never catch a
+        # half-finished tick (QThread destroyed while running aborts).
+        if self._poll_busy:
+            return
+        self._poll_busy = True
+
         def _done(ok: bool, _message: str, data: dict) -> None:
+            self._poll_busy = False
             for status in data.get("statuses", []):
                 if status.get("id") == self._current_id:
                     self.overview.refresh_status(status)
@@ -106,7 +129,9 @@ class QtMainWindow(QMainWindow):
         inst = get_instance(instance_id)
         if inst is not None:
             self.overview.show_instance(inst)
-        self.stack.setCurrentWidget(self.overview)
+            self.databases.show_instance(inst)
+            self.db_flows.refresh_states(instance_id)
+        self.stack.setEnabled(True)
 
     def _on_action(self, action: str, instance_id: str) -> None:
         if action == "start":
@@ -130,6 +155,163 @@ class QtMainWindow(QMainWindow):
                         f"Type the instance name to remove {name}.",
                         name, "Remove"):
                     self.flows.remove(instance_id)
+
+    def _on_db_action(self, action: str, instance_id: str,
+                      payload) -> None:
+        if action in ("set-primary", "switch"):
+            db_name = (payload or "").strip()
+            if not db_name:
+                self._on_flow_message("Pick a database first")
+                return
+            if action == "set-primary":
+                from odoo_vite.core.registry import update_instance
+
+                res = update_instance(instance_id, primary_db=db_name)
+                self._on_flow_message(res.message)
+                self.refresh_all()
+            else:
+                self.flows.switch(instance_id, db_name)
+        elif action == "track":
+            self.flows.track(instance_id, str(payload or "").strip())
+        elif action == "untrack":
+            self.flows.untrack(instance_id, str(payload or "").strip())
+        elif action == "init-db":
+            if payload:
+                self.db_flows.init_db(instance_id, str(payload))
+        elif action == "backup-db":
+            self._backup_picker(instance_id, str(payload or ""))
+        elif action == "drop-db":
+            db_name = str(payload or "")
+            inst = get_instance(instance_id)
+            if inst is not None and db_name == (inst.primary_db or ""):
+                self._on_flow_message(
+                    "The primary database cannot be dropped here — "
+                    "switch primary first, or remove the instance")
+                return
+            if ask_confirm_typed(
+                    self, f"Drop database '{db_name}'?",
+                    "This permanently deletes the database. The instance "
+                    "keeps running on its primary.",
+                    db_name, "Drop permanently"):
+                self.db_flows.drop_db(instance_id, db_name)
+        elif action == "restore":
+            self._restore_picker(instance_id)
+        elif action == "validate":
+            self.db_flows.validate(instance_id)
+        elif action == "refresh-states":
+            self.db_flows.refresh_states(instance_id)
+        elif action == "discover":
+            self._discover_dialog(instance_id)
+
+    def _backup_picker(self, instance_id: str, db_name: str) -> None:
+        if not db_name:
+            return
+        from datetime import datetime, timezone
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        dest, _ = QFileDialog.getSaveFileName(
+            self, f"Back up '{db_name}' as…", f"{db_name}_{stamp}.dump",
+            "Postgres dumps (*.dump)")
+        if dest:
+            self.db_flows.backup_db(instance_id, db_name, dest)
+
+    def _restore_picker(self, instance_id: str) -> None:
+        dump, _ = QFileDialog.getOpenFileName(
+            self, "Select dump file to restore", "",
+            "Postgres dumps (*.dump *.sql *.sql.gz)")
+        if not dump:
+            return
+        inst = get_instance(instance_id)
+        target, ok = QInputDialog.getText(
+            self, "Restore database",
+            "Target database (will be DROPPED and recreated — never merged):",
+            text=(inst.primary_db if inst else ""))
+        target = (target or "").strip()
+        if not ok or not target:
+            return
+        if ask_confirm_typed(
+                self, "Restore database?",
+                f"Retype the target name to restore into '{target}'.",
+                target, "Restore (drop + recreate)"):
+            self.db_flows.restore_db(instance_id, dump, target)
+
+    def _on_db_states(self, instance_id: str, states: dict) -> None:
+        if instance_id == self._current_id:
+            self.databases.set_db_states(states)
+
+    def _on_validate_report(self, instance_id: str, report: dict) -> None:
+        if instance_id != self._current_id:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Config validation")
+        dlg.setMinimumWidth(480)
+        layout = QVBoxLayout(dlg)
+        checks = (report or {}).get("checks", [])
+        failed = [c for c in checks if c.get("ok") is False]
+        summary = QLabel(
+            f"{len(checks) - len(failed)} of {len(checks)} checks passed")
+        summary.setProperty("class",
+                            "success" if not failed else "warning")
+        layout.addWidget(summary)
+        rows = QListWidget()
+        for check in checks:
+            icon = ("✅" if check.get("ok") is True
+                    else ("❌" if check.get("ok") is False else "❔"))
+            rows.addItem(f"{icon}  {check.get('field', '?')} — "
+                         f"{check.get('detail', '')}")
+        layout.addWidget(rows)
+        close_btn = QPushButton("Close", dlg)
+        layout.addWidget(close_btn)
+        dlg.exec()
+
+    def _discover_dialog(self, instance_id: str) -> None:
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        version = inst.version or ""
+        self._on_flow_message("Discovering databases…")
+
+        def _on_ready(payload: dict) -> None:
+            if not payload.get("ok"):
+                self._on_flow_message(payload.get("message", "Discover failed"))
+                return
+            groups = group_discover_entries(payload.get("entries", []),
+                                            version)
+            rows = []
+            for group, names in (("Likely this version", groups["likely"]),
+                                 ("Other versions", groups["other"]),
+                                 ("Uninitialized", groups["plain"])):
+                if not names:
+                    continue
+                rows.append({"id": f"__group:{group}", "title": group,
+                             "header": True})
+                for name in names:
+                    rows.append({"id": name, "title": name,
+                                 "badge": group,
+                                 # A.1 parity: ONLY likely arrives checked.
+                                 "group": group,
+                                 "checked": group == "Likely this version"})
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Discover databases")
+            dlg.setMinimumWidth(520)
+            layout = QVBoxLayout(dlg)
+            picker = SelectionList(multi=True, parent=dlg)
+            picker.set_items(rows)
+            layout.addWidget(picker)
+            btn_row = QHBoxLayout()
+            btn_track = QPushButton("Track selected", dlg)
+            btn_cancel = QPushButton("Cancel", dlg)
+            btn_row.addWidget(btn_track)
+            btn_row.addWidget(btn_cancel)
+            layout.addLayout(btn_row)
+            btn_track.clicked.connect(dlg.accept)
+            btn_cancel.clicked.connect(dlg.reject)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            for db_name in picker.checked_ids():
+                self.flows.track(instance_id, db_name)
+            self._on_flow_message(
+                f"Tracking {len(picker.checked_ids())} database(s)")
 
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),

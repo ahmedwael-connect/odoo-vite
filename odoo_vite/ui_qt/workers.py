@@ -9,6 +9,8 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
+_LIVE_THREADS: set = set()
+
 
 class CoreWorker(QObject):
     """Runs one core callable off the GUI thread, reports back queued."""
@@ -79,5 +81,38 @@ def run_in_background(host: QObject, fn: Callable,
     delivery = _Delivery(thread, worker, on_done, host)
     thread.started.connect(worker.run)
     thread.finished.connect(thread.deleteLater)
+    _LIVE_THREADS.add(thread)
+    thread.finished.connect(lambda: _LIVE_THREADS.discard(thread))
     thread.start()
     return thread
+
+
+def wait_for_background(timeout_s: float = 15.0) -> bool:
+    """Drain in-flight workers, pumping the loop so queued delivery lands.
+
+    For tests (a QThread destroyed while running aborts the process) and
+    app shutdown. Returns False on timeout — the caller decides whether
+    that is an error. Never call from inside a worker thread.
+    """
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        live = []
+        for thread in list(_LIVE_THREADS):
+            try:
+                if thread.isRunning():
+                    live.append(thread)
+                else:
+                    _LIVE_THREADS.discard(thread)
+            except RuntimeError:
+                _LIVE_THREADS.discard(thread)  # C++ side already gone
+        if not live:
+            return True
+        if app is not None:
+            app.processEvents()
+        time.sleep(0.02)
+    return False

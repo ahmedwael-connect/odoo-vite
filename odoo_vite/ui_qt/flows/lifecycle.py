@@ -13,6 +13,12 @@ import uuid
 from PySide6.QtCore import QObject, Signal
 
 from odoo_vite.ui_qt.workers import run_in_background
+from odoo_vite.core import (  # noqa: E402
+    db_manager, process_manager, removal)
+from odoo_vite.core.db_state import get_db_state, odoo_major  # noqa: E402
+from odoo_vite.core.registry import (  # noqa: E402
+    get_db_password, get_instance)
+from odoo_vite.core.result import Result  # noqa: E402
 
 
 class LifecycleFlows(QObject):
@@ -66,46 +72,39 @@ class LifecycleFlows(QObject):
         run_in_background(self, fn, _done, *args, **kwargs)
 
     def start(self, instance_id: str, database: str | None = None) -> None:
-        from odoo_vite.core import process_manager
 
         self.message.emit("Starting…")
         self._run_op("start", process_manager.start_instance, instance_id,
                      database=database, confirm_cb=self._confirm_cb)
 
     def stop(self, instance_id: str) -> None:
-        from odoo_vite.core import process_manager
 
         self.message.emit("Stopping…")
         self._run_op("stop", process_manager.stop_instance, instance_id)
 
     def restart(self, instance_id: str) -> None:
-        from odoo_vite.core import process_manager
 
         self.message.emit("Restarting…")
         self._run_op("restart", process_manager.restart_instance,
                      instance_id)
 
     def remove(self, instance_id: str, drop_db: bool = False) -> None:
-        from odoo_vite.core import removal
 
         self.message.emit("Removing…")
         self._run_op("remove", removal.remove_instance, instance_id,
                      drop_db=drop_db)
 
     def switch(self, instance_id: str, db_name: str) -> None:
-        from odoo_vite.core import process_manager
 
         self.message.emit(f"Switching to {db_name}…")
         self._run_op("switch", process_manager.switch_database,
                      instance_id, db_name, confirm_cb=self._confirm_cb)
 
     def track(self, instance_id: str, db_name: str) -> None:
-        from odoo_vite.core.db_manager import track_database
 
         self._run_op("track", track_database, instance_id, db_name)
 
     def untrack(self, instance_id: str, db_name: str) -> None:
-        from odoo_vite.core.db_manager import untrack_database
 
         self._run_op("untrack", untrack_database, instance_id, db_name)
 
@@ -115,12 +114,8 @@ class LifecycleFlows(QObject):
                          on_ready) -> None:
         """Fetch untracked-database entries, then call on_ready(payload)
         on the GUI thread. The caller shows the SelectionList dialog."""
-        from odoo_vite.core.result import Result
 
         def _work():
-            from odoo_vite.core import db_manager
-            from odoo_vite.core.db_state import get_db_state, odoo_major
-            from odoo_vite.core.registry import get_db_password, get_instance
 
             inst = get_instance(instance_id)
             if inst is None:
