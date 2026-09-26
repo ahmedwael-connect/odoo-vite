@@ -126,3 +126,37 @@ def test_worker_page_completion(qapp, qtbot):
     assert prov.isComplete() is False
     prov.set_complete(True)
     assert prov.isComplete() is True
+
+
+def test_branches_payload_normalizes_list_shape(qapp, qtbot, monkeypatch):
+    """A.2: core returns data as a bare list; the page needs a dict.
+    The adapter must normalize, or the list stays empty while the
+    count (message) reads fine."""
+    from odoo_vite.core.result import Result
+    from odoo_vite.ui_qt.wizards import create_instance as ci_mod
+
+    monkeypatch.setattr(
+        ci_mod.git_manager, "list_odoo_branches",
+        lambda search="": Result(ok=True, message="2 branches",
+                                 data=["17.0", "18.0"]))
+    res = ci_mod._branches_payload("")
+    assert res.ok
+    assert res.data == {"branches": ["17.0", "18.0"]}
+
+
+def test_version_page_populates_from_list_payload(qapp, qtbot, monkeypatch):
+    """End-to-end through the real worker chain: list-shaped core data
+    must still reach visible rows (A.2 regression)."""
+    from odoo_vite.core.result import Result
+    from odoo_vite.ui_qt.wizards import create_instance as ci_mod
+
+    monkeypatch.setattr(
+        ci_mod.git_manager, "list_odoo_branches",
+        lambda search="": Result(ok=True, message="2 branches",
+                                 data=["17.0", "18.0"]))
+    wiz = CreateWizard()
+    qtbot.addWidget(wiz)
+    wiz.version_page.load_branches()
+    qtbot.wait(3000)
+    assert wiz.version_page.branch_list.visible_count() == 2
+    assert "2 branches" in wiz.version_page.status.text()

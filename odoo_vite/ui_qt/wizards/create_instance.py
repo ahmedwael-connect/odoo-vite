@@ -59,7 +59,13 @@ class VersionPage(QWizardPage):
         self.status.setText("Loading branches…")
 
         def _done(ok: bool, message: str, data: dict) -> None:
-            branches = data.get("branches", []) if ok else []
+            # list_odoo_branches returns data as a bare LIST (GTK parity),
+            # not {"branches": [...]} — accept both, never leave the list
+            # empty while the count reads fine (A.2).
+            if isinstance(data, dict):
+                branches = data.get("branches", [])
+            else:
+                branches = data or []
             self.branch_list.set_items([
                 {"id": b, "title": b} for b in branches])
             self.status.setText(
@@ -81,9 +87,13 @@ def _branches_payload(search: str):
     from odoo_vite.core.result import Result
 
     res = git_manager.list_odoo_branches(search or "")
-    if res.ok:
-        return res
-    return Result.failure(res.message)
+    if not res.ok:
+        return Result.failure(res.message)
+    # Normalize: core returns data as a bare list; the delivery signal
+    # only carries dicts, so wrap here (thin adapter at the boundary).
+    branches = res.data if isinstance(res.data, list) else []
+    return Result(ok=True, message=res.message,
+                  data={"branches": branches})
 
 
 class SysCheckPage(QWizardPage):
