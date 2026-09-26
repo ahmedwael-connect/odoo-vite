@@ -113,7 +113,9 @@ def test_scaffold_definition_and_validation(qapp, qtbot):
     # DB empty -> invalid (acceptance target required).
     page.entry_db.clear()
     assert page.validatePage() is False
-    page.entry_db.setText("some_test_db")
+    # Acceptance needs a real existing DB (validatePage probes existence;
+    # read-only). 'postgres' always exists.
+    page.entry_db.setText("postgres")
     assert page.validatePage() is True
 
 
