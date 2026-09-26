@@ -67,6 +67,13 @@ def test_space_toggles_checkbox(qapp, qtbot):
     qtbot.keyClick(w.view.viewport(), Qt.Key_Space)
     assert w.view.currentIndex().data(Qt.CheckStateRole) == Qt.Checked
     assert sorted(w.checked_ids()) == ["a", "b"]
+    # And back off again — uncheck must actually uncheck (PySide6 enums
+    # are not int()-convertible; a naive cast made this a silent no-op).
+    qtbot.keyClick(w.view.viewport(), Qt.Key_Space)
+    assert w.view.currentIndex().data(Qt.CheckStateRole) == Qt.Unchecked
+    assert w.checked_ids() == ["a"]
+    assert w.set_checked("a", False) is True
+    assert w.checked_ids() == []
 
 
 def test_height_cap_applied(qapp, qtbot):

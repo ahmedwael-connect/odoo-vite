@@ -28,9 +28,11 @@ from PySide6.QtWidgets import (
 from odoo_vite.core.process_manager import get_statuses
 from odoo_vite.core.registry import get_instance, list_instances
 from odoo_vite.core.version import __version__
+from odoo_vite.ui_qt.flows.configuration import ConfigurationFlows
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows, group_discover_entries
 from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows
 from odoo_vite.ui_qt.flows.modules import ModuleFlows
+from odoo_vite.ui_qt.views.configuration import ConfigurationPage
 from odoo_vite.ui_qt.views.databases import DatabasesPage
 from odoo_vite.ui_qt.views.modules import ModulesPage
 from odoo_vite.ui_qt.views.overview import OverviewPage
@@ -73,6 +75,9 @@ class QtMainWindow(QMainWindow):
         self.modules = ModulesPage(self)
         self.modules.actionRequested.connect(self._on_mod_action)
         self.stack.addTab(self.modules, "Modules")
+        self.configuration = ConfigurationPage(self)
+        self.configuration.actionRequested.connect(self._on_conf_action)
+        self.stack.addTab(self.configuration, "Configuration")
         splitter.addWidget(self.stack)
         splitter.setSizes([260, 740])
 
@@ -89,6 +94,9 @@ class QtMainWindow(QMainWindow):
         self.mod_flows.message.connect(self._on_flow_message)
         self.mod_flows.refreshRequested.connect(self.refresh_all)
         self.mod_flows.modulesReady.connect(self._on_modules_ready)
+        self.conf_flows = ConfigurationFlows(self)
+        self.conf_flows.message.connect(self._on_flow_message)
+        self.conf_flows.refreshRequested.connect(self.refresh_all)
 
         self.statusBar().showMessage("Ready")
         self.stack.setEnabled(False)
@@ -155,6 +163,7 @@ class QtMainWindow(QMainWindow):
             self.overview.show_instance(inst)
             self.databases.show_instance(inst)
             self.modules.show_instance(inst)
+            self.configuration.show_instance(inst)
             self.db_flows.refresh_states(instance_id)
             self.mod_flows.refresh_modules(instance_id)
         self.stack.setEnabled(True)
@@ -356,6 +365,19 @@ class QtMainWindow(QMainWindow):
             self.mod_flows.update_code(instance_id)
         elif action == "mod-deps":
             self.mod_flows.show_deps(instance_id, str(payload or ""))
+
+    def _on_conf_action(self, action: str, instance_id: str,
+                        payload) -> None:
+        if action == "conf-save":
+            self.conf_flows.save(instance_id, payload or {})
+        elif action == "conf-restore":
+            self.conf_flows.restore(instance_id)
+        elif action == "conf-regenerate":
+            self.conf_flows.regenerate(instance_id)
+        elif action == "meta-save":
+            self.conf_flows.meta_save(instance_id, payload or {})
+        elif action == "addons-manage":
+            self.conf_flows.addons_manage(self, instance_id)
 
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),

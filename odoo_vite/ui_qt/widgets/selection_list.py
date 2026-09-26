@@ -106,10 +106,16 @@ class _RowModel(QAbstractListModel):
         row = self._rows[self._visible[index.row()]]
         if row.get("header"):
             return False
-        try:
-            row["checked"] = (Qt.CheckState(int(value)) == Qt.Checked)
-        except (TypeError, ValueError):
-            row["checked"] = bool(value)
+        # NOTE: int(Qt.Unchecked) raises TypeError on PySide6 (enums are
+        # not int()-convertible), and bool(Qt.Unchecked) is True — so a
+        # naive conversion makes every uncheck a no-op. Compare as enum.
+        if isinstance(value, bool):
+            row["checked"] = value
+        else:
+            try:
+                row["checked"] = (Qt.CheckState(value) == Qt.Checked)
+            except (TypeError, ValueError):
+                row["checked"] = False
         self.dataChanged.emit(index, index, [Qt.CheckStateRole])
         return True
 
