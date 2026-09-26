@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from odoo_vite.ui_qt.widgets.icons import style_button  # noqa: E402
+
 from odoo_vite.core import conf_manager  # noqa: E402
 from odoo_vite.core.registry import get_instance  # noqa: E402
 
@@ -110,7 +112,8 @@ class ConfigurationPage(QWidget):
 
         save_row = QHBoxLayout()
         save_row.setSpacing(8)
-        self.btn_conf_save = QPushButton("Save changes")
+        self.btn_conf_save = style_button(
+            QPushButton("Save changes"), "save", primary=True)
         self.btn_conf_save.clicked.connect(self._on_conf_save)
         save_row.addWidget(self.btn_conf_save)
         self.btn_conf_restore = QPushButton("Restore last backup")
@@ -168,7 +171,8 @@ class ConfigurationPage(QWidget):
         self.err_python = QLabel()
         self.err_python.setProperty("class", "error")
         layout.addWidget(self.err_python)
-        btn_meta_save = QPushButton("Save metadata")
+        btn_meta_save = style_button(
+            QPushButton("Save metadata"), "save", primary=True)
         btn_meta_save.clicked.connect(self._on_meta_save)
         layout.addWidget(btn_meta_save)
         layout.addStretch(1)

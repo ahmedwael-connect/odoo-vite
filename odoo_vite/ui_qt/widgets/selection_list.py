@@ -94,6 +94,11 @@ class _RowModel(QAbstractListModel):
             return row.get("id")
         if role == _HEADER_ROLE:
             return bool(row.get("header"))
+        if role == Qt.ToolTipRole and not row.get("header"):
+            tip = str(row.get("title", ""))
+            if row.get("badge"):
+                tip += f" — {row['badge']}"
+            return tip
         if role == Qt.CheckStateRole and self._multi and not row.get("header"):
             return (Qt.Checked if row.get("checked")
                     else Qt.Unchecked)

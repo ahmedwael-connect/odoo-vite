@@ -1,15 +1,15 @@
-"""Dev Tools page (PSQ-8.2): faithful port of the GTK Dev Tools tab.
+"""Dev Tools page (PSQ-8.2, Part B redesign): grouped sections.
 
-Long content lives in a QScrollArea (the tab itself doesn't scroll).
-Sections: RPC connect, Model Inspector, Record Browser, Cron Jobs,
-launch.json/editors, Shell REPL, Dev Mode Watch, module test runner.
-Emits actionRequested; DevToolsRpcFlows/DevToolsProcessFlows execute.
+Each section is a QGroupBox (single approach everywhere, per Part B) —
+never a flat stack of labels. Empty result areas show explicit empty
+states, never blank voids. Emits actionRequested; flows execute.
 """
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from odoo_vite.ui_qt.widgets.icons import style_button  # noqa: E402
 
 from odoo_vite.ui_qt.widgets.selection_list import SelectionList
 
@@ -38,15 +40,13 @@ class DevToolsPage(QWidget):
         scrolled.setWidgetResizable(True)
         body = QWidget()
         layout = QVBoxLayout(body)
-        layout.setSpacing(8)
+        layout.setSpacing(12)
         layout.setContentsMargins(16, 12, 16, 16)
         scrolled.setWidget(body)
         outer.addWidget(scrolled)
 
         # ---------------------------------------------------------- RPC
-        rpc_title = QLabel("RPC connection")
-        rpc_title.setProperty("class", "heading")
-        layout.addWidget(rpc_title)
+        rpc_box, rpc = self._section(layout, "RPC connection")
         rpc_row = QHBoxLayout()
         rpc_row.setSpacing(8)
         self.entry_rpc_user = QLineEdit()
@@ -58,32 +58,35 @@ class DevToolsPage(QWidget):
         rpc_row.addWidget(self.entry_rpc_pass, 1)
         self.check_rpc_remember = QCheckBox("Remember")
         rpc_row.addWidget(self.check_rpc_remember)
-        self.btn_rpc_connect = QPushButton("Connect")
+        self.btn_rpc_connect = style_button(
+            QPushButton("Connect"), "connect", primary=True)
         self.btn_rpc_connect.clicked.connect(self._on_rpc_connect)
         rpc_row.addWidget(self.btn_rpc_connect)
-        layout.addLayout(rpc_row)
+        rpc.addLayout(rpc_row)
         self.lbl_rpc_status = QLabel("Not connected.")
         self.lbl_rpc_status.setProperty("class", "dim")
         self.lbl_rpc_status.setWordWrap(True)
-        layout.addWidget(self.lbl_rpc_status)
+        rpc.addWidget(self.lbl_rpc_status)
 
         # ---------------------------------------------------------- models
-        models_title = QLabel("Model Inspector")
-        models_title.setProperty("class", "heading")
-        layout.addWidget(models_title)
+        _models_box, models = self._section(layout, "Model Inspector")
         self.models_list = SelectionList(multi=False, parent=self)
-        layout.addWidget(self.models_list)
+        models.addWidget(self.models_list)
+        self.lbl_models_empty = QLabel(
+            "Connect to an instance to inspect models.")
+        self.lbl_models_empty.setProperty("class", "dim")
+        models.addWidget(self.lbl_models_empty)
         self.meta_list = QListWidget()
         self.meta_list.setMaximumHeight(150)
-        layout.addWidget(self.meta_list)
+        models.addWidget(self.meta_list)
         self.lbl_model_meta = QLabel()
         self.lbl_model_meta.setProperty("class", "dim")
-        layout.addWidget(self.lbl_model_meta)
+        models.addWidget(self.lbl_model_meta)
+        self.models_list.selectionChanged.connect(
+            self._sync_models_empty)
 
         # ---------------------------------------------------------- records
-        rec_title = QLabel("Record Browser")
-        rec_title.setProperty("class", "heading")
-        layout.addWidget(rec_title)
+        _rec_box, rec = self._section(layout, "Record Browser")
         dom_row = QHBoxLayout()
         dom_row.setSpacing(8)
         self.entry_dom_field = QLineEdit()
@@ -99,9 +102,12 @@ class DevToolsPage(QWidget):
         self.btn_rec_search.clicked.connect(
             lambda: self._emit("rec-search", None))
         dom_row.addWidget(self.btn_rec_search)
-        layout.addLayout(dom_row)
+        rec.addLayout(dom_row)
         self.records_list = SelectionList(multi=False, parent=self)
-        layout.addWidget(self.records_list)
+        rec.addWidget(self.records_list)
+        self.lbl_records_empty = QLabel("No query yet — search above.")
+        self.lbl_records_empty.setProperty("class", "dim")
+        rec.addWidget(self.lbl_records_empty)
         rec_nav = QHBoxLayout()
         rec_nav.setSpacing(8)
         self.btn_rec_prev = QPushButton("◀ Prev")
@@ -115,10 +121,10 @@ class DevToolsPage(QWidget):
         self.btn_rec_next.clicked.connect(
             lambda: self._emit("rec-next", None))
         rec_nav.addWidget(self.btn_rec_next)
-        layout.addLayout(rec_nav)
+        rec.addLayout(rec_nav)
         rec_ops = QHBoxLayout()
         rec_ops.setSpacing(8)
-        self.btn_rec_new = QPushButton("New…")
+        self.btn_rec_new = style_button(QPushButton("New…"), "new")
         self.btn_rec_new.clicked.connect(
             lambda: self._emit("rec-new", None))
         rec_ops.addWidget(self.btn_rec_new)
@@ -126,18 +132,16 @@ class DevToolsPage(QWidget):
         self.btn_rec_edit.clicked.connect(
             lambda: self._emit("rec-edit", None))
         rec_ops.addWidget(self.btn_rec_edit)
-        self.btn_rec_delete = QPushButton("Delete…")
+        self.btn_rec_delete = style_button(QPushButton("Delete…"), "delete")
         self.btn_rec_delete.setProperty("role", "destructive")
         self.btn_rec_delete.clicked.connect(
             lambda: self._emit("rec-delete", None))
         rec_ops.addWidget(self.btn_rec_delete)
         rec_ops.addStretch(1)
-        layout.addLayout(rec_ops)
+        rec.addLayout(rec_ops)
 
         # ---------------------------------------------------------- cron
-        cron_title = QLabel("Cron Jobs")
-        cron_title.setProperty("class", "heading")
-        layout.addWidget(cron_title)
+        _cron_box, cron = self._section(layout, "Cron Jobs")
         cron_row = QHBoxLayout()
         cron_row.setSpacing(8)
         self.btn_cron_refresh = QPushButton("Refresh")
@@ -145,15 +149,16 @@ class DevToolsPage(QWidget):
             lambda: self._emit("cron-refresh", None))
         cron_row.addWidget(self.btn_cron_refresh)
         cron_row.addStretch(1)
-        layout.addLayout(cron_row)
+        cron.addLayout(cron_row)
         self.cron_list = QListWidget()
         self.cron_list.setMaximumHeight(150)
-        layout.addWidget(self.cron_list)
+        cron.addWidget(self.cron_list)
+        self.lbl_cron_empty = QLabel("No cron jobs loaded — press Refresh.")
+        self.lbl_cron_empty.setProperty("class", "dim")
+        cron.addWidget(self.lbl_cron_empty)
 
         # ---------------------------------------------------------- launch/editors
-        tool_title = QLabel("Launch & editors")
-        tool_title.setProperty("class", "heading")
-        layout.addWidget(tool_title)
+        _tool_box, tools = self._section(layout, "Launch & editors")
         tool_row = QHBoxLayout()
         tool_row.setSpacing(8)
         self.btn_launch_json = QPushButton("Generate launch.json")
@@ -169,42 +174,38 @@ class DevToolsPage(QWidget):
             lambda: self._emit("open-cursor", None))
         tool_row.addWidget(self.btn_open_cursor)
         tool_row.addStretch(1)
-        layout.addLayout(tool_row)
+        tools.addLayout(tool_row)
 
         # ---------------------------------------------------------- shell
-        shell_title = QLabel("Odoo Shell (PTY REPL)")
-        shell_title.setProperty("class", "heading")
-        layout.addWidget(shell_title)
+        _shell_box, shell = self._section(layout, "Odoo Shell (PTY REPL)")
         shell_row = QHBoxLayout()
         shell_row.setSpacing(8)
-        self.btn_shell_start = QPushButton("Start shell")
+        self.btn_shell_start = style_button(QPushButton("Start shell"), "run")
         self.btn_shell_start.clicked.connect(
             lambda: self._emit("shell-start", None))
         shell_row.addWidget(self.btn_shell_start)
-        self.btn_shell_stop = QPushButton("Stop")
+        self.btn_shell_stop = style_button(QPushButton("Stop"), "stop")
         self.btn_shell_stop.clicked.connect(
             lambda: self._emit("shell-stop", None))
         shell_row.addWidget(self.btn_shell_stop)
         self.lbl_shell_status = QLabel("Shell not running.")
         self.lbl_shell_status.setProperty("class", "dim")
         shell_row.addWidget(self.lbl_shell_status, 1)
-        layout.addLayout(shell_row)
+        shell.addLayout(shell_row)
         self.shell_output = QTextEdit()
         self.shell_output.setReadOnly(True)
         self.shell_output.setFontFamily("monospace")
         self.shell_output.setMinimumHeight(200)
         self.shell_output.setMaximumHeight(320)
-        layout.addWidget(self.shell_output)
+        shell.addWidget(self.shell_output)
         self.entry_shell_in = QLineEdit()
         self.entry_shell_in.setPlaceholderText(
             "Type Python to run in the shell… (Enter sends)")
         self.entry_shell_in.returnPressed.connect(self._on_shell_send)
-        layout.addWidget(self.entry_shell_in)
+        shell.addWidget(self.entry_shell_in)
 
         # ---------------------------------------------------------- devmode
-        dev_title = QLabel("Dev Mode Watch")
-        dev_title.setProperty("class", "heading")
-        layout.addWidget(dev_title)
+        _dev_box, dev = self._section(layout, "Dev Mode Watch")
         dev_row = QHBoxLayout()
         dev_row.setSpacing(8)
         self.check_devmode = QCheckBox("Watch addon files, auto-restart")
@@ -213,12 +214,10 @@ class DevToolsPage(QWidget):
         self.lbl_devmode = QLabel()
         self.lbl_devmode.setProperty("class", "dim")
         dev_row.addWidget(self.lbl_devmode, 1)
-        layout.addLayout(dev_row)
+        dev.addLayout(dev_row)
 
         # ---------------------------------------------------------- tests
-        test_title = QLabel("Module tests")
-        test_title.setProperty("class", "heading")
-        layout.addWidget(test_title)
+        _test_box, test = self._section(layout, "Module tests")
         test_row = QHBoxLayout()
         test_row.setSpacing(8)
         self.entry_test_module = QLineEdit()
@@ -227,13 +226,26 @@ class DevToolsPage(QWidget):
         self.entry_test_db = QLineEdit()
         self.entry_test_db.setPlaceholderText("test database (never primary!)")
         test_row.addWidget(self.entry_test_db, 1)
-        self.btn_test_run = QPushButton("Run tests")
+        self.btn_test_run = style_button(
+            QPushButton("Run tests"), "run", primary=True)
         self.btn_test_run.clicked.connect(self._on_test_run)
         test_row.addWidget(self.btn_test_run)
-        layout.addLayout(test_row)
+        test.addLayout(test_row)
         layout.addStretch(1)
+        self._sync_models_empty()
+        self._sync_cron_empty()
 
     # ------------------------------------------------------------------ API
+
+    @staticmethod
+    def _section(parent_layout, title: str):
+        """One bordered group per section — the single Part B approach."""
+        box = QGroupBox(title)
+        body = QVBoxLayout(box)
+        body.setSpacing(8)
+        body.setContentsMargins(12, 12, 12, 12)
+        parent_layout.addWidget(box)
+        return box, body
 
     def show_instance(self, instance) -> None:
         if isinstance(instance, dict):
@@ -242,6 +254,29 @@ class DevToolsPage(QWidget):
             self._instance_id = instance.id
 
     # -------------------------------------------------------------- internals
+
+    def _sync_models_empty(self) -> None:
+        self.lbl_models_empty.setVisible(
+            self.models_list.visible_count() == 0)
+
+    def _sync_cron_empty(self) -> None:
+        self.lbl_cron_empty.setVisible(self.cron_list.count() == 0)
+
+    def set_crons(self, crons: list) -> None:
+        self.cron_list.clear()
+        for cron in crons:
+            self.cron_list.addItem(
+                f"{cron.get('name', '?')} — next: {cron.get('nextcall', '?')} "
+                f"({'active' if cron.get('active') else 'paused'})")
+        self._sync_cron_empty()
+
+    def set_records(self, rows: list) -> None:
+        self.records_list.set_items(rows)
+        self.lbl_records_empty.setVisible(len(rows) == 0)
+
+    def set_models(self, rows: list) -> None:
+        self.models_list.set_items(rows)
+        self._sync_models_empty()
 
     def _on_rpc_connect(self) -> None:
         self._emit("rpc-connect", {

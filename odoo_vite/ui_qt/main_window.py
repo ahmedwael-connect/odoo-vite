@@ -8,7 +8,8 @@ results), flow controllers, toasts. No feature logic.
 
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -25,8 +26,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from odoo_vite.ui_qt.widgets.icons import style_button  # noqa: E402
+
 from odoo_vite.core.process_manager import get_statuses
-from odoo_vite.core.registry import get_instance, list_instances
+from odoo_vite.core.registry import (
+    get_instance,
+    list_instances,
+    migrate_password_to_keyring,
+)
 from odoo_vite.core.version import __version__
 from odoo_vite.ui_qt.flows.configuration import ConfigurationFlows
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows, group_discover_entries
@@ -61,7 +68,8 @@ class QtMainWindow(QMainWindow):
         toolbar = QToolBar("Main")
         toolbar.addWidget(QLabel(f"Odoo Vite  v{__version__}"))
         self.addToolBar(toolbar)
-        self.btn_new = QPushButton("+ New Instance")
+        self.btn_new = style_button(
+            QPushButton("+ New Instance"), "new", primary=True)
         self.btn_new.clicked.connect(self._open_create_wizard)
         toolbar.addWidget(self.btn_new)
         self.btn_adopt = QPushButton("Adopt")
@@ -365,20 +373,14 @@ class QtMainWindow(QMainWindow):
         elif action == "restart":
             self.flows.restart(instance_id)
         elif action == "remove":
+            self.flows.remove_dialog(self, instance_id)
+        elif action == "browser":
             inst = get_instance(instance_id)
-            name = inst.name if inst else instance_id
-            if ask_confirm(self, "Remove instance?",
-                           f"Remove {name} from Odoo Vite?",
-                           "Remove", destructive=False):
-                # Destructive tier parity: typed confirm for remove.
-                from odoo_vite.ui_qt.widgets.dialogs import (
-                    ask_confirm_typed,
-                )
-                if ask_confirm_typed(
-                        self, "Remove instance?",
-                        f"Type the instance name to remove {name}.",
-                        name, "Remove"):
-                    self.flows.remove(instance_id)
+            if inst is not None:
+                QDesktopServices.openUrl(
+                    QUrl(f"http://localhost:{inst.port}"))
+        elif action == "secure":
+            self._secure_password(instance_id)
 
     def _on_db_action(self, action: str, instance_id: str,
                       payload) -> None:
@@ -676,7 +678,7 @@ class QtMainWindow(QMainWindow):
     def _on_models_ready(self, instance_id: str, models: list) -> None:
         if instance_id != self._current_id:
             return
-        self.devtools.models_list.set_items([
+        self.devtools.set_models([
             {"id": m.get("technical", ""), "title": m.get("technical", ""),
              "badge": m.get("display", "")} for m in models])
 
@@ -696,7 +698,7 @@ class QtMainWindow(QMainWindow):
                           offset: int, has_more: bool) -> None:
         if instance_id != self._current_id:
             return
-        self.devtools.records_list.set_items([
+        self.devtools.set_records([
             {"id": r.get("id"),
              "title": str(r.get("display_name") or r.get("name", r.get("id"))),
              "badge": ""}
@@ -708,11 +710,7 @@ class QtMainWindow(QMainWindow):
     def _on_crons_ready(self, instance_id: str, crons: list) -> None:
         if instance_id != self._current_id:
             return
-        self.devtools.cron_list.clear()
-        for cron in crons:
-            self.devtools.cron_list.addItem(
-                f"{cron.get('name', '?')} — next: {cron.get('nextcall', '?')} "
-                f"({'active' if cron.get('active') else 'paused'})")
+        self.devtools.set_crons(crons)
 
     def _on_shell_output(self, instance_id: str, lines: list) -> None:
         if instance_id == self._current_id:
@@ -728,6 +726,17 @@ class QtMainWindow(QMainWindow):
                           note: str) -> None:
         if instance_id == self._current_id:
             self.devtools.set_devmode_state(on, note)
+
+    def _secure_password(self, instance_id: str) -> None:
+        """H.2 one-click sweep: move the password to the OS keyring."""
+        self._on_flow_message("Securing password…")
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            self._on_flow_message(message)
+            self.refresh_all()
+
+        run_in_background(self, migrate_password_to_keyring, _done,
+                          instance_id)
 
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),

@@ -80,6 +80,32 @@ QLabel[class="success"] {
     font-weight: bold;
 }
 
+/* Part B: one bordered group per section — the single approach. */
+QGroupBox {
+    border: 1px solid #cccccc;
+    border-radius: 8px;
+    margin-top: 12px;
+    padding: 12px 8px 8px 8px;
+    font-weight: bold;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 4px;
+}
+
+/* Part B: button hierarchy — primary distinct, destructive red. */
+QPushButton[default="true"] {
+    border: 2px solid palette(highlight);
+    font-weight: bold;
+}
+
+QPushButton[role="destructive"] {
+    color: #e01b24;
+}
+
 /* Selected-row treatment mirrors GTK .discover-picked: bold + accent,
  * always visible, never hover-only. */
 QLabel[class="picked"] {

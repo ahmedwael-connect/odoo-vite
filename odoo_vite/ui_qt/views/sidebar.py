@@ -7,7 +7,7 @@ window shows the Overview page for it.
 """
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from odoo_vite.ui_qt.widgets.selection_list import SelectionList
 
@@ -22,6 +22,10 @@ class InstanceSidebar(QWidget):
         self._list = SelectionList(multi=False, searchable=False,
                                    max_visible_rows=30, parent=self)
         layout.addWidget(self._list)
+        self.lbl_empty = QLabel("No instances yet — create or adopt one.")
+        self.lbl_empty.setProperty("class", "dim")
+        self.lbl_empty.setWordWrap(True)
+        layout.addWidget(self.lbl_empty)
         self._list.selectionChanged.connect(self._on_selection)
 
     def set_instances(self, instances: list) -> None:
@@ -37,6 +41,7 @@ class InstanceSidebar(QWidget):
             rows.append({"id": iid, "title": str(name),
                          "badge": str(status).capitalize()})
         self._list.set_items(rows)
+        self.lbl_empty.setVisible(len(rows) == 0)
         if current:
             self._list.select_id(current)
 

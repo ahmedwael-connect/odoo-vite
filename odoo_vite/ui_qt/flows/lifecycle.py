@@ -11,6 +11,19 @@ import threading
 import uuid
 
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from odoo_vite.ui_qt.widgets.dialogs import ask_confirm  # noqa: E402
+from odoo_vite.ui_qt.widgets.selection_list import (  # noqa: E402
+    SelectionList,
+)
 
 from odoo_vite.ui_qt.workers import run_in_background
 from odoo_vite.core import (  # noqa: E402
@@ -91,10 +104,67 @@ class LifecycleFlows(QObject):
                      instance_id)
 
     def remove(self, instance_id: str, drop_db: bool = False) -> None:
-
         self.message.emit("Removing…")
         self._run_op("remove", removal.remove_instance, instance_id,
                      drop_db=drop_db)
+
+    def remove_dialog(self, parent_widget, instance_id: str) -> None:
+        """GTK remove parity: adopted = plain confirm; managed = typed
+        name + per-database drop checkboxes (all unchecked by default)."""
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        parent = (parent_widget if isinstance(parent_widget, QWidget)
+                  else None)
+        if (inst.mode or "managed").lower() == "adopted":
+            if ask_confirm(
+                    parent, f"Remove '{inst.name}' from Odoo Vite?",
+                    "Your files and database will NOT be touched.",
+                    "Remove"):
+                self.remove(instance_id)
+            return
+        dlg = QDialog(parent)
+        dlg.setWindowTitle(f"Remove '{inst.name}'?")
+        dlg.setMinimumWidth(480)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(8)
+        entry = QLineEdit()
+        entry.setPlaceholderText(f"Type '{inst.name}' to confirm")
+        layout.addWidget(entry)
+        layout.addWidget(QLabel(
+            "Databases to drop (all unchecked by default — unchecked "
+            "databases are kept):"))
+        picker = SelectionList(multi=True, searchable=False, parent=dlg)
+        tracked = list(inst.tracked_dbs or [])
+        if inst.primary_db and inst.primary_db not in tracked:
+            tracked.append(inst.primary_db)
+        picker.set_items([
+            {"id": db, "title": db + ("  (primary)" if db == inst.primary_db
+                                      else ""), "checked": False}
+            for db in tracked])
+        layout.addWidget(picker)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
+        buttons.button(QDialogButtonBox.Ok).setText("Remove")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        if entry.text().strip() != inst.name:
+            self.message.emit("Name did not match — remove cancelled")
+            return
+        drop = picker.checked_ids()
+        self.message.emit("Removing…")
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            self.message.emit(message)
+            self.refreshRequested.emit()
+
+        run_in_background(
+            self, removal.remove_instance, _done, instance_id,
+            drop_db=(inst.primary_db in drop),
+            drop_extra_dbs=[d for d in drop if d != inst.primary_db])
 
     def switch(self, instance_id: str, db_name: str) -> None:
 

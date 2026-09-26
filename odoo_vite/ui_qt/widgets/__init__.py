@@ -15,8 +15,9 @@ from odoo_vite.ui_qt.widgets.dialogs import (  # noqa: F401
     ask_confirm_typed,
     typed_gate_ok,
 )
+from odoo_vite.ui_qt.widgets.icons import style_button  # noqa: F401
 from odoo_vite.ui_qt.widgets.selection_list import SelectionList  # noqa: F401
 from odoo_vite.ui_qt.widgets.toasts import Toaster  # noqa: F401
 
 __all__ = ["SelectionList", "Toaster", "ask_confirm", "ask_confirm_typed",
-           "typed_gate_ok"]
+           "style_button", "typed_gate_ok"]

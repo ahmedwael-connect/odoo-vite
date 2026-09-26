@@ -125,6 +125,30 @@ def test_overview_shows_and_gates_buttons(qapp, qtbot):
     page.actionRequested.connect(lambda a, i: fired.append((a, i)))
     page._buttons["stop"].click()
     assert fired == [("stop", "x1")]
+    page.btn_browser.click()
+    assert fired[-1] == ("browser", "x1")
+    page.btn_secure.click()
+    assert fired[-1] == ("secure", "x1")
+
+
+def test_overview_badges_and_fields(qapp, qtbot):
+    page = OverviewPage()
+    qtbot.addWidget(page)
+    page.show()
+    # Plaintext storage -> security box visible.
+    d = _inst_dict(status="stopped")
+    d["password_storage"] = "plaintext"
+    page.show_instance(d)
+    assert page.lbl_security.isVisible()
+    assert "PLAINTEXT" in page.lbl_security.text()
+    assert "Community edition." in page.ent_label.text()
+    # CPU/memory rows render from poll dicts.
+    d = _inst_dict(status="running")
+    d.update(cpu_percent=12.6, memory_mb=512.4)
+    page.refresh_status(d)
+    assert page._fields["cpu"].text() == "13%"
+    assert page._fields["memory"].text() == "512 MB"
+    assert "Running" in page.status_label.text()
 
 
 def test_flows_stop_unknown_instance_fails(qapp, qtbot):

@@ -104,3 +104,22 @@ def test_toast_shows_and_expires(qapp, qtbot):
     import shiboken6
 
     assert not shiboken6.isValid(toast)  # expired + deleteLater ran
+
+
+def test_button_icons_and_hierarchy(qapp, qtbot):
+    from PySide6.QtWidgets import QPushButton
+
+    from odoo_vite.ui_qt.widgets.icons import ICONS, style_button
+
+    assert set(ICONS) >= {"start", "stop", "restart", "remove", "save",
+                          "add", "connect", "run", "apply", "delete"}
+    btn = QPushButton("Install Checked")
+    qtbot.addWidget(btn)
+    style_button(btn, "run", primary=True)
+    assert not btn.icon().isNull()
+    assert btn.isDefault()
+    plain = QPushButton("Cancel")
+    qtbot.addWidget(plain)
+    style_button(plain, "no-such-icon")
+    assert plain.icon().isNull()
+    assert not plain.isDefault()

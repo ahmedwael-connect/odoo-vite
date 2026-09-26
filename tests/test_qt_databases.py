@@ -58,13 +58,13 @@ def test_databases_page_renders_and_gates(qapp, qtbot):
     page = DatabasesPage()
     qtbot.addWidget(page)
     page.show_instance(_inst_dict())
-    assert page.tracked_list.count() == 2
+    assert page.tracked_list.topLevelItemCount() == 2
     assert page.db_combo.count() == 2
     assert page.db_combo.currentText() == "main"
     # Primary selected by default (combo) -> Drop disabled (B.4 parity).
-    page.tracked_list.setCurrentRow(0)
+    page.tracked_list.setCurrentItem(page.tracked_list.topLevelItem(0))
     assert not page.btn_drop.isEnabled()
-    page.tracked_list.setCurrentRow(1)
+    page.tracked_list.setCurrentItem(page.tracked_list.topLevelItem(1))
     assert page.btn_drop.isEnabled()
     fired = []
     page.actionRequested.connect(lambda a, i, p: fired.append((a, i, p)))
@@ -78,13 +78,13 @@ def test_databases_page_init_gated_by_state(qapp, qtbot):
     page = DatabasesPage()
     qtbot.addWidget(page)
     page.show_instance(_inst_dict())
-    page.tracked_list.setCurrentRow(0)
+    page.tracked_list.setCurrentItem(page.tracked_list.topLevelItem(0))
     page.set_db_states({"main": {"exists": True, "initialized": True},
                         "extra": {"exists": True, "initialized": False}})
-    assert "initialized" in page.tracked_list.item(0).text()
-    page.tracked_list.setCurrentRow(0)
+    assert "initialized" in page.tracked_list.topLevelItem(0).text(3)
+    page.tracked_list.setCurrentItem(page.tracked_list.topLevelItem(0))
     assert not page.btn_init.isEnabled()
-    page.tracked_list.setCurrentRow(1)
+    page.tracked_list.setCurrentItem(page.tracked_list.topLevelItem(1))
     assert page.btn_init.isEnabled()
 
 
@@ -95,8 +95,21 @@ def test_db_states_render_text(qapp, qtbot):
     page.set_db_states({"main": {"exists": True, "initialized": True,
                                  "odoo_version": "17.0", "size": "1 MB"},
                         "extra": {"exists": False, "initialized": False}})
-    assert "v17.0" in page.tracked_list.item(0).text()
-    assert "missing" in page.tracked_list.item(1).text()
+    assert "v17.0" in page.tracked_list.topLevelItem(0).text(2)
+    assert "missing" in page.tracked_list.topLevelItem(1).text(3)
+
+
+def test_databases_empty_state(qapp, qtbot):
+    from odoo_vite.ui_qt.views.databases import DatabasesPage as _P
+
+    page = _P()
+    qtbot.addWidget(page)
+    page.show()
+    page.show_instance({"id": "e", "tracked_dbs": [], "primary_db": ""})
+    assert page.lbl_tracked_empty.isVisible()
+    page.show_instance({"id": "e", "tracked_dbs": ["d1"],
+                        "primary_db": "d1"})
+    assert not page.lbl_tracked_empty.isVisible()
 
 
 def test_db_flows_fail_safe_unknown_instance(qapp, qtbot):

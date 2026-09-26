@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from odoo_vite.ui_qt.widgets.icons import style_button  # noqa: E402
+
 from odoo_vite.ui_qt.widgets.selection_list import SelectionList
 
 STATE_FILTERS = ["All", "Installed", "Upgradeable", "Installable"]
@@ -99,16 +101,23 @@ class ModulesPage(QWidget):
         self.mod_list.view.selectionModel().currentChanged.connect(
             lambda *_: self._sync_buttons())
         layout.addWidget(self.mod_list, 1)
+        self.lbl_modules_empty = QLabel(
+            "No modules loaded — select an instance with a primary "
+            "database, then press Refresh.")
+        self.lbl_modules_empty.setProperty("class", "dim")
+        self.lbl_modules_empty.setWordWrap(True)
+        layout.addWidget(self.lbl_modules_empty)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        self.btn_install = QPushButton("Install Checked")
+        self.btn_install = style_button(
+            QPushButton("Install Checked"), "run", primary=True)
         self.btn_install.clicked.connect(self._on_install)
         btn_row.addWidget(self.btn_install)
         self.btn_update = QPushButton("Update Checked")
         self.btn_update.clicked.connect(self._on_update)
         btn_row.addWidget(self.btn_update)
-        self.btn_uninstall = QPushButton("Uninstall")
+        self.btn_uninstall = style_button(QPushButton("Uninstall"), "uninstall")
         self.btn_uninstall.setProperty("role", "destructive")
         self.btn_uninstall.setToolTip("Uninstall the current row's module")
         self.btn_uninstall.clicked.connect(self._on_uninstall)
@@ -122,7 +131,7 @@ class ModulesPage(QWidget):
         self.btn_deps = QPushButton("Dependencies…")
         self.btn_deps.clicked.connect(self._on_deps)
         btn_row.addWidget(self.btn_deps)
-        self.btn_scaffold = QPushButton("New Module…")
+        self.btn_scaffold = style_button(QPushButton("New Module…"), "new")
         self.btn_scaffold.clicked.connect(
             lambda: self._emit("mod-scaffold", None))
         btn_row.addWidget(self.btn_scaffold)
@@ -149,6 +158,7 @@ class ModulesPage(QWidget):
         self._diff_cache = diff or {}
         if error:
             self.lbl_mod_db.setText(error)
+        self.lbl_modules_empty.setVisible(len(self._modules_cache) == 0)
         self._render_rows()
 
     # -------------------------------------------------------------- internals
