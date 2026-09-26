@@ -5,9 +5,13 @@ from odoo_vite.ui_qt.flows.configuration import (  # noqa: F401
     ConfigurationFlows,
 )
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows  # noqa: F401
+from odoo_vite.ui_qt.flows.dev_tools_process import (  # noqa: F401
+    DevToolsProcessFlows,
+)
+from odoo_vite.ui_qt.flows.dev_tools_rpc import DevToolsRpcFlows  # noqa: F401
 from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows  # noqa: F401
 from odoo_vite.ui_qt.flows.logs import LogFlows  # noqa: F401
 from odoo_vite.ui_qt.flows.modules import ModuleFlows  # noqa: F401
 
-__all__ = ["ConfigurationFlows", "DatabaseFlows", "LifecycleFlows",
-           "LogFlows", "ModuleFlows"]
+__all__ = ["ConfigurationFlows", "DatabaseFlows", "DevToolsProcessFlows",
+           "DevToolsRpcFlows", "LifecycleFlows", "LogFlows", "ModuleFlows"]

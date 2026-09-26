@@ -79,6 +79,25 @@ teardown abort respectively):
    worker, sequentially — parallel workers lose updates against
    registry state (verified live: 1 of 3 tracks survived).
 
+## Virtualized lists + live append: the landing pattern (PSQ-7)
+
+Structural property, not a toolkit quirk — hit and fixed independently
+in GTK (F2.3) and Qt (PSQ-7): virtualized views (Gtk.ListView,
+QListView) lay rows out lazily over several frames, so a naive
+"scroll to bottom" issued right after appending lands wherever the
+layout happens to be mid-flight, and any follow computation based on
+that position strands permanently. Any future live-append feature
+(tail views, streaming logs, test output) must use this from day one:
+
+1. Scroll via the VIEW's own API (`scrollToBottom()`), never raw
+   scrollbar math alone — the widget applies it in its own layout.
+2. Converge with a bounded retry loop (150ms × 20): re-assert until the
+   viewport is actually at the bottom. Stop early on toggle-off.
+3. Judge "at bottom" against PRE-batch geometry with batch-aware slack
+   (a few new rows grow the range by more than any fixed epsilon).
+4. Re-hook on visibility changes: scrolls issued while hidden/unmapped
+   are dropped — re-land on map/tab-switch.
+
 ## Layering
 
 - `core/` imports neither `gi` nor `PySide6`/`shiboken6`

@@ -30,11 +30,14 @@ from odoo_vite.core.registry import get_instance, list_instances
 from odoo_vite.core.version import __version__
 from odoo_vite.ui_qt.flows.configuration import ConfigurationFlows
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows, group_discover_entries
+from odoo_vite.ui_qt.flows.dev_tools_process import DevToolsProcessFlows
+from odoo_vite.ui_qt.flows.dev_tools_rpc import DevToolsRpcFlows
 from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows
 from odoo_vite.ui_qt.flows.logs import LogFlows
 from odoo_vite.ui_qt.flows.modules import ModuleFlows
 from odoo_vite.ui_qt.views.configuration import ConfigurationPage
 from odoo_vite.ui_qt.views.databases import DatabasesPage
+from odoo_vite.ui_qt.views.devtools import DevToolsPage
 from odoo_vite.ui_qt.views.logs import LogsPage
 from odoo_vite.ui_qt.views.modules import ModulesPage
 from odoo_vite.ui_qt.views.overview import OverviewPage
@@ -88,6 +91,11 @@ class QtMainWindow(QMainWindow):
         self.logs = LogsPage(self)
         self.logs.actionRequested.connect(self._on_log_action)
         self.stack.addTab(self.logs, "Logs")
+        self.devtools = DevToolsPage(self)
+        self.devtools.actionRequested.connect(self._on_dev_action)
+        self.stack.addTab(self.devtools, "Dev Tools")
+        self.devtools.models_list.selectionChanged.connect(
+            self._on_model_picked)
         splitter.addWidget(self.stack)
         splitter.setSizes([260, 740])
 
@@ -113,6 +121,18 @@ class QtMainWindow(QMainWindow):
         self.log_flows.doctorReady.connect(self._on_doctor_ready)
         self.log_flows.slowReady.connect(self._on_slow_ready)
         self.log_flows.profileDone.connect(self._on_profile_done)
+        self.dev_rpc = DevToolsRpcFlows(self)
+        self.dev_rpc.message.connect(self._on_flow_message)
+        self.dev_rpc.rpcStatus.connect(self._on_rpc_status)
+        self.dev_rpc.modelsReady.connect(self._on_models_ready)
+        self.dev_rpc.metadataReady.connect(self._on_metadata_ready)
+        self.dev_rpc.recordsReady.connect(self._on_records_ready)
+        self.dev_rpc.cronsReady.connect(self._on_crons_ready)
+        self.dev_proc = DevToolsProcessFlows(self)
+        self.dev_proc.message.connect(self._on_flow_message)
+        self.dev_proc.shellOutput.connect(self._on_shell_output)
+        self.dev_proc.shellStatus.connect(self._on_shell_status)
+        self.dev_proc.devmodeState.connect(self._on_devmode_state)
 
         self.statusBar().showMessage("Ready")
         self.stack.setEnabled(False)
@@ -501,6 +521,130 @@ class QtMainWindow(QMainWindow):
         self._on_flow_message(message)
         if ok and svg:
             self.log_flows.view_svg(svg)
+
+    def _on_dev_action(self, action: str, instance_id: str,
+                       payload) -> None:
+        payload = payload or {}
+        if action == "rpc-connect":
+            self.dev_rpc.connect(
+                instance_id, payload.get("user", ""),
+                payload.get("password", ""),
+                bool(payload.get("remember", False)))
+        elif action == "model-selected":
+            self.dev_rpc.model_selected(instance_id, str(payload or ""))
+        elif action == "rec-search":
+            self.devtools_rec_search(instance_id)
+        elif action == "rec-prev":
+            self.dev_rpc.rec_page(instance_id, -1)
+        elif action == "rec-next":
+            self.dev_rpc.rec_page(instance_id, 1)
+        elif action == "rec-new":
+            self.dev_rpc.rec_new(self, instance_id)
+        elif action == "rec-edit":
+            record_id = self.devtools.records_list.current_id()
+            if record_id is not None:
+                self.dev_rpc.rec_edit(self, instance_id, record_id)
+            else:
+                self._on_flow_message("Select a record first")
+        elif action == "rec-delete":
+            record_id = self.devtools.records_list.current_id()
+            if record_id is not None:
+                self.dev_rpc.rec_delete(self, instance_id, record_id)
+            else:
+                self._on_flow_message("Select a record first")
+        elif action == "cron-refresh":
+            self.dev_rpc.cron_refresh(instance_id)
+        elif action == "gen-launch":
+            self.dev_rpc.launch_json(instance_id)
+        elif action == "open-code":
+            self.dev_rpc.open_editor(instance_id, "code")
+        elif action == "open-cursor":
+            self.dev_rpc.open_editor(instance_id, "cursor")
+        elif action == "shell-start":
+            self.dev_proc.shell_start(instance_id)
+        elif action == "shell-send":
+            self.dev_proc.shell_send(instance_id, str(payload or ""))
+        elif action == "shell-stop":
+            self.dev_proc.shell_stop(instance_id)
+        elif action == "devmode":
+            self.dev_proc.devmode(instance_id, bool(payload))
+        elif action == "test-run":
+            self.dev_proc.test_run(
+                instance_id, str(payload.get("module", "")),
+                str(payload.get("db", "")))
+
+    def _on_model_picked(self) -> None:
+        if self._current_id is None:
+            return
+        model = self.devtools.models_list.selected_id()
+        if model:
+            self.dev_rpc.model_selected(self._current_id, model)
+
+    def devtools_rec_search(self, instance_id: str) -> None:
+        self.dev_rpc.rec_search(
+            instance_id, self.devtools.entry_dom_field.text(),
+            self.devtools.drop_dom_op.currentText(),
+            self.devtools.entry_dom_value.text())
+
+    def _on_rpc_status(self, instance_id: str, text: str) -> None:
+        if instance_id == self._current_id:
+            self.devtools.lbl_rpc_status.setText(text)
+
+    def _on_models_ready(self, instance_id: str, models: list) -> None:
+        if instance_id != self._current_id:
+            return
+        self.devtools.models_list.set_items([
+            {"id": m.get("technical", ""), "title": m.get("technical", ""),
+             "badge": m.get("display", "")} for m in models])
+
+    def _on_metadata_ready(self, instance_id: str, meta: dict) -> None:
+        if instance_id != self._current_id:
+            return
+        self.devtools.meta_list.clear()
+        for field in meta.get("fields", []):
+            self.devtools.meta_list.addItem(
+                f"{field.get('name', '')} ({field.get('ttype', '')})")
+        self.devtools.lbl_model_meta.setText(
+            f"{meta.get('model', '')}: "
+            f"{len(meta.get('fields', []))} fields, "
+            f"{len(meta.get('constraints', []))} constraints")
+
+    def _on_records_ready(self, instance_id: str, records: list,
+                          offset: int, has_more: bool) -> None:
+        if instance_id != self._current_id:
+            return
+        self.devtools.records_list.set_items([
+            {"id": r.get("id"),
+             "title": str(r.get("display_name") or r.get("name", r.get("id"))),
+             "badge": ""}
+            for r in records])
+        self.devtools.lbl_rec_page.setText(
+            f"Offset {offset} — {len(records)} row(s)"
+            + (" (more…)" if has_more else ""))
+
+    def _on_crons_ready(self, instance_id: str, crons: list) -> None:
+        if instance_id != self._current_id:
+            return
+        self.devtools.cron_list.clear()
+        for cron in crons:
+            self.devtools.cron_list.addItem(
+                f"{cron.get('name', '?')} — next: {cron.get('nextcall', '?')} "
+                f"({'active' if cron.get('active') else 'paused'})")
+
+    def _on_shell_output(self, instance_id: str, lines: list) -> None:
+        if instance_id == self._current_id:
+            for line in lines:
+                self.devtools.shell_append(line)
+
+    def _on_shell_status(self, instance_id: str, text: str) -> None:
+        if instance_id == self._current_id:
+            self.devtools.shell_set_status(text)
+        self._on_flow_message(text)
+
+    def _on_devmode_state(self, instance_id: str, on: bool,
+                          note: str) -> None:
+        if instance_id == self._current_id:
+            self.devtools.set_devmode_state(on, note)
 
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),
