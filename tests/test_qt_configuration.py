@@ -121,3 +121,34 @@ def test_addon_manager_opens_with_checkboxes(qapp, qtbot, _seeded):
     QTimer.singleShot(1500, _close)
     flows.addons_manage(None, _seeded.id)
     qtbot.wait(500)
+
+
+def test_elided_middle_boundaries():
+    from odoo_vite.ui_qt.views.configuration import elided_middle
+
+    assert elided_middle("short") == "short"
+    assert elided_middle("x" * 60) == "x" * 60
+    long = "a" * 40 + "b" * 40
+    out = elided_middle(long)
+    assert len(out) == 60 and out.startswith("a" * 29) and "…" in out
+    assert elided_middle("") == ""
+    assert elided_middle(None) == ""
+
+
+def test_addons_label_elided_with_tooltip(qapp, qtbot, _seeded):
+    from odoo_vite.core.registry import get_instance
+    from odoo_vite.ui_qt.views.configuration import ConfigurationPage
+
+    inst = get_instance(_seeded.id)
+    long_path = "/srv/" + "a" * 200
+    with open(inst.conf_path) as fh:
+        content = fh.read()
+    assert "addons_path" in content
+    with open(inst.conf_path, "w") as fh:
+        fh.write(content.replace("/srv/addons,/srv/extra", long_path))
+    page = ConfigurationPage()
+    qtbot.addWidget(page)
+    page.show_instance(_seeded)
+    assert len(page.lbl_addons_ro.text()) == 60
+    assert page.lbl_addons_ro.toolTip() == long_path
+    assert page.lbl_addons_ro.minimumSizeHint().width() < 721

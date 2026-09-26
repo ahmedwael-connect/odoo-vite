@@ -27,6 +27,17 @@ COMMON_KEYS = ["db_host", "db_port", "db_user", "xmlrpc_port", "logfile"]
 LOG_LEVELS = ["info", "debug", "debug_sql", "warning", "error", "critical"]
 
 
+def elided_middle(text: str, limit: int = 60) -> str:
+    """A.1 rule, Qt form: GTK had set_ellipsize(MIDDLE)+max-width; QLabel
+    has neither, so truncate in Python. Always pair with setToolTip(full).
+    An unbroken long string otherwise forces the tab's min-width wide."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    keep = (limit - 1) // 2
+    return text[:keep] + "…" + text[-(limit - 1 - keep):]
+
+
 class ConfigurationPage(QWidget):
     actionRequested = Signal(str, str, object)
 
@@ -181,6 +192,7 @@ class ConfigurationPage(QWidget):
             self._conf_options = {}
             return
         self.lbl_conf_path.setText(inst.conf_path)
+        self.lbl_conf_path.setToolTip(inst.conf_path)
         res = conf_manager.read_conf(inst.conf_path)
         if not res.ok:
             self.conf_table.addItem(f"Cannot read conf: {res.message}")
@@ -189,14 +201,15 @@ class ConfigurationPage(QWidget):
         self._conf_options = dict(res.data["options"])
         for key, value in res.data["options"].items():
             # Long values show elided; full text in tooltip (A.1 rule).
-            shown = value if len(value) <= 60 else value[:27] + "…" + value[-32:]
+            shown = elided_middle(value)
             item = QListWidgetItem(f"{key} = {shown}")
             item.setToolTip(f"{key} = {value}")
             self.conf_table.addItem(item)
         for key, entry in self.conf_entries.items():
             entry.setText(self._conf_options.get(key, ""))
-        self.lbl_addons_ro.setText(
-            self._conf_options.get("addons_path", "—"))
+        addons = self._conf_options.get("addons_path", "—")
+        self.lbl_addons_ro.setText(elided_middle(addons))
+        self.lbl_addons_ro.setToolTip(addons)
         info = conf_manager.conf_backup_info(inst.conf_path)
         self.btn_conf_restore.setEnabled(info is not None)
         self.btn_conf_restore.setToolTip(
