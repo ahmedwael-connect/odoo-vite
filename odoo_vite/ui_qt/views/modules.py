@@ -57,6 +57,7 @@ class ModulesPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._instance_id: str | None = None
+        self._busy = False
         self._modules_cache: list = []
         self._diff_cache: dict = {}
         layout = QVBoxLayout(self)
@@ -191,6 +192,15 @@ class ModulesPage(QWidget):
         self._sync_buttons()
 
     def _sync_buttons(self) -> None:
+        if getattr(self, "_busy", False):
+            for btn in (self.btn_install, self.btn_update,
+                        self.btn_uninstall, self.btn_update_code,
+                        self.btn_deps, self.btn_scaffold, self.btn_refresh):
+                try:
+                    btn.setEnabled(False)
+                except Exception:
+                    pass
+            return
         checked = self.mod_list.checked_ids()
         current = self._current_row_name()
         self.btn_install.setEnabled(bool(checked))
@@ -221,3 +231,14 @@ class ModulesPage(QWidget):
     def _emit(self, action: str, payload) -> None:
         if self._instance_id is not None:
             self.actionRequested.emit(action, self._instance_id, payload)
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Busy-state gating (GTK _set_actions_sensitive parity)."""
+        for btn in (self.btn_install, self.btn_update, self.btn_uninstall,
+                    self.btn_update_code, self.btn_deps, self.btn_scaffold,
+                    self.btn_refresh):
+            try:
+                btn.setEnabled(enabled)
+            except Exception:
+                pass
+        self._sync_buttons()

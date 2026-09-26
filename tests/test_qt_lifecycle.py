@@ -184,3 +184,74 @@ def _drain_workers():
     yield
     from odoo_vite.ui_qt.workers import wait_for_background
     assert wait_for_background(), "background workers did not finish"
+
+
+def test_busy_tracker_refcount(qapp, qtbot):
+    from odoo_vite.ui_qt.workers import BusyTracker
+
+    tracker = BusyTracker()
+    changes = []
+    tracker.changed.connect(changes.append)
+    assert tracker.busy is False
+    tracker.acquire()
+    assert tracker.busy is True
+    tracker.acquire()  # overlapping op: still busy, single transition
+    assert changes == [True]
+    tracker.release()
+    assert tracker.busy is True  # one still outstanding
+    assert changes == [True]
+    tracker.release()
+    assert tracker.busy is False
+    assert changes == [True, False]
+    tracker.release()  # never negative, no spurious signal
+    assert tracker.busy is False
+    assert changes == [True, False]
+
+
+def test_run_in_background_drives_tracker(qapp, qtbot):
+    import time
+
+    from PySide6.QtCore import QObject
+
+    from odoo_vite.core.result import Result
+    from odoo_vite.ui_qt.workers import BusyTracker, run_in_background
+
+    host = QObject()
+    tracker = BusyTracker(host)
+    host.busy_tracker = tracker
+    changes = []
+    tracker.changed.connect(changes.append)
+
+    def _slow():
+        time.sleep(1.0)
+        return Result(ok=True, message="done", data={})
+
+    def _fail():
+        return Result.failure("nope")
+
+    run_in_background(host, _slow, lambda *a: None)
+    run_in_background(host, _fail, lambda *a: None)
+    qtbot.wait(300)
+    assert tracker.busy is True  # overlapping: still busy
+    assert changes == [True]
+    qtbot.wait(3000)
+    assert tracker.busy is False  # both landed, incl. failure path
+    assert changes == [True, False]
+
+
+def test_quiet_workers_skip_tracker(qapp, qtbot):
+    from PySide6.QtCore import QObject
+
+    from odoo_vite.core.result import Result
+    from odoo_vite.ui_qt.workers import BusyTracker, run_in_background
+
+    host = QObject()
+    tracker = BusyTracker(host)
+    host.busy_tracker = tracker
+    changes = []
+    tracker.changed.connect(changes.append)
+    run_in_background(host, lambda: Result(ok=True, message="x", data={}),
+                      lambda *a: None, quiet=True)
+    qtbot.wait(1500)
+    assert changes == []
+    assert tracker.busy is False

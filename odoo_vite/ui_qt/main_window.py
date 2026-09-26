@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QMainWindow,
+    QProgressBar,
     QPushButton,
     QSplitter,
     QTabWidget,
@@ -53,7 +54,7 @@ from odoo_vite.ui_qt.widgets.dialogs import ask_confirm, ask_confirm_typed
 from odoo_vite.ui_qt.widgets.selection_list import SelectionList
 from odoo_vite.ui_qt.widgets.toasts import Toaster
 from odoo_vite.ui_qt.workers import (  # noqa: E402
-    run_in_background, wait_for_background)
+    BusyTracker, run_in_background, wait_for_background)
 
 POLL_MS = 2000
 
@@ -151,10 +152,22 @@ class QtMainWindow(QMainWindow):
         self.dev_proc.shellOutput.connect(self._on_shell_output)
         self.dev_proc.shellStatus.connect(self._on_shell_status)
         self.dev_proc.devmodeState.connect(self._on_devmode_state)
+        self.busy_tracker = BusyTracker(self)
+        self.busy_tracker.changed.connect(self._on_busy_changed)
 
         self.statusBar().showMessage("Ready")
         self.stack.setEnabled(False)
         self._closing = False
+        # Busy indicator lives in the status bar, NOT the toolbar:
+        # QToolBar action-widgets report stale QWidget::isVisible state,
+        # which makes show/hide assertions (and possibly styling) lie.
+        # Verified live: identical code hides correctly in statusBar.
+        self.busy_bar = QProgressBar()
+        self.busy_bar.setRange(0, 0)  # indeterminate
+        self.busy_bar.setFixedWidth(140)
+        self.busy_bar.setVisible(False)
+        self.busy_bar.setToolTip("Background operation in progress…")
+        self.statusBar().addPermanentWidget(self.busy_bar)
         self._init_event_dock()
         self.refresh_all()
         self._poll_busy = False
@@ -337,7 +350,7 @@ class QtMainWindow(QMainWindow):
                 pass
 
         run_in_background(
-            self, _statuses_payload, _done)
+            self, _statuses_payload, _done, quiet=True)
 
     # ------------------------------------------------------------------ flow
 
@@ -737,6 +750,21 @@ class QtMainWindow(QMainWindow):
 
         run_in_background(self, migrate_password_to_keyring, _done,
                           instance_id)
+
+    def _on_busy_changed(self, busy: bool) -> None:
+        """GTK _op_start/_op_end parity: spinner + desensitized actions."""
+        self.busy_bar.setVisible(busy)
+        for page in (self.overview, self.databases, self.modules,
+                     self.configuration, self.logs, self.devtools):
+            try:
+                page.set_actions_enabled(not busy)
+            except Exception:
+                pass
+        try:
+            self.btn_new.setEnabled(not busy)
+            self.btn_adopt.setEnabled(not busy)
+        except Exception:
+            pass
 
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),

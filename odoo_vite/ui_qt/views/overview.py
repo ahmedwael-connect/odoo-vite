@@ -29,6 +29,8 @@ class OverviewPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._instance_id: str | None = None
+        self._busy = False
+        self._last_seen = None
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
         layout.setContentsMargins(16, 12, 16, 16)
@@ -74,8 +76,10 @@ class OverviewPage(QWidget):
         self.lbl_security = QLabel()
         self.lbl_security.setProperty("class", "warning")
         self.lbl_security.setWordWrap(True)
+        self.lbl_security.setVisible(False)
         self.security_box.addWidget(self.lbl_security, 1)
         self.btn_secure = QPushButton("Move to keyring now")
+        self.btn_secure.setVisible(False)
         self.btn_secure.clicked.connect(
             lambda: self._on_action("secure"))
         self.security_box.addWidget(self.btn_secure)
@@ -121,6 +125,7 @@ class OverviewPage(QWidget):
 
     def refresh_status(self, instance) -> None:
         """Update status-dependent widgets (safe to call on poll ticks)."""
+        self._last_seen = instance
         if isinstance(instance, dict):
             status = instance.get("status", "")
             version = instance.get("version", "")
@@ -162,6 +167,16 @@ class OverviewPage(QWidget):
         self._fields["memory"].setText(
             f"{memory:.0f} MB" if isinstance(memory, (int, float)) else "—")
         running = state == "Running"
+        if self._busy:
+            # Busy gating wins over state gating (poll ticks must not
+            # re-enable mid-operation).
+            for btn in list(self._buttons.values()) + [
+                    self.btn_secure, self.btn_browser]:
+                try:
+                    btn.setEnabled(False)
+                except Exception:
+                    pass
+            return
         self._buttons["start"].setEnabled(not running)
         self._buttons["stop"].setEnabled(running)
         self._buttons["restart"].setEnabled(running)
@@ -206,3 +221,9 @@ class OverviewPage(QWidget):
     def _on_action(self, action: str) -> None:
         if self._instance_id:
             self.actionRequested.emit(action, self._instance_id)
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Busy-state gating (GTK _set_actions_sensitive parity)."""
+        self._busy = not enabled
+        if self._last_seen is not None:
+            self.refresh_status(self._last_seen)

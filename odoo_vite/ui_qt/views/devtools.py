@@ -316,3 +316,17 @@ class DevToolsPage(QWidget):
     def _emit(self, action: str, payload) -> None:
         if self._instance_id is not None:
             self.actionRequested.emit(action, self._instance_id, payload)
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Busy-state gating (GTK _set_actions_sensitive parity)."""
+        for btn in (self.btn_rpc_connect, self.btn_rec_search,
+                    self.btn_rec_prev, self.btn_rec_next, self.btn_rec_new,
+                    self.btn_rec_edit, self.btn_rec_delete,
+                    self.btn_cron_refresh, self.btn_launch_json,
+                    self.btn_open_code, self.btn_open_cursor,
+                    self.btn_shell_start, self.btn_shell_stop,
+                    self.btn_test_run):
+            try:
+                btn.setEnabled(enabled)
+            except Exception:
+                pass

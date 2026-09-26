@@ -29,6 +29,7 @@ class DatabasesPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._instance_id: str | None = None
+        self._busy = False
         self._primary_db: str = ""
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -216,6 +217,16 @@ class DatabasesPage(QWidget):
             self.entry_manual_db.clear()
 
     def _sync_row_buttons(self) -> None:
+        if getattr(self, "_busy", False):
+            for btn in (self.btn_set_primary, self.btn_switch,
+                        self.btn_init, self.btn_backup, self.btn_drop,
+                        self.btn_untrack, self.btn_discover, self.btn_refresh,
+                        self.btn_restore, self.btn_validate):
+                try:
+                    btn.setEnabled(False)
+                except Exception:
+                    pass
+            return
         db_name = self._selected_tracked()
         has = bool(db_name)
         states = getattr(self, "_last_states", {}) or {}
@@ -230,3 +241,8 @@ class DatabasesPage(QWidget):
     def _emit(self, action: str, payload) -> None:
         if self._instance_id is not None:
             self.actionRequested.emit(action, self._instance_id, payload)
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Busy-state gating (GTK _set_actions_sensitive parity)."""
+        self._busy = not enabled
+        self._sync_row_buttons()

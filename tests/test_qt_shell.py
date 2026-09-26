@@ -105,3 +105,24 @@ def test_close_waits_for_workers_then_closes(qapp, qtbot, tmp_path,
     assert win.isVisible(), "first close must park while workers live"
     qtbot.wait(4000)
     assert not win.isVisible(), "window must close once drained"
+
+
+def test_busy_spinner_and_desensitize(qapp, qtbot, tmp_path, monkeypatch):
+    from odoo_vite.ui_qt.main_window import QtMainWindow
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "qt-busy.db"))
+    win = QtMainWindow()
+    qtbot.addWidget(win)
+    win.show()
+    assert not win.busy_bar.isVisible()
+    win.busy_tracker.acquire()
+    assert win.busy_bar.isVisible()
+    assert not win.overview._buttons["start"].isEnabled()
+    assert not win.btn_new.isEnabled()
+    win.busy_tracker.release()
+    assert not win.busy_bar.isVisible()
+    assert win.btn_new.isEnabled()
+    win._poll.stop()
+    from odoo_vite.ui_qt.workers import wait_for_background
+    assert wait_for_background()
+    win.close()

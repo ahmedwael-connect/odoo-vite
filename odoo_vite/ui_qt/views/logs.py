@@ -315,3 +315,12 @@ class LogsPage(QWidget):
     def _emit(self, action: str, payload) -> None:
         if self._instance_id is not None:
             self.actionRequested.emit(action, self._instance_id, payload)
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Busy-state gating (GTK _set_actions_sensitive parity)."""
+        for btn in (self.btn_doctor, self.btn_profile, self.btn_search,
+                    self.btn_slow):
+            try:
+                btn.setEnabled(enabled)
+            except Exception:
+                pass

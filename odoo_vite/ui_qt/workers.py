@@ -42,11 +42,10 @@ class _Delivery(QObject):
     forwarder gives Qt a GUI-thread receiver, so delivery is queued.
     """
 
-    def __init__(self, thread: QThread, worker: CoreWorker,
+    def __init__(self, worker: CoreWorker,
                  on_done: Callable[[bool, str, dict], None],
                  parent: QObject | None) -> None:
         super().__init__(parent)
-        self._thread = thread
         self._worker = worker
         self._on_done = on_done
         worker.finished.connect(self._deliver)
@@ -56,17 +55,71 @@ class _Delivery(QObject):
         try:
             self._on_done(ok, message, data)
         finally:
-            self._thread.quit()
             self._worker.deleteLater()
             self.deleteLater()
+        # NOTE: thread.quit() lives on the finished→quit connection below,
+        # NOT here — delivery may never run (receiver destroyed first) and
+        # the thread must still exit. Verified failure mode: wizard closed
+        # mid-provision left the thread in exec() forever.
+
+
+class BusyTracker(QObject):
+    """Ref-counted busy state (GTK _bg_ops parity). Emits only on 0↔n
+    transitions so the UI toggles once per busy episode, not per op."""
+
+    changed = Signal(bool)
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._count = 0
+
+    @property
+    def busy(self) -> bool:
+        return self._count > 0
+
+    @Slot()
+    def acquire(self) -> None:
+        self._count += 1
+        if self._count == 1:
+            self.changed.emit(True)
+
+    @Slot()
+    def release(self) -> None:
+        if self._count <= 0:
+            return  # never negative, never a spurious transition
+        self._count -= 1
+        if self._count == 0:
+            self.changed.emit(False)
+
+
+def _tracker_for(host: QObject | None):
+    """Nearest BusyTracker up the parent chain (flows reach the window's)."""
+    seen = set()
+    node = host
+    while node is not None and id(node) not in seen:
+        seen.add(id(node))
+        tracker = getattr(node, "busy_tracker", None)
+        if isinstance(tracker, BusyTracker):
+            return tracker
+        try:
+            node = node.parent()
+        except Exception:
+            return None
+    return None
 
 
 def run_in_background(host: QObject, fn: Callable,
                       on_done: Callable[[bool, str, dict], None],
-                      *args, **kwargs) -> QThread:
+                      *args, quiet: bool = False,
+                      busy: BusyTracker | None = None,
+                      **kwargs) -> QThread:
     """One-shot: run core fn off-thread, call on_done(ok, msg, data) on GUI.
 
     Ownership: thread + delivery parented to `host`, cleaned up on finish.
+    Busy accounting (unless quiet): acquire on start, release on finish —
+    resolved from `busy` or the nearest BusyTracker up host's parent
+    chain (flows reach the main window's). Poll/status refreshes pass
+    quiet=True so routine ticks never trip the indicator.
     """
     thread = QThread(host)
     # NOTE: worker must have NO parent — moveToThread refuses parented
@@ -78,8 +131,20 @@ def run_in_background(host: QObject, fn: Callable,
     # still-running at teardown. The anchor dies with the thread, no leak.
     thread._owned_worker = worker
     worker.moveToThread(thread)
-    delivery = _Delivery(thread, worker, on_done, host)
+    tracker = busy if busy is not None else _tracker_for(host)
+    if tracker is not None and not quiet:
+        tracker.acquire()
+    delivery = _Delivery(worker, on_done, host)
     thread.started.connect(worker.run)
+    # Quit rides on finished directly (thread-safe slot), never on
+    # delivery — see _deliver's NOTE.
+    worker.finished.connect(thread.quit)
+
+    def _finished_release(ok: bool, _message: str, _data: dict) -> None:
+        if tracker is not None and not quiet:
+            tracker.release()
+
+    worker.finished.connect(_finished_release)
     thread.finished.connect(thread.deleteLater)
     _LIVE_THREADS.add(thread)
     thread.finished.connect(lambda: _LIVE_THREADS.discard(thread))
