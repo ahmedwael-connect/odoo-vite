@@ -21,7 +21,12 @@ from PySide6.QtWidgets import (
 )
 
 from odoo_vite.core import module_scaffolder
-from odoo_vite.core.registry import get_instance, list_instances
+from odoo_vite.core.db_state import get_db_state
+from odoo_vite.core.registry import (
+    get_db_password,
+    get_instance,
+    list_instances,
+)
 from odoo_vite.ui_qt.widgets.wizard import Wizard, WorkerPage
 from odoo_vite.ui_qt.workers import run_in_background
 
@@ -129,10 +134,29 @@ class DefinitionPage(QWizardPage):
             return self._fail("Pick a destination folder.")
         if self.drop_instance.count() == 0:
             return self._fail("No instance available for acceptance.")
-        if not self.entry_db.text().strip():
+        db_name = self.entry_db.text().strip()
+        if not db_name:
             return self._fail("Acceptance database is required.")
+        idx = self.drop_instance.currentIndex()
+        instance_id = self.drop_instance.itemData(idx)
+        if not self._db_exists(instance_id, db_name):
+            return self._fail(
+                f"Database '{db_name}' does not exist — create it first "
+                "(Databases tab → Init). Acceptance installs for real; "
+                "it never auto-creates.")
         self.err.setText("")
         return True
+
+    @staticmethod
+    def _db_exists(instance_id: str, db_name: str) -> bool:
+        try:
+            inst = get_instance(instance_id)
+            if inst is None:
+                return False
+            pw = get_db_password(inst) or None
+            return bool(get_db_state(db_name, inst.db_user, pw).exists)
+        except Exception:
+            return False
 
     def _fail(self, message: str) -> bool:
         self.err.setText(message)
