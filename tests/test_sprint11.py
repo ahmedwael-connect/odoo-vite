@@ -69,6 +69,33 @@ def test_shell_cat_roundtrip_and_stop():
     assert shell.send_line("late").ok is False
 
 
+def test_shell_drain_survives_concurrent_stop():
+    """stop() clearing _master mid-read must not traceback (reader race).
+
+    Two halves: (1) _drain with an already-cleared master returns quietly
+    instead of TypeError; (2) a live reader plus a real stop() joins
+    cleanly with no thread exception (fd close unblocks the read).
+    """
+    from odoo_vite.core import odoo_shell
+
+    errors = []
+    prev_hook = threading.excepthook
+    threading.excepthook = lambda args: errors.append(args)
+    try:
+        idle = odoo_shell.OdooShell()
+        idle._master = None
+        idle._drain()  # pre-fix: TypeError: NoneType as fd
+        shell, proc = _cat_session()
+        assert shell.send_line("hello-race").ok
+        time.sleep(0.5)
+        assert shell.stop().ok
+        shell._reader.join(timeout=10)
+        assert not shell._reader.is_alive()
+    finally:
+        threading.excepthook = prev_hook
+    assert errors == [], errors
+
+
 def test_shell_start_uses_pty_session(tmp_path, db, monkeypatch):
     """start() allocates a real PTY and spawns (mocked) odoo-bin on it."""
     import pty as _pty

@@ -133,14 +133,21 @@ class OdooShell:
             message=f"Shell ready on '{target}' (pid {proc.pid})")
 
     def _drain(self) -> None:
-        assert self._master is not None
+        # Snapshot the fd: stop() nulls + closes self._master concurrently,
+        # and os.read(None) raises TypeError (not OSError) — the traceback
+        # on every shell stop. Local snapshot keeps the loop self-sufficient.
+        master = self._master
+        if master is None:
+            return
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         text = ""
         while True:
             try:
-                chunk = os.read(self._master, 65536)
+                chunk = os.read(master, 65536)
             except OSError:
                 break
+            except TypeError:
+                break  # fd was closed under us; stop() owns teardown
             if not chunk:
                 break
             text += decoder.decode(chunk)
