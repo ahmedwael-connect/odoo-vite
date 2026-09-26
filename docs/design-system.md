@@ -1,6 +1,8 @@
 # Odoo Vite Design System (UX-1.1)
 
-Single source of truth for app styling. Tokens live in `odoo_vite/ui/style.css`,
+Single source of truth for app styling. GTK tokens lived in
+`odoo_vite/ui/style.css` (removed at PSQ-10 cutover); the Qt build carries
+the same scale/roles in `odoo_vite/ui_qt/qt_style.qss` (+ dark variant).
 loaded once at startup via `odoo_vite.ui.load_app_css()`.
 
 ## Spacing scale (px)

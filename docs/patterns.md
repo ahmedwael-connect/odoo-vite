@@ -22,10 +22,12 @@ H-M1; the Configuration tab and sidebar got it in Sprint 8 A.1.
 
 ## Layering (Phase 1 §1.1, enforced by test)
 
-- `core/` is pure Python: zero GTK imports (`tests/test_no_gtk_in_core.py`
-  fails the suite otherwise). GTK crossing happens in `ui/` via
-  `GLib.idle_add`, never by importing UI modules from core.
-- Long operations run in daemon threads; the GTK main loop is never blocked.
+- `core/` is pure Python: zero GUI imports (`tests/test_no_gtk_in_core.py`
+  and `tests/test_no_pyside_in_core.py` fail the suite otherwise). GUI
+  crossing happens in `ui_qt/` via queued signal/slot delivery, never by
+  importing UI modules from core. (Pre-cutover history: GTK `ui/` via
+  `GLib.idle_add`; same rule, different mechanism.)
+- Long operations run on `QThread` workers; the GUI thread is never blocked.
 
 ## Errors (Phase 1 §1.5)
 

@@ -291,14 +291,8 @@ class DummyProc:
     pass
 
 
-def test_diff_record_values():
-    """v2 verification: update preview shows exactly the changed fields."""
-    from odoo_vite.ui.flows.module_ops import diff_record_values
-
-    assert diff_record_values({"a": 1, "b": "x"}, {"a": 1, "b": "y"}) == {
-        "b": ("x", "y")}
-    assert diff_record_values({"a": 1}, {"a": 1}) == {}
-    assert diff_record_values({}, {"a": 1}) == {"a": (None, 1)}
+# NOTE (PSQ-10 cutover): diff_record_values lived in odoo_vite/ui
+# (deleted); the Qt copy is covered by tests/test_qt_devtools.py.
 
 
 def test_workers_precheck():

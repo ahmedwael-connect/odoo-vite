@@ -1,47 +1,24 @@
-"""GTK Application entrypoint (Ticket 1.1).
+"""Application entrypoint (PSQ-10 cutover: Qt is the app now).
 
-Uses Adw.Application + Adw.ApplicationWindow when libadwaita is present,
-falls back to plain Gtk.Application + Gtk.ApplicationWindow otherwise.
 Run with:  python -m odoo_vite.main   (or ./main.py from the project root)
 """
 
 import sys
 
-import gi
+from PySide6.QtWidgets import QApplication
 
-gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, Gtk  # noqa: E402
-
-try:
-    gi.require_version("Adw", "1")
-    from gi.repository import Adw  # noqa: E402
-
-    HAS_ADW = True
-except (ImportError, ValueError):
-    Adw = None  # type: ignore
-    HAS_ADW = False
-
-from odoo_vite.ui.window_main import MainWindow  # noqa: E402
-
-APP_ID = "dev.odoovite.App"
-
-
-BaseApp = Adw.Application if HAS_ADW else Gtk.Application
-
-
-class OdooViteApp(BaseApp):  # type: ignore[misc, valid-type]
-    def do_activate(self) -> None:
-        window = self.props.active_window
-        if window is None:
-            window = MainWindow(app=self)
-        window.present()
-        if hasattr(window, "refresh"):
-            window.refresh()
+from odoo_vite.ui_qt.main_window import QtMainWindow
+from odoo_vite.ui_qt.theme import ThemeMonitor, apply_theme
 
 
 def main(argv: list[str] | None = None) -> int:
-    app = OdooViteApp(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
-    return app.run(sys.argv if argv is None else argv)
+    app = QApplication(argv if argv is not None else sys.argv)
+    monitor = ThemeMonitor(app)
+    apply_theme(app, monitor.dark)
+    monitor.themeChanged.connect(lambda dark: apply_theme(app, dark))
+    window = QtMainWindow()
+    window.show()
+    return app.exec()
 
 
 if __name__ == "__main__":
