@@ -61,6 +61,12 @@ class QtMainWindow(QMainWindow):
         toolbar = QToolBar("Main")
         toolbar.addWidget(QLabel(f"Odoo Vite  v{__version__}"))
         self.addToolBar(toolbar)
+        self.btn_new = QPushButton("+ New Instance")
+        self.btn_new.clicked.connect(self._open_create_wizard)
+        toolbar.addWidget(self.btn_new)
+        self.btn_adopt = QPushButton("Adopt")
+        self.btn_adopt.clicked.connect(self._open_adopt_wizard)
+        toolbar.addWidget(self.btn_adopt)
         self.btn_events = QPushButton("Events")
         self.btn_events.setCheckable(True)
         self.btn_events.setToolTip("Application event log (audit trail)")
@@ -172,6 +178,25 @@ class QtMainWindow(QMainWindow):
         self._event_timer.setInterval(1000)
         self._event_timer.timeout.connect(self._event_poll_tick)
         self._event_log_tail = log_tail
+
+    def _open_create_wizard(self) -> None:
+        from odoo_vite.ui_qt.wizards.create_instance import CreateWizard
+
+        wiz = CreateWizard(self)
+        wiz.instanceCreated.connect(lambda _iid: self.refresh_all())
+        wiz.exec()
+
+    def _open_adopt_wizard(self) -> None:
+        from odoo_vite.ui_qt.wizards.adopt_instance import AdoptWizard
+
+        wiz = AdoptWizard(self)
+        wiz.instanceCreated.connect(lambda _iid: self.refresh_all())
+        wiz.exec()
+
+    def _open_scaffold_wizard(self) -> None:
+        from odoo_vite.ui_qt.wizards.scaffold_module import ScaffoldWizard
+
+        ScaffoldWizard(self).exec()
 
     def _on_events_toggled(self, show: bool) -> None:
         self.event_dock.setVisible(show)
@@ -473,6 +498,8 @@ class QtMainWindow(QMainWindow):
             self.mod_flows.update_code(instance_id)
         elif action == "mod-deps":
             self.mod_flows.show_deps(instance_id, str(payload or ""))
+        elif action == "mod-scaffold":
+            self._open_scaffold_wizard()
 
     def _on_conf_action(self, action: str, instance_id: str,
                         payload) -> None:

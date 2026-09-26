@@ -118,6 +118,19 @@ recommendation) — details in that ticket's report.
 construction in tests that must run display-free — same caution as GTK.
 `pytest-qt`: adopted from PSQ-1.6 (see ticket report for reasoning).
 
+## Wizard pattern (PSQ-9, designed against Create Instance)
+
+QWizard + per-page validatePage() + a WorkerPage final page — no
+hand-rolled step stacks. Data flows forward via the wizard object.
+Long work runs ONLY on the final page (core fn in a QThread worker,
+progress through the page's logAppended signal, Cancel via
+threading.Event plumbed as the core cancel callback). Failure lands on
+Retry (core steps are idempotent and resume; the in-progress object
+keeps id + path stable) + Discard (core discard_draft + close) — never
+a dead error page. Success enables Finish and emits instanceCreated.
+Validation needing I/O loads async on page entry with a loading state.
+Base classes: ui_qt/widgets/wizard.py (Wizard, WorkerPage).
+
 ## Environment note (no root, user-space Qt deps)
 
 PySide6 ships its own Qt binaries but needs `libxcb-cursor.so.0` for the

@@ -122,6 +122,10 @@ class ModulesPage(QWidget):
         self.btn_deps = QPushButton("Dependencies…")
         self.btn_deps.clicked.connect(self._on_deps)
         btn_row.addWidget(self.btn_deps)
+        self.btn_scaffold = QPushButton("New Module…")
+        self.btn_scaffold.clicked.connect(
+            lambda: self._emit("mod-scaffold", None))
+        btn_row.addWidget(self.btn_scaffold)
         btn_row.addStretch(1)
         layout.addLayout(btn_row)
         self._sync_buttons()
