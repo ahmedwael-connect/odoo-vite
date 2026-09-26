@@ -9,7 +9,8 @@
  * rendering every dim/border element invisible (caught by the human pass).
  * Dim + borders therefore use fixed neutral grays (readable on light AND
  * dark), same documented-exception principle as the GTK build's
- * .status-stopped gray. Full theme-following stays a later sprint.
+ * .status-stopped gray. System dark mode: qt_style_dark.qss, chosen via
+ * ui_qt/theme.py (XDG portal) — same tokens, flipped surfaces.
  *   success #2ec27e | warning #e5a50a | error #e01b24 | neutral #9a9996
  *
  * FONTS: no pixel sizes — default font; headings via font-weight only.
