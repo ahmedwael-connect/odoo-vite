@@ -3,11 +3,13 @@
  * docs/design-system.md. QSS has no variables: concrete values below are
  * drawn from the scale; do not invent others.
  *
- * COLORS: QSS cannot read libadwaita named colors. Adaptive roles use the
- * palette() function (follows the active Qt style / system theme);
- * success/warning/error keep the Adwaita hexes as a deliberate, documented
- * exception (same hexes as the GTK build; revisit if a fully
- * palette-driven mapping is needed).
+ * COLORS: QSS cannot read libadwaita named colors. palette() roles are
+ * used where they are reliable (highlight, window, base, text); but
+ * palette(mid) is NOT reliable — bare environments resolve it to white,
+ * rendering every dim/border element invisible (caught by the human pass).
+ * Dim + borders therefore use fixed neutral grays (readable on light AND
+ * dark), same documented-exception principle as the GTK build's
+ * .status-stopped gray. Full theme-following stays a later sprint.
  *   success #2ec27e | warning #e5a50a | error #e01b24 | neutral #9a9996
  *
  * FONTS: no pixel sizes — default font; headings via font-weight only.
@@ -22,7 +24,7 @@ QToolBar {
     padding: 4px 8px;
     background: palette(window);
     border: none;
-    border-bottom: 1px solid palette(mid);
+    border-bottom: 1px solid #cccccc;
 }
 
 QToolBar QLabel {
@@ -30,7 +32,7 @@ QToolBar QLabel {
 }
 
 QSplitter::handle {
-    background: palette(mid);
+    background: #cccccc;
     width: 1px;
 }
 
@@ -38,7 +40,7 @@ QListWidget {
     padding: 8px;
     background: palette(base);
     border: none;
-    border-right: 1px solid palette(mid);
+    border-right: 1px solid #cccccc;
 }
 
 QListWidget::item {
@@ -61,7 +63,7 @@ QLabel[class="heading"] {
 }
 
 QLabel[class="dim"] {
-    color: palette(mid);
+    color: #888888;
 }
 
 QLabel[class="error"] {

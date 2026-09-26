@@ -76,3 +76,32 @@ def _drain_workers():
     yield
     from odoo_vite.ui_qt.workers import wait_for_background
     assert wait_for_background(), "background workers did not finish"
+
+
+def test_close_waits_for_workers_then_closes(qapp, qtbot, tmp_path,
+                                             monkeypatch):
+    """Closing mid-worker must park, not abort (teardown-destroy hazard)."""
+    import time
+
+    from odoo_vite.core.result import Result
+    from odoo_vite.ui_qt.main_window import QtMainWindow
+    from odoo_vite.ui_qt.workers import run_in_background
+
+    from PySide6.QtCore import QObject
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "qt-close.db"))
+    win = QtMainWindow()
+    qtbot.addWidget(win)
+    win.show()
+    host = QObject(win)
+
+    def _slow():
+        time.sleep(2)
+        return Result(ok=True, message="slow done", data={})
+
+    run_in_background(host, _slow, lambda *a: None)
+    qtbot.wait(300)  # let the worker actually start
+    win.close()
+    assert win.isVisible(), "first close must park while workers live"
+    qtbot.wait(4000)
+    assert not win.isVisible(), "window must close once drained"

@@ -77,6 +77,7 @@ class QtMainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self.sidebar = InstanceSidebar(self)
+        self.sidebar.setMinimumWidth(200)
         self.sidebar.setMaximumWidth(320)
         self.sidebar.instanceSelected.connect(self._on_select)
         splitter.addWidget(self.sidebar)
@@ -87,13 +88,14 @@ class QtMainWindow(QMainWindow):
         self.stack.addTab(self.overview, "Overview")
         self.databases = DatabasesPage(self)
         self.databases.actionRequested.connect(self._on_db_action)
-        self.stack.addTab(self.databases, "Databases")
+        self.stack.addTab(self._scroll_wrap(self.databases), "Databases")
         self.modules = ModulesPage(self)
         self.modules.actionRequested.connect(self._on_mod_action)
-        self.stack.addTab(self.modules, "Modules")
+        self.stack.addTab(self._scroll_wrap(self.modules), "Modules")
         self.configuration = ConfigurationPage(self)
         self.configuration.actionRequested.connect(self._on_conf_action)
-        self.stack.addTab(self.configuration, "Configuration")
+        self.stack.addTab(self._scroll_wrap(self.configuration),
+                          "Configuration")
         self.logs = LogsPage(self)
         self.logs.actionRequested.connect(self._on_log_action)
         self.stack.addTab(self.logs, "Logs")
@@ -104,6 +106,8 @@ class QtMainWindow(QMainWindow):
             self._on_model_picked)
         splitter.addWidget(self.stack)
         splitter.setSizes([260, 740])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
 
         self.flows = LifecycleFlows(self)
         self.flows.message.connect(self._on_flow_message)
@@ -142,6 +146,7 @@ class QtMainWindow(QMainWindow):
 
         self.statusBar().showMessage("Ready")
         self.stack.setEnabled(False)
+        self._closing = False
         self._init_event_dock()
         self.refresh_all()
         self._poll_busy = False
@@ -241,16 +246,56 @@ class QtMainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         # Never destroy a window with workers in flight: QThread destroyed
-        # while running aborts the process (verified live at app quit).
+        # while running aborts the process. First close parks on a
+        # "finishing…" state and retries when drained; a second explicit
+        # close forces it (user's call). Long ops (backup/restore/install
+        # run minutes) must not be killable by an impatient window close
+        # mid-write — hence wait, not terminate.
+        from odoo_vite.ui_qt.workers import _LIVE_THREADS
+
+        def _live():
+            live = []
+            for thread in list(_LIVE_THREADS):
+                try:
+                    if thread.isRunning():
+                        live.append(thread)
+                except RuntimeError:
+                    pass
+            return live
+
+        if _live() and not self._closing:
+            self._closing = True
+            try:
+                self._poll.stop()
+            except Exception:
+                pass
+            self.statusBar().showMessage(
+                "Finishing background tasks before closing… "
+                "(close again to force)")
+            event.ignore()
+            QTimer.singleShot(500, self._close_when_idle)
+            return
+        # No live workers, or second explicit close while waiting: force.
         try:
             self._poll.stop()
         except Exception:
             pass
         try:
+            from odoo_vite.ui_qt.workers import wait_for_background
             wait_for_background(timeout_s=20.0)
         except Exception:
             pass
         super().closeEvent(event)
+
+    def _close_when_idle(self) -> None:
+        from odoo_vite.ui_qt.workers import wait_for_background
+
+        if wait_for_background(timeout_s=120.0):
+            self.close()
+        else:
+            self.statusBar().showMessage(
+                "Still waiting on background tasks… (close again to force)")
+            QTimer.singleShot(5000, self._close_when_idle)
 
     # ------------------------------------------------------------------ data
 
@@ -287,6 +332,17 @@ class QtMainWindow(QMainWindow):
             self, _statuses_payload, _done)
 
     # ------------------------------------------------------------------ flow
+
+    @staticmethod
+    def _scroll_wrap(page):
+        """Each long tab owns its scroller (REG.3 lesson, Qt edition):
+        action buttons below tall lists stay reachable."""
+        from PySide6.QtWidgets import QScrollArea
+
+        scrolled = QScrollArea()
+        scrolled.setWidgetResizable(True)
+        scrolled.setWidget(page)
+        return scrolled
 
     def _on_select(self, instance_id: str) -> None:
         self._current_id = instance_id

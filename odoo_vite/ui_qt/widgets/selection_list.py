@@ -21,7 +21,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QFontMetrics, QKeyEvent
+from PySide6.QtGui import QColor, QFontMetrics, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
@@ -187,7 +187,9 @@ class _RowDelegate(QStyledItemDelegate):
         if badge:
             painter.restore()
             painter.save()
-            painter.setPen(option.palette.mid().color())
+            # Fixed gray, not palette.mid() (resolves to white in bare
+            # environments — same lesson as qt_style.qss).
+            painter.setPen(QColor("#888888"))
             painter.drawText(x, rect.y(), rect.width() - 8, rect.height(),
                              Qt.AlignRight | Qt.AlignVCenter,
                              metrics.elidedText(badge, Qt.ElideRight, 140))
