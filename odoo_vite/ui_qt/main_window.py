@@ -31,9 +31,11 @@ from odoo_vite.core.version import __version__
 from odoo_vite.ui_qt.flows.configuration import ConfigurationFlows
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows, group_discover_entries
 from odoo_vite.ui_qt.flows.lifecycle import LifecycleFlows
+from odoo_vite.ui_qt.flows.logs import LogFlows
 from odoo_vite.ui_qt.flows.modules import ModuleFlows
 from odoo_vite.ui_qt.views.configuration import ConfigurationPage
 from odoo_vite.ui_qt.views.databases import DatabasesPage
+from odoo_vite.ui_qt.views.logs import LogsPage
 from odoo_vite.ui_qt.views.modules import ModulesPage
 from odoo_vite.ui_qt.views.overview import OverviewPage
 from odoo_vite.ui_qt.views.sidebar import InstanceSidebar
@@ -56,6 +58,11 @@ class QtMainWindow(QMainWindow):
         toolbar = QToolBar("Main")
         toolbar.addWidget(QLabel(f"Odoo Vite  v{__version__}"))
         self.addToolBar(toolbar)
+        self.btn_events = QPushButton("Events")
+        self.btn_events.setCheckable(True)
+        self.btn_events.setToolTip("Application event log (audit trail)")
+        self.btn_events.toggled.connect(self._on_events_toggled)
+        toolbar.addWidget(self.btn_events)
 
         splitter = QSplitter()
         self.setCentralWidget(splitter)
@@ -78,6 +85,9 @@ class QtMainWindow(QMainWindow):
         self.configuration = ConfigurationPage(self)
         self.configuration.actionRequested.connect(self._on_conf_action)
         self.stack.addTab(self.configuration, "Configuration")
+        self.logs = LogsPage(self)
+        self.logs.actionRequested.connect(self._on_log_action)
+        self.stack.addTab(self.logs, "Logs")
         splitter.addWidget(self.stack)
         splitter.setSizes([260, 740])
 
@@ -97,15 +107,92 @@ class QtMainWindow(QMainWindow):
         self.conf_flows = ConfigurationFlows(self)
         self.conf_flows.message.connect(self._on_flow_message)
         self.conf_flows.refreshRequested.connect(self.refresh_all)
+        self.log_flows = LogFlows(self)
+        self.log_flows.message.connect(self._on_flow_message)
+        self.log_flows.searchReady.connect(self._on_search_ready)
+        self.log_flows.doctorReady.connect(self._on_doctor_ready)
+        self.log_flows.slowReady.connect(self._on_slow_ready)
+        self.log_flows.profileDone.connect(self._on_profile_done)
 
         self.statusBar().showMessage("Ready")
         self.stack.setEnabled(False)
+        self._init_event_dock()
         self.refresh_all()
         self._poll_busy = False
         self._poll = QTimer(self)
         self._poll.setInterval(POLL_MS)
         self._poll.timeout.connect(self._poll_tick)
         self._poll.start()
+
+    def _init_event_dock(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QDockWidget, QListWidget, QPushButton
+
+        from odoo_vite.core import log_tail
+
+        self._event_follower = None
+        dock = QDockWidget("Events", self)
+        dock.setAllowedAreas(_Qt.BottomDockWidgetArea)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(8, 4, 8, 8)
+        self.event_list = QListWidget()
+        layout.addWidget(self.event_list)
+        clear_row = QHBoxLayout()
+        clear_row.addStretch(1)
+        btn_clear = QPushButton("Clear view")
+        btn_clear.clicked.connect(self.event_list.clear)
+        clear_row.addWidget(btn_clear)
+        layout.addLayout(clear_row)
+        dock.setWidget(body)
+        self.addDockWidget(_Qt.BottomDockWidgetArea, dock)
+        dock.setVisible(False)
+        self.event_dock = dock
+        self._event_timer = QTimer(self)
+        self._event_timer.setInterval(1000)
+        self._event_timer.timeout.connect(self._event_poll_tick)
+        self._event_log_tail = log_tail
+
+    def _on_events_toggled(self, show: bool) -> None:
+        self.event_dock.setVisible(show)
+        if show:
+            self._event_start()
+        else:
+            self._event_timer.stop()
+            self._event_follower = None
+
+    def _event_start(self) -> None:
+        from odoo_vite.core import audit as audit_log
+
+        self._event_timer.stop()
+        try:
+            follower = self._event_log_tail.LogFollower(
+                str(audit_log.audit_path()))
+            tail = self._event_log_tail.read_last_n(
+                str(audit_log.audit_path()), 100)
+        except Exception:
+            return
+        self._event_follower = follower
+        for line in tail:
+            self.event_list.addItem(line[:300])
+        follower.sync_to_end()
+        self._event_timer.start()
+
+    def _event_poll_tick(self) -> None:
+        if not self.btn_events.isChecked():
+            return
+        follower = self._event_follower
+        if follower is None:
+            return
+        try:
+            batch = follower.poll()
+        except Exception:
+            return
+        for line in batch.get("lines", [])[-500:]:
+            self.event_list.addItem(line[:300])
+        while self.event_list.count() > 1000:
+            self.event_list.takeItem(0)
+        self.event_list.scrollToBottom()
 
     def closeEvent(self, event) -> None:
         # Never destroy a window with workers in flight: QThread destroyed
@@ -164,6 +251,7 @@ class QtMainWindow(QMainWindow):
             self.databases.show_instance(inst)
             self.modules.show_instance(inst)
             self.configuration.show_instance(inst)
+            self.logs.show_instance(inst)
             self.db_flows.refresh_states(instance_id)
             self.mod_flows.refresh_modules(instance_id)
         self.stack.setEnabled(True)
@@ -378,6 +466,41 @@ class QtMainWindow(QMainWindow):
             self.conf_flows.meta_save(instance_id, payload or {})
         elif action == "addons-manage":
             self.conf_flows.addons_manage(self, instance_id)
+
+    def _on_log_action(self, action: str, instance_id: str,
+                       payload) -> None:
+        if action == "log-search":
+            pattern = self.logs.entry_search.text()
+            level = self.logs.drop_level.currentText()
+            level = None if level == "All levels" else level
+            self.log_flows.search(instance_id, pattern, level)
+        elif action == "log-doctor":
+            self.log_flows.doctor(instance_id)
+        elif action == "slow-refresh":
+            self.log_flows.slow_refresh(instance_id)
+        elif action == "profile":
+            self.log_flows.profile(
+                instance_id, int(payload or 10))
+
+    def _on_search_ready(self, instance_id: str, ok: bool, message: str,
+                         matches: list) -> None:
+        if instance_id == self._current_id:
+            self.logs.set_search_results(matches if ok else [], message)
+
+    def _on_doctor_ready(self, instance_id: str, findings: list) -> None:
+        if instance_id == self._current_id:
+            self.logs.set_doctor_findings(findings)
+
+    def _on_slow_ready(self, instance_id: str, ok: bool, message: str,
+                       rows: list) -> None:
+        if instance_id == self._current_id:
+            self.logs.set_slow_queries(ok, message, rows)
+
+    def _on_profile_done(self, instance_id: str, ok: bool, message: str,
+                         svg: str) -> None:
+        self._on_flow_message(message)
+        if ok and svg:
+            self.log_flows.view_svg(svg)
 
     def _on_confirm_needed(self, payload: dict) -> None:
         confirmed = ask_confirm(self, payload.get("heading", "Confirm"),
