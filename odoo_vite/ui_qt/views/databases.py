@@ -159,6 +159,11 @@ class DatabasesPage(QWidget):
         self.btn_sched_add.clicked.connect(
             lambda: self._emit("sched-add", None))
         sched_row.addWidget(self.btn_sched_add)
+        self.btn_sched_edit = QPushButton("Edit…")
+        self.btn_sched_edit.setToolTip("Edit the selected schedule")
+        self.btn_sched_edit.clicked.connect(
+            lambda: self._emit("sched-edit", self._selected_sched()))
+        sched_row.addWidget(self.btn_sched_edit)
         self.btn_sched_run = QPushButton("Run Now")
         self.btn_sched_run.setToolTip(
             "Back up immediately, outside the schedule")
@@ -290,7 +295,7 @@ class DatabasesPage(QWidget):
     def _sync_sched_buttons(self) -> None:
         if getattr(self, "_busy", False):
             for btn in (self.btn_sched_run, self.btn_sched_toggle,
-                        self.btn_sched_delete):
+                        self.btn_sched_delete, self.btn_sched_edit):
                 try:
                     btn.setEnabled(False)
                 except Exception:
@@ -300,6 +305,7 @@ class DatabasesPage(QWidget):
         self.btn_sched_run.setEnabled(has)
         self.btn_sched_toggle.setEnabled(has)
         self.btn_sched_delete.setEnabled(has)
+        self.btn_sched_edit.setEnabled(has)
 
     # -------------------------------------------------------------- internals
 
@@ -354,7 +360,8 @@ class DatabasesPage(QWidget):
                     self.btn_untrack, self.btn_discover, self.btn_refresh,
                     self.btn_restore, self.btn_validate, self.btn_sched_add,
                     self.btn_sched_run, self.btn_sched_toggle,
-                    self.btn_sched_delete, self.btn_backups_browse):
+                    self.btn_sched_delete, self.btn_sched_edit,
+                    self.btn_backups_browse):
             try:
                 btn.setEnabled(enabled)
             except Exception:

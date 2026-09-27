@@ -149,3 +149,38 @@ def test_delete_backup_file_audited(tmp_path):
     events = _audit.read_events(limit=5)
     assert any(e.get("action") == "backup-delete" for e in events)
     assert not bs.delete_backup_file(d / "gone.dump").ok
+
+
+def test_update_schedule_preserves_history(tmp_path):
+    db = tmp_path / "bk.db"
+    res = bs.create_schedule("inst-1", ["db1"], "0 2 * * *", db_path=db)
+    assert res.ok
+    sid = res.data["id"]
+    # Simulate a run having happened.
+    bs._record_run(sid, True, "Backed up 1 database(s)", db_path=db)
+    before = bs.get_schedule(sid, db_path=db)
+    assert before.last_run and before.last_status
+    upd = bs.update_schedule(sid, cron="30 3 * * *", retention_n=14,
+                             databases=["db1", "db2"], db_path=db)
+    assert upd.ok, upd.message
+    after = bs.get_schedule(sid, db_path=db)
+    assert after.id == sid
+    assert after.cron == "30 3 * * *"
+    assert after.retention_n == 14
+    assert after.databases == ["db1", "db2"]
+    assert after.last_run == before.last_run
+    assert after.last_status == before.last_status
+
+
+def test_update_schedule_validates_and_404s(tmp_path):
+    db = tmp_path / "bk.db"
+    assert not bs.update_schedule("nope", cron="0 2 * * *",
+                                  db_path=db).ok
+    res = bs.create_schedule("inst-1", ["db1"], "0 2 * * *", db_path=db)
+    sid = res.data["id"]
+    assert not bs.update_schedule(sid, cron="nonsense",
+                                  db_path=db).ok
+    assert not bs.update_schedule(sid, databases=[], db_path=db).ok
+    assert not bs.update_schedule(sid, retention_n=-1, db_path=db).ok
+    # Failed updates change nothing.
+    assert bs.get_schedule(sid, db_path=db).cron == "0 2 * * *"

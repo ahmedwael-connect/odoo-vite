@@ -264,6 +264,44 @@ def delete_schedule(schedule_id: str, db_path=None) -> Result:
     return Result.success(message="Schedule deleted")
 
 
+def update_schedule(schedule_id: str, databases: list | None = None,
+                    cron: str | None = None, retention_n: int | None = None,
+                    retention_days: int | None = None,
+                    enabled: bool | None = None,
+                    dest_dir: str | None = None, db_path=None) -> Result:
+    """Update schedule fields in place — id, last_run and last_status
+    survive (unlike delete+recreate, which silently resets history)."""
+    sched = get_schedule(schedule_id, db_path)
+    if sched is None:
+        return Result.failure("Schedule not found")
+    new_dbs = ([str(d) for d in databases] if databases is not None
+               else sched.databases)
+    new_cron = (" ".join(cron.split()) if cron is not None else sched.cron)
+    new_n = retention_n if retention_n is not None else sched.retention_n
+    new_days = (retention_days if retention_days is not None
+                else sched.retention_days)
+    bad = _validate(new_cron, new_dbs, new_n, new_days)
+    if not bad.ok:
+        return bad
+    fields: dict = {"databases": json.dumps(new_dbs), "cron": new_cron,
+                    "retention_n": new_n, "retention_days": new_days}
+    if enabled is not None:
+        fields["enabled"] = 1 if enabled else 0
+    if dest_dir is not None:
+        fields["dest_dir"] = dest_dir.strip()
+    assignments = ", ".join(f"{key}=?" for key in fields)
+    try:
+        with _conn(db_path) as conn:
+            conn.execute(
+                f"UPDATE backup_schedules SET {assignments} WHERE id=?",
+                (*fields.values(), schedule_id))
+            conn.commit()
+    except OSError as exc:
+        return Result.failure(f"Cannot update schedule: {exc}")
+    return Result.success(data={"id": schedule_id},
+                          message="Schedule updated")
+
+
 def set_enabled(schedule_id: str, enabled: bool, db_path=None) -> Result:
     with _conn(db_path) as conn:
         cur = conn.execute(

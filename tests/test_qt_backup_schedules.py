@@ -73,6 +73,8 @@ def test_sched_actions_emit(qapp, qtbot):
     page.sched_list.setCurrentRow(0)
     page.btn_sched_add.click()
     assert fired[-1] == ("sched-add", "x", None)
+    page.btn_sched_edit.click()
+    assert fired[-1] == ("sched-edit", "x", "s1")
     page.btn_sched_run.click()
     assert fired[-1] == ("sched-run-now", "x", "s1")
     page.btn_sched_toggle.click()
@@ -125,3 +127,61 @@ def test_browse_dialog_opens_empty(qapp, qtbot, _seeded):
     QTimer.singleShot(1200, _close)
     flows.backups_browse_dialog(None, _seeded.id)
     qtbot.wait(500)
+
+
+def test_flow_update_preserves_history(qapp, qtbot, _seeded):
+    from odoo_vite.core import backup_scheduler as _bs
+    from odoo_vite.ui_qt.flows.backup_schedules import BackupSchedulesFlows
+
+    res = _bs.create_schedule(_seeded.id, ["d"], "0 2 * * *")
+    sid = res.data["id"]
+    _bs._record_run(sid, True, "Backed up 1 database(s)")
+    before = _bs.get_schedule(sid)
+    flows = BackupSchedulesFlows()
+    messages = []
+    flows.message.connect(messages.append)
+    flows.update_schedule(_seeded.id, sid, ["d"], "30 3 * * *", 14, 0)
+    qtbot.wait(2000)
+    after = _bs.get_schedule(sid)
+    assert after.id == sid
+    assert after.cron == "30 3 * * *"
+    assert after.last_run == before.last_run
+    assert any("updated" in m.lower() for m in messages)
+
+
+def test_edit_dialog_prefills(qapp, qtbot, _seeded):
+    """Edit must open prefilled from the schedule (not blank defaults)."""
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    from odoo_vite.core import backup_scheduler as _bs
+    from odoo_vite.ui_qt.flows.backup_schedules import BackupSchedulesFlows
+
+    res = _bs.create_schedule(_seeded.id, ["d"], "30 3 * * *",
+                              retention_n=14, retention_days=30)
+    sid = res.data["id"]
+    flows = BackupSchedulesFlows()
+    seen = {}
+
+    def _grab():
+        for w in QApplication.topLevelWidgets():
+            if isinstance(w, QDialog) and w.isVisible() \
+                    and w.windowTitle().startswith("Edit schedule"):
+                from PySide6.QtWidgets import QLineEdit, QSpinBox
+                edits = [e for e in w.findChildren(QLineEdit)
+                         if "cron expression" in (e.toolTip() or "")]
+                assert edits, "cron entry not found"
+                seen["cron"] = edits[0].text()
+                spins = w.findChildren(QSpinBox)
+                seen["spins"] = sorted(sp.value() for sp in spins)
+                seen["title"] = w.windowTitle()
+                w.reject()
+                return
+
+    QTimer.singleShot(1200, _grab)
+    flows.sched_edit_dialog(None, _seeded.id, sid)
+    qtbot.wait(500)
+    assert seen.get("title", "").startswith("Edit schedule")
+    assert seen.get("cron") == "30 3 * * *"
+    assert seen.get("spins") == [14, 30]
+    assert _bs.delete_schedule(sid).ok

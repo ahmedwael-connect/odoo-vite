@@ -74,9 +74,24 @@ class BackupSchedulesFlows(QObject):
     # ------------------------------------------------------------ add
 
     def sched_add_dialog(self, parent_widget, instance_id: str) -> None:
+        self._schedule_dialog(parent_widget, instance_id, edit_sid=None)
+
+    def sched_edit_dialog(self, parent_widget, instance_id: str,
+                          schedule_id: str) -> None:
+        self._schedule_dialog(parent_widget, instance_id,
+                              edit_sid=schedule_id)
+
+    def _schedule_dialog(self, parent_widget, instance_id: str,
+                         edit_sid: str | None) -> None:
         inst = get_instance(instance_id)
         if inst is None:
             return
+        existing = None
+        if edit_sid is not None:
+            existing = backup_scheduler.get_schedule(edit_sid)
+            if existing is None:
+                self.message.emit("Schedule not found")
+                return
         names = list(dict.fromkeys(
             ([inst.primary_db] if inst.primary_db else [])
             + (inst.tracked_dbs or [])))
@@ -85,14 +100,18 @@ class BackupSchedulesFlows(QObject):
             return
         dlg = QDialog(parent_widget if isinstance(parent_widget, QWidget)
                       else None)
-        dlg.setWindowTitle(f"Scheduled backups — {inst.name}")
+        dlg.setWindowTitle(
+            f"Edit schedule — {inst.name}" if existing is not None
+            else f"Scheduled backups — {inst.name}")
         dlg.setMinimumSize(560, 520)
         layout = QVBoxLayout(dlg)
         layout.setSpacing(8)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.addWidget(QLabel("Databases to back up:"))
         picker = SelectionList(multi=True, parent=dlg)
-        picker.set_items([{"id": n, "title": n, "checked": True}
+        prechecked = (set(existing.databases) if existing is not None
+                      else set(names))
+        picker.set_items([{"id": n, "title": n, "checked": n in prechecked}
                           for n in names])
         layout.addWidget(picker, 1)
         form = QFormLayout()
@@ -101,24 +120,32 @@ class BackupSchedulesFlows(QObject):
         cron_row.setSpacing(8)
         drop = QComboBox()
         drop.addItems([label for label, _ in PRESETS])
-        drop.setCurrentIndex(1)
-        cron_row.addWidget(drop)
-        cron_entry = QLineEdit("0 2 * * *")
+        cron_entry = QLineEdit()
         cron_entry.setToolTip(
             "cron expression: minute hour day month weekday")
         cron_row.addWidget(cron_entry, 1)
         drop.currentIndexChanged.connect(
             lambda idx: cron_entry.setText(PRESETS[idx][1])
             if PRESETS[idx][1] else None)
+        # Set values AFTER wiring: the index change must not clobber a
+        # custom expression (verified live: it blanked the field).
+        start_cron = (existing.cron if existing is not None else "0 2 * * *")
+        try:
+            drop.setCurrentIndex([expr for _, expr in PRESETS].index(
+                start_cron))
+        except ValueError:
+            drop.setCurrentIndex(3)  # Custom…
+            cron_entry.setText(start_cron)
         form.addRow("Schedule:", cron_row)
         spin_n = QSpinBox()
         spin_n.setRange(1, 365)
-        spin_n.setValue(7)
+        spin_n.setValue(existing.retention_n if existing is not None else 7)
         spin_n.setToolTip("Keep last N backups")
         form.addRow("Keep last:", spin_n)
         spin_days = QSpinBox()
         spin_days.setRange(0, 3650)
-        spin_days.setValue(0)
+        spin_days.setValue(
+            existing.retention_days if existing is not None else 0)
         spin_days.setToolTip("Keep days (0 = off)")
         form.addRow("Keep days (0 = off):", spin_days)
         layout.addLayout(form)
@@ -131,7 +158,8 @@ class BackupSchedulesFlows(QObject):
         layout.addWidget(hint)
         buttons = QDialogButtonBox(
             QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
-        buttons.button(QDialogButtonBox.Ok).setText("Save schedule")
+        buttons.button(QDialogButtonBox.Ok).setText(
+            "Save changes" if existing is not None else "Save schedule")
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
         layout.addWidget(buttons)
@@ -141,17 +169,20 @@ class BackupSchedulesFlows(QObject):
         if not chosen:
             self.message.emit("Pick at least one database")
             return
-        self.create_schedule(
-            instance_id, chosen, cron_entry.text().strip(),
-            int(spin_n.value()), int(spin_days.value()))
+        if existing is not None:
+            self.update_schedule(
+                instance_id, existing.id, chosen,
+                cron_entry.text().strip(), int(spin_n.value()),
+                int(spin_days.value()))
+        else:
+            self.create_schedule(
+                instance_id, chosen, cron_entry.text().strip(),
+                int(spin_n.value()), int(spin_days.value()))
 
     def create_schedule(self, instance_id: str, databases: list,
                         cron: str, retention_n: int = 7,
                         retention_days: int = 0) -> None:
-        """Shared by the dialog (and tests): validate, save, install timer.
-        Edit is deliberately NOT here — it needs core UPDATE support
-        (delete+recreate would silently lose run history); flagged to PM.
-        """
+        """Shared by the dialog (and tests): validate, save, install timer."""
 
         def _work():
             res = backup_scheduler.create_schedule(
@@ -166,6 +197,23 @@ class BackupSchedulesFlows(QObject):
                                       f"{timer.message}",
                               data=res.data)
             return res
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            self.message.emit(message)
+            self.refresh_schedules(instance_id)
+
+        run_in_background(self, _work, _done)
+
+    def update_schedule(self, instance_id: str, schedule_id: str,
+                        databases: list, cron: str, retention_n: int,
+                        retention_days: int) -> None:
+        """Edit path: UPDATE in place (id + run history survive). No
+        timer reinstall — the per-minute timer is schedule-agnostic."""
+
+        def _work():
+            return backup_scheduler.update_schedule(
+                schedule_id, databases=databases, cron=cron,
+                retention_n=retention_n, retention_days=retention_days)
 
         def _done(ok: bool, message: str, _data: dict) -> None:
             self.message.emit(message)

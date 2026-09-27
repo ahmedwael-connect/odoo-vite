@@ -460,6 +460,9 @@ class QtMainWindow(QMainWindow):
             self._discover_dialog(instance_id)
         elif action == "sched-add":
             self.sched_flows.sched_add_dialog(self, instance_id)
+        elif action == "sched-edit":
+            self.sched_flows.sched_edit_dialog(
+                self, instance_id, str(payload or ""))
         elif action == "sched-delete":
             self.sched_flows.sched_delete(
                 self, instance_id, str(payload or ""))
