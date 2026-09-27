@@ -49,6 +49,7 @@ def test_core_has_no_gtk_imports():
         "odoo_vite.core.backup_scheduler",
         "odoo_vite.core.clone",
         "odoo_vite.core.disk_usage",
+        "odoo_vite.core.transfer",
     ]
     probe = (
         "import sys, importlib, json; "

@@ -47,6 +47,7 @@ def test_core_has_no_qt_imports():
         "odoo_vite.core.backup_scheduler",
         "odoo_vite.core.clone",
         "odoo_vite.core.disk_usage",
+        "odoo_vite.core.transfer",
         "odoo_vite.core.enterprise",
         # Not core/, but the headless systemd entry point — must stay
         # Qt-free for the same reason.
