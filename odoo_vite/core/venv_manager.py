@@ -173,3 +173,66 @@ def repair_venv(instance_id: str, progress_cb=None, cancel=None,
     return Result.success(
         data={"venv_path": str(venv)},
         message=f"Venv repaired for '{inst.name}' (setuptools/wheel present)")
+
+
+def rebuild_venv(instance_id: str, progress_cb=None, cancel=None,
+                 db_path=None) -> Result:
+    """Fresh venv for an instance (U5.2: post-clone loop closer).
+
+    Removes any existing venv dir (stale absolute paths from a clone copy
+    would break pip), then create_venv + install_requirements + a strict
+    pkg_resources verify. Minutes + network — the UI streams progress and
+    confirms first. Refuses running instances. Never raises.
+    """
+    from odoo_vite.core.registry import get_instance, update_instance
+
+    inst = get_instance(instance_id, db_path)
+    if inst is None:
+        return Result.failure(f"No instance with id '{instance_id}'")
+    if (inst.status or "") == "running":
+        return Result.failure(
+            f"Stop '{inst.name}' before rebuilding its venv")
+    base = Path(inst.path).expanduser() if inst.path else None
+    if base is None or not base.is_dir():
+        return Result.failure(
+            f"No files for '{inst.name}' ({inst.path or 'no path'}) — "
+            "nothing to build a venv in")
+    venv_path = base / VENV_DIRNAME
+    if venv_path.exists() or venv_path.is_symlink():
+        try:
+            if progress_cb is not None:
+                progress_cb(f"Removing stale venv at {venv_path}…")
+            shutil.rmtree(venv_path, ignore_errors=True)
+        except Exception:
+            pass
+    created = create_venv(str(base), progress_cb=progress_cb, cancel=cancel)
+    if not created.ok:
+        return created
+    try:
+        update_instance(instance_id, db_path,
+                        venv_path=created.data.get("venv_path", ""))
+    except Exception:
+        pass
+    installed = install_requirements(
+        created.data.get("venv_path", ""), inst.community_path,
+        progress_cb=progress_cb, cancel=cancel)
+    if not installed.ok:
+        return installed
+    verify = run_streaming(
+        [str(Path(created.data["venv_path"]) / "bin" / "python"),
+         "-c", "import pkg_resources; print('pkg_resources ok')"],
+        progress_cb=progress_cb, cancel=cancel, timeout=120,
+    )
+    if not verify.ok:
+        return Result.failure(
+            "Venv built and requirements installed, but pkg_resources "
+            f"is still unimportable: {verify.message}")
+    try:
+        from odoo_vite.core import audit as audit_log
+        audit_log.log_event(instance_id, inst.name, "venv_rebuilt",
+                            "fresh venv + requirements installed")
+    except Exception:
+        pass
+    return Result.success(
+        data={"venv_path": created.data.get("venv_path", "")},
+        message=f"Venv rebuilt for '{inst.name}' — requirements installed")
