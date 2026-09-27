@@ -24,6 +24,24 @@ break opportunities and still blow out the container. (History: GTK used
 `Pango.EllipsizeMode`; same rule, Qt mechanism.) Wizards got this in
 H-M1; the Configuration tab and sidebar got it in Sprint 8 A.1.
 
+## Poll-driven UI: diff-before-repaint (re-render storm fix)
+
+**Poll ticks and refresh callbacks must never rebuild widgets on identical
+data.** The 2s status poll + 1s log tail run forever; every unconditional
+`beginResetModel`, `setText`, or FS scan is a per-tick flicker and steals
+in-flight clicks. Rules:
+
+- Fingerprint list inputs (sidebar rows) and skip `set_items` when equal.
+- Fingerprint rendered scalars per widget (`OverviewPage._paint`); partial
+  poll dicts must NEVER blank rows they don't carry — absent key = keep.
+- Filesystem work (enterprise detect) runs only on full rows whose inputs
+  changed; cache per instance, invalidate on selection change.
+- Subprocess probes (`pg_isready`) get a TTL cache at the poll site — core
+  verify-then-act paths always probe live and must never see the cache.
+- 1s-tail timers skip ticks while hidden (`isVisible` gate).
+- Restoring a highlight after a reset must not re-emit selection: guard
+  with last-emitted (sidebar), or every poll reloads all pages + workers.
+
 ## Layering (Phase 1 §1.1, enforced by test)
 
 - `core/` is pure Python: zero GUI imports (`tests/test_no_gtk_in_core.py`

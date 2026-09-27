@@ -236,6 +236,10 @@ class LogsPage(QWidget):
         self._emit("profile", duration)
 
     def _poll_tick(self) -> None:
+        # Hidden tabs don't tail: the 1s timer is per-second main-thread
+        # churn otherwise. show_instance restarts from the file end.
+        if not self.isVisible():
+            return
         follower = self._follower
         if follower is None:
             return

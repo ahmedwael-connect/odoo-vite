@@ -47,11 +47,23 @@ class _RowModel(QAbstractListModel):
         self._visible: list[int] = []
 
     def set_rows(self, rows: list[dict]) -> None:
+        # Preserve multi-mode checks across refreshes by row id: callers
+        # rebuild row dicts on every poll (sidebar, discover), and a reset
+        # must not silently uncheck what the user picked. Single-select
+        # lists stay checkless by design.
+        keep = {}
+        if self._multi:
+            keep = {r.get("id"): bool(r.get("checked"))
+                    for r in self._rows if not r.get("header")}
         self.beginResetModel()
         self._rows = [dict(r) for r in rows]
         if not self._multi:
             for row in self._rows:
                 row["checked"] = False
+        else:
+            for row in self._rows:
+                if not row.get("header") and "checked" not in row:
+                    row["checked"] = keep.get(row.get("id"), False)
         self._visible = list(range(len(self._rows)))
         self.endResetModel()
 
@@ -296,7 +308,11 @@ class SelectionList(QWidget):
         return index.data(_ID_ROLE)
 
     def select_id(self, item_id) -> bool:
-        """Select a row by id (headers never match). Returns found."""
+        """Select a row by id (headers never match). Returns found.
+
+        Sets selection AND current index: setCurrentIndex alone leaves the
+        highlight off, so a post-refresh restore would look unselected.
+        """
         model = self.view.model()
         for row in range(model.rowCount()):
             index = model.index(row, 0)
@@ -304,6 +320,12 @@ class SelectionList(QWidget):
                 continue
             if index.data(_ID_ROLE) == item_id:
                 self.view.setCurrentIndex(index)
+                try:
+                    self.view.selectionModel().select(
+                        index,
+                        self.view.selectionModel().SelectionFlag.ClearAndSelect)
+                except Exception:
+                    pass
                 return True
         return False
 

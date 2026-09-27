@@ -107,6 +107,34 @@ def test_clear_view_keeps_file(qapp, qtbot, _log_instance):
     page.stop_poll()
 
 
+def test_hidden_page_does_not_tail(qapp, qtbot, _log_instance, monkeypatch):
+    """Hidden tabs skip the 1s tail poll (per-second main-thread churn)."""
+    from odoo_vite.core import log_tail as log_tail_mod
+
+    page = LogsPage()
+    qtbot.addWidget(page)
+    # Never shown: hidden by default.
+    polls = []
+    real_follower = log_tail_mod.LogFollower
+
+    class _CountingFollower(real_follower):
+        def poll(self):
+            polls.append(1)
+            return super().poll()
+
+    monkeypatch.setattr(log_tail_mod, "LogFollower", _CountingFollower)
+    page.show_instance(_log_instance)
+    page.stop_poll()  # keep the timer out; drive ticks manually
+    page._follower = _CountingFollower(str(_log_instance.log_path))
+    page._poll_tick()
+    page._poll_tick()
+    assert polls == [], "hidden page must not touch the log file"
+    page.show()
+    page._poll_tick()
+    assert len(polls) == 1
+    page.stop_poll()
+
+
 def test_search_doctor_render(qapp, qtbot, _log_instance):
     page = LogsPage()
     qtbot.addWidget(page)

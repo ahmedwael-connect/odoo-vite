@@ -383,3 +383,75 @@ def test_flows_export_import_unknown_paths(qapp, qtbot, tmp_path):
     assert messages == ["No instance with id 'no-such-id'"]
     flows.import_dialog(None, str(tmp_path / "missing.tar.gz"))
     assert len(messages) == 2 and "Cannot read bundle" in messages[-1]
+
+
+def test_sidebar_skips_identical_refresh(qapp, qtbot):
+    """Poll parity: identical input must not reset the model (flicker)."""
+    from odoo_vite.ui_qt.views.sidebar import InstanceSidebar
+
+    bar = InstanceSidebar()
+    qtbot.addWidget(bar)
+    resets = []
+    bar._list._model.modelReset.connect(lambda: resets.append(1))
+    rows = [_inst_dict("a", "One", "running"),
+            _inst_dict("b", "Two", "stopped")]
+    bar.set_instances(rows)
+    assert len(resets) == 1
+    bar.set_instances([dict(r) for r in rows])
+    assert len(resets) == 1, "identical poll must not repaint"
+    # Real change repaints AND keeps a working highlight.
+    bar._list.select_id("b")
+    changed = [dict(r) for r in rows]
+    changed[1]["status"] = "running"
+    bar.set_instances(changed)
+    assert len(resets) == 2
+    assert bar.selected_id() == "b"
+    assert bar._list.view.selectionModel().selectedIndexes()
+
+
+def test_overview_poll_never_blanks_or_rescans(qapp, qtbot, monkeypatch):
+    """Poll dicts lack path/enterprise fields: rows keep values, no FS scan."""
+    from odoo_vite.core import enterprise as enterprise_mod
+
+    calls = []
+    real_detect = enterprise_mod.detect_enterprise
+
+    def _counting(instance):
+        calls.append(1)
+        return real_detect(instance)
+
+    monkeypatch.setattr(enterprise_mod, "detect_enterprise", _counting)
+    page = OverviewPage()
+    qtbot.addWidget(page)
+    page.show()
+    full = _inst_dict(status="stopped")
+    full.update(path="/tmp/x", primary_db="d", db_user="odoo",
+                enterprise_path="")
+    page.show_instance(full)
+    assert page._fields["path"].text() == "/tmp/x"
+    first_calls = len(calls)
+    assert first_calls == 1
+    # Partial poll tick: same status, no path/enterprise keys.
+    page.refresh_status(_inst_dict(status="stopped"))
+    page.refresh_status(_inst_dict(status="stopped"))
+    assert page._fields["path"].text() == "/tmp/x", "poll must not blank rows"
+    assert len(calls) == first_calls, "poll must not rescan enterprise"
+
+
+def test_statuses_payload_caches_reachability(qapp, qtbot, tmp_path,
+                                              monkeypatch):
+    """pg_isready (~50ms) must not spawn on every 2s tick."""
+    from odoo_vite.core import db_manager
+    from odoo_vite.ui_qt import main_window as mw
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "reach.db"))
+    probes = []
+    monkeypatch.setattr(
+        db_manager, "server_reachable",
+        lambda: probes.append(1) or True)
+    mw._REACH_CACHE["at"] = 0.0
+    first = mw._statuses_payload()
+    second = mw._statuses_payload()
+    assert len(probes) == 1
+    assert first.data["server_reachable"] is True
+    assert second.data["server_reachable"] is True

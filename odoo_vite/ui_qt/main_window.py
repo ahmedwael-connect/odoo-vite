@@ -904,18 +904,29 @@ class QtMainWindow(QMainWindow):
             pass
 
 
+_REACH_TTL_S = 20.0
+_REACH_CACHE = {"at": 0.0, "value": True}
+
+
 def _statuses_payload() -> object:
+    from time import monotonic
+
     from odoo_vite.core.result import Result
 
     try:
         statuses = get_statuses()
     except Exception as exc:
         return Result.failure(str(exc))
-    try:
-        from odoo_vite.core.db_manager import server_reachable
-        reachable = bool(server_reachable())
-    except Exception:
-        reachable = True  # unknown: don't banner on probe failure
+    # pg_isready costs ~50ms per spawn — cache briefly (UI hint only; all
+    # verify-then-act paths probe live in core and never see this value).
+    now = monotonic()
+    if now - _REACH_CACHE["at"] >= _REACH_TTL_S:
+        try:
+            from odoo_vite.core.db_manager import server_reachable
+            _REACH_CACHE["value"] = bool(server_reachable())
+        except Exception:
+            _REACH_CACHE["value"] = True  # unknown: don't banner on probe failure
+        _REACH_CACHE["at"] = now
     return Result(ok=True, message="",
                   data={"statuses": statuses,
-                        "server_reachable": reachable})
+                        "server_reachable": _REACH_CACHE["value"]})

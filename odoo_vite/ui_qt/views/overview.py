@@ -21,6 +21,9 @@ from odoo_vite.ui_qt.widgets.icons import style_button  # noqa: E402
 from odoo_vite.core import enterprise as _enterprise  # noqa: E402
 
 
+_MISSING = object()  # sentinel: this payload doesn't carry the field
+
+
 class OverviewPage(QWidget):
     actionRequested = Signal(str, str)  # (action, instance_id)
 
@@ -31,6 +34,12 @@ class OverviewPage(QWidget):
         self._instance_id: str | None = None
         self._busy = False
         self._last_seen = None
+        # Diff-before-repaint state: last rendered scalar per widget key,
+        # plus the enterprise-badge inputs. Poll ticks with identical data
+        # skip every write (no flicker, no FS scans).
+        self._rendered: dict = {}
+        self._ent_key: object = _MISSING  # _MISSING = must evaluate once
+        self._ent_data: dict = {"state": "community"}
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
         layout.setContentsMargins(16, 12, 16, 16)
@@ -153,29 +162,50 @@ class OverviewPage(QWidget):
         self.name_label.setText(str(name))
         self.show_error("")
         self.disk_label.setText("Disk: —")
+        # New selection: drop all repaint caches so the page paints fully
+        # once, then poll ticks diff against it.
+        self._rendered = {}
+        self._ent_key = _MISSING
         self.refresh_status(instance)
 
     def set_disk_text(self, text: str) -> None:
         self.disk_label.setText(text or "Disk: —")
+
+    def _paint(self, key: str, value: str, setter) -> bool:
+        """Diff-before-repaint: call setter(value) only on change."""
+        if key in self._rendered and self._rendered[key] == value:
+            return False
+        self._rendered[key] = value
+        if setter is not None:
+            setter(value)
+        return True
 
     def show_error(self, message: str) -> None:
         self.error_label.setText(message or "")
         self.error_label.setVisible(bool(message))
 
     def refresh_status(self, instance) -> None:
-        """Update status-dependent widgets (safe to call on poll ticks)."""
+        """Update status-dependent widgets (safe to call on poll ticks).
+
+        Diff-before-repaint: poll payloads are partial dicts (status/port/
+        version/cpu/…) while full Instance rows carry everything. A field
+        only repaints when its key is present in this payload AND its value
+        changed — so ticks never blank rows they don't know about and never
+        rewrite identical text (no flicker).
+        """
         self._last_seen = instance
-        if isinstance(instance, dict):
+        is_dict = isinstance(instance, dict)
+        if is_dict:
             status = instance.get("status", "")
             version = instance.get("version", "")
             port = instance.get("port", "")
-            path = instance.get("path", "")
-            primary = instance.get("primary_db", "")
-            db_user = instance.get("db_user", "")
-            desc = instance.get("description", "")
-            cpu = instance.get("cpu_percent", "")
-            memory = instance.get("memory_mb", "")
-            pw_storage = instance.get("password_storage", "")
+            path = instance.get("path", _MISSING)
+            primary = instance.get("primary_db", _MISSING)
+            db_user = instance.get("db_user", _MISSING)
+            desc = instance.get("description", _MISSING)
+            cpu = instance.get("cpu_percent", _MISSING)
+            memory = instance.get("memory_mb", _MISSING)
+            pw_storage = instance.get("password_storage", _MISSING)
         else:
             status = instance.status or ""
             version = instance.version or ""
@@ -184,27 +214,40 @@ class OverviewPage(QWidget):
             primary = instance.primary_db or ""
             db_user = instance.db_user or ""
             desc = instance.description or ""
-            cpu = getattr(instance, "cpu_percent", "")
-            memory = getattr(instance, "memory_mb", "")
+            cpu = getattr(instance, "cpu_percent", _MISSING)
+            memory = getattr(instance, "memory_mb", _MISSING)
             pw_storage = instance.password_storage or ""
-        self.desc_label.setText(str(desc))
-        self.desc_label.setVisible(bool(desc))
+        if desc is not _MISSING:
+            self._paint("desc", str(desc), self.desc_label.setText)
+            self.desc_label.setVisible(bool(desc))
         state = str(status).capitalize()
-        self.status_label.setText(f"Status: {state}")
-        self.status_label.setProperty(
-            "class", "success" if state == "Running" else "dim")
-        # Re-polish so the dynamic property restyles without rebuild.
-        self.status_label.style().unpolish(self.status_label)
-        self.status_label.style().polish(self.status_label)
-        self._fields["version"].setText(str(version))
-        self._fields["port"].setText(str(port))
-        self._fields["path"].setText(str(path))
-        self._fields["primary_db"].setText(str(primary) or "—")
-        self._fields["db_user"].setText(str(db_user))
-        self._fields["cpu"].setText(
-            f"{cpu:.0f}%" if isinstance(cpu, (int, float)) else "—")
-        self._fields["memory"].setText(
-            f"{memory:.0f} MB" if isinstance(memory, (int, float)) else "—")
+        if self._paint("state", state, None):
+            self.status_label.setText(f"Status: {state}")
+            self.status_label.setProperty(
+                "class", "success" if state == "Running" else "dim")
+            # Re-polish so the dynamic property restyles without rebuild.
+            self.status_label.style().unpolish(self.status_label)
+            self.status_label.style().polish(self.status_label)
+        self._paint("version", str(version),
+                    self._fields["version"].setText)
+        self._paint("port", str(port), self._fields["port"].setText)
+        if path is not _MISSING:
+            self._paint("path", str(path), self._fields["path"].setText)
+        if primary is not _MISSING:
+            self._paint("primary_db", str(primary) or "—",
+                        self._fields["primary_db"].setText)
+        if db_user is not _MISSING:
+            self._paint("db_user", str(db_user),
+                        self._fields["db_user"].setText)
+        if cpu is not _MISSING:
+            self._paint(
+                "cpu", f"{cpu:.0f}%" if isinstance(cpu, (int, float)) else "—",
+                self._fields["cpu"].setText)
+        if memory is not _MISSING:
+            self._paint(
+                "memory",
+                f"{memory:.0f} MB" if isinstance(memory, (int, float)) else "—",
+                self._fields["memory"].setText)
         running = state == "Running"
         if self._busy:
             # Busy gating wins over state gating (poll ticks must not
@@ -227,19 +270,40 @@ class OverviewPage(QWidget):
         self.btn_secure.setEnabled(True)
         self.btn_venv.setEnabled(True)
         # H.2 parity: plaintext warning + one-click keyring sweep.
-        is_plain = (pw_storage or "") == "plaintext"
-        self.lbl_security.setVisible(is_plain)
-        self.btn_secure.setVisible(is_plain)
-        if is_plain:
-            self.lbl_security.setText(
-                "⚠ Database password stored in PLAINTEXT — click to secure "
-                "it in the OS keyring.")
-        # ENT.1 parity: always-visible tri-state badge.
-        try:
-            res = _enterprise.detect_enterprise(instance)
-            data = res.data if res.ok else {}
-        except Exception:
-            data = {"state": "community"}
+        # Poll dicts without the key keep the last state (never blank it).
+        if pw_storage is not _MISSING:
+            is_plain = (pw_storage or "") == "plaintext"
+            self.lbl_security.setVisible(is_plain)
+            self.btn_secure.setVisible(is_plain)
+            if is_plain and self._paint("sec_text", "plain", None):
+                self.lbl_security.setText(
+                    "⚠ Database password stored in PLAINTEXT — click to "
+                    "secure it in the OS keyring.")
+        # ENT.1 parity: always-visible tri-state badge, cached. Filesystem
+        # detection runs only for full rows whose enterprise inputs changed —
+        # never on partial poll ticks (they carry no enterprise fields).
+        if is_dict:
+            ent_path = instance.get("enterprise_path", None)
+            ent_id = instance.get("id", None)
+        else:
+            ent_path = getattr(instance, "enterprise_path", "")
+            ent_id = getattr(instance, "id", None)
+        if ent_path is None and is_dict and self._ent_key is not _MISSING:
+            pass  # partial tick: keep cached badge
+        else:
+            ent_key = (ent_id, ent_path or "", version)
+            if ent_key != self._ent_key:
+                self._ent_key = ent_key
+                try:
+                    res = _enterprise.detect_enterprise(instance)
+                    self._ent_data = res.data if res.ok else {}
+                except Exception:
+                    self._ent_data = {"state": "community"}
+                self._paint_ent_badge(version)
+        self._sync_venv_row(instance)
+
+    def _paint_ent_badge(self, version: str) -> None:
+        data = self._ent_data or {}
         self.ent_label.setProperty("class", "")
         state_name = data.get("state", "community")
         major = data.get("enterprise_major", "")
@@ -262,7 +326,6 @@ class OverviewPage(QWidget):
         else:
             self.ent_label.setText("Community edition.")
             self.ent_label.setProperty("class", "dim")
-        self._sync_venv_row(instance)
 
     def _sync_venv_row(self, instance) -> None:
         """U5.2: warn + offer rebuild when no usable venv python exists.
