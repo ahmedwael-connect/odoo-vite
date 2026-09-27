@@ -51,15 +51,10 @@ On first launch the app creates `~/.local/share/odoo-vite/` (registry +
 audit log + instance folders). Open **Preferences** to choose Developer vs
 Managed provisioning mode before creating instances.
 
-Optional desktop launcher (`~/.local/share/applications/odoo-vite.desktop`):
+Optional desktop launcher:
 
-```ini
-[Desktop Entry]
-Type=Application
-Name=Odoo Vite
-Exec=python3 /path/to/odoo-vite/main.py
-Icon=computer
-Categories=Development;
+```bash
+make install-desktop   # writes ~/.local/share/applications/odoo-vite.desktop
 ```
 
 ## Test

@@ -450,6 +450,8 @@ class QtMainWindow(QMainWindow):
             self.flows.remove_dialog(self, instance_id)
         elif action == "clone":
             self.flows.clone_dialog(self, instance_id)
+        elif action == "rebuild-venv":
+            self.flows.rebuild_venv_dialog(self, instance_id)
         elif action == "measure-disk":
             self.flows.measure_disk(instance_id)
         elif action == "browser":

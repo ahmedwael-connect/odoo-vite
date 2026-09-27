@@ -30,6 +30,10 @@ from odoo_vite.core import (  # noqa: E402
     db_manager, process_manager, removal)
 from odoo_vite.core import clone as clone_core  # noqa: E402
 from odoo_vite.core import provisioning as provisioning_core  # noqa: E402
+from odoo_vite.core import venv_manager as venv_manager_core  # noqa: E402
+from odoo_vite.ui_qt.widgets.progress_dialog import (  # noqa: E402
+    ProgressDialog,
+)
 from odoo_vite.core.db_manager import (  # noqa: E402
     track_database, untrack_database)
 from odoo_vite.core.db_state import get_db_state, odoo_major  # noqa: E402
@@ -187,6 +191,44 @@ class LifecycleFlows(QObject):
             self.message.emit("Clone needs a name — cancelled")
             return
         self.clone(instance_id, new_name, int(port_spin.value()))
+
+    def rebuild_venv_dialog(self, parent_widget, instance_id: str) -> None:
+        """U5.2: confirm exact commands, then stream rebuild_venv into a
+        ProgressDialog (minutes + network — never silent)."""
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit(f"No instance with id '{instance_id}'")
+            return
+        if (inst.status or "") == "running":
+            self.message.emit(
+                f"Stop '{inst.name}' before rebuilding its venv")
+            return
+        parent = (parent_widget if isinstance(parent_widget, QWidget)
+                  else None)
+        venv = f"{inst.path}/venv" if inst.path else "<instance>/venv"
+        req = (f"{inst.community_path}/requirements.txt"
+               if inst.community_path else "<community>/requirements.txt")
+        if not ask_confirm(
+                parent, f"Rebuild venv for '{inst.name}'?",
+                f"Runs:\npython3 -m venv {venv}\n"
+                f"{venv}/bin/pip install -r {req}\n\n"
+                "The existing venv (if any) is deleted first. Takes "
+                "minutes and needs network access.",
+                "Rebuild"):
+            return
+        dlg = ProgressDialog(parent, f"Rebuilding venv — {inst.name}")
+        dlg.show()
+
+        def _work():
+            return venv_manager_core.rebuild_venv(
+                instance_id, progress_cb=dlg.request_append.emit)
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            dlg.request_done.emit(ok, message)
+            self.message.emit(message)
+            self.refreshRequested.emit()
+
+        run_in_background(self, _work, _done)
 
     def remove_dialog(self, parent_widget, instance_id: str) -> None:
         """GTK remove parity: adopted = plain confirm; managed = typed

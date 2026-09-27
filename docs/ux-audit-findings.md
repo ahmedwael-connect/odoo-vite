@@ -56,11 +56,13 @@ ladder, not tokens — no change. **Scale: CLEAN.**
 - [ ] `QToolBar` children still lie about `isVisible()` (retro §9) — state
   stays in the status bar by rule. No action; do not re-derive.
 
-### Open — confusing
-- [ ] Clone requires a venv rebuild before first start, stated in two notes
-  (dialog + result message). A one-click "rebuild venv" after clone would
-  close the loop (needs pip-run UI; scaffold: reuse `venv_manager` +
-  `ProgressDialog` pattern from module update).
+### Fixed this batch (update-2)
+- [x] **confusing — clone left a dead venv with no path forward.** The clone
+  note said "rebuild the venv" but no such action existed (U5.2: Overview
+  warns when `venv/bin/python` is missing + "Rebuild venv now" streams
+  `rebuild_venv` — fresh venv + requirements + pkg_resources verify — into
+  a ProgressDialog behind an exact-command confirm; also fixed the
+  busy-gating stuck-off bug on the security/venv buttons).
 - [ ] No bulk start/stop. **Deferred deliberately:** sidebar is single-select
   by design (shared `SelectionList` component), and parallel lifecycle
   workers lose registry updates (qt-architecture §5: batch RMW in ONE

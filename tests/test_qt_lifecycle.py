@@ -251,6 +251,50 @@ def test_flows_measure_disk_reports(qapp, qtbot, tmp_path):
     assert ready[0][1].startswith("Disk: ")
 
 
+def test_overview_venv_row_warns_and_fires(qapp, qtbot, tmp_path):
+    """U5.2: rebuild row hidden when venv ok, warns + fires when missing."""
+    page = OverviewPage()
+    qtbot.addWidget(page)
+    page.show()
+    # Poll-style dict without venv fields: row keeps initial hidden state.
+    page.show_instance(_inst_dict(status="stopped"))
+    assert not page.lbl_venv.isVisible()
+    assert not page.btn_venv.isVisible()
+    # Missing venv python -> warn + offer rebuild.
+    d = _inst_dict(status="stopped")
+    d["venv_path"] = str(tmp_path / "novenv")
+    page.show_instance(d)
+    assert page.lbl_venv.isVisible()
+    assert page.btn_venv.isVisible()
+    assert "Rebuild" in page.lbl_venv.text() or "rebuild" in page.lbl_venv.text()
+    fired = []
+    page.actionRequested.connect(lambda a, i: fired.append((a, i)))
+    page.btn_venv.click()
+    assert fired == [("rebuild-venv", "x1")]
+    # venv present -> row clears.
+    py = tmp_path / "venv" / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text("stub")
+    d["venv_path"] = str(tmp_path / "venv")
+    page.show_instance(d)
+    assert not page.lbl_venv.isVisible()
+    # Busy cycle must not stick the button off (secure/venv regression).
+    page.show_instance({**d, "venv_path": str(tmp_path / "novenv")})
+    page.set_actions_enabled(False)
+    assert not page.btn_venv.isEnabled()
+    page.set_actions_enabled(True)
+    assert page.btn_venv.isEnabled()
+
+
+def test_flows_rebuild_unknown_instance(qapp, qtbot):
+    """U5.2: rebuild dialog on a bogus id reports, no worker."""
+    flows = LifecycleFlows()
+    messages = []
+    flows.message.connect(messages.append)
+    flows.rebuild_venv_dialog(None, "no-such-id")
+    assert messages == ["No instance with id 'no-such-id'"]
+
+
 @pytest.fixture(autouse=True)
 def _drain_workers():
     """No QThread may outlive its test (teardown abort otherwise)."""

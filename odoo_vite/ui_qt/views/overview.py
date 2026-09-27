@@ -98,6 +98,22 @@ class OverviewPage(QWidget):
         self.security_box.addWidget(self.btn_secure)
         layout.addLayout(self.security_box)
 
+        self.venv_box = QHBoxLayout()
+        self.venv_box.setSpacing(8)
+        self.lbl_venv = QLabel()
+        self.lbl_venv.setProperty("class", "warning")
+        self.lbl_venv.setWordWrap(True)
+        self.lbl_venv.setVisible(False)
+        self.venv_box.addWidget(self.lbl_venv, 1)
+        self.btn_venv = QPushButton("Rebuild venv now")
+        self.btn_venv.setToolTip(
+            "Fresh venv + Odoo requirements (minutes, needs network)")
+        self.btn_venv.setVisible(False)
+        self.btn_venv.clicked.connect(
+            lambda: self._on_action("rebuild-venv"))
+        self.venv_box.addWidget(self.btn_venv)
+        layout.addLayout(self.venv_box)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         self._buttons: dict[str, QPushButton] = {}
@@ -195,7 +211,7 @@ class OverviewPage(QWidget):
             # re-enable mid-operation).
             for btn in list(self._buttons.values()) + [
                     self.btn_secure, self.btn_browser, self.btn_clone,
-                    self.btn_disk]:
+                    self.btn_disk, self.btn_venv]:
                 try:
                     btn.setEnabled(False)
                 except Exception:
@@ -206,6 +222,10 @@ class OverviewPage(QWidget):
         self._buttons["restart"].setEnabled(running)
         self.btn_browser.setEnabled(running)
         self.btn_clone.setEnabled(not running)
+        # Busy gating disables the box/buttons above; re-enable here so a
+        # finished operation doesn't leave them stuck off.
+        self.btn_secure.setEnabled(True)
+        self.btn_venv.setEnabled(True)
         # H.2 parity: plaintext warning + one-click keyring sweep.
         is_plain = (pw_storage or "") == "plaintext"
         self.lbl_security.setVisible(is_plain)
@@ -242,6 +262,41 @@ class OverviewPage(QWidget):
         else:
             self.ent_label.setText("Community edition.")
             self.ent_label.setProperty("class", "dim")
+        self._sync_venv_row(instance)
+
+    def _sync_venv_row(self, instance) -> None:
+        """U5.2: warn + offer rebuild when no usable venv python exists.
+
+        Poll payloads (dicts) often lack venv fields — then the row keeps
+        its last state instead of flickering.
+        """
+        from pathlib import Path as _Path
+
+        if isinstance(instance, dict):
+            venv_path = instance.get("venv_path", None)
+            python_binary = instance.get("python_binary", None)
+            name = instance.get("name", "instance")
+        else:
+            venv_path = getattr(instance, "venv_path", None)
+            python_binary = getattr(instance, "python_binary", None)
+            name = getattr(instance, "name", "instance")
+        if venv_path is None and python_binary is None:
+            return  # poll payload without venv info: keep last state
+        override = (python_binary or "").strip()
+        if override:
+            effective = override
+        elif (venv_path or "").strip():
+            effective = f"{venv_path}/bin/python"
+        else:
+            effective = ""
+        ok = bool(effective) and _Path(effective).is_file()
+        self.lbl_venv.setVisible(not ok)
+        self.btn_venv.setVisible(not ok)
+        if not ok:
+            where = effective or "(no venv configured)"
+            self.lbl_venv.setText(
+                f"⚠ No usable Python environment at {where} — rebuild "
+                f"the venv before starting '{name}'.")
 
     def _on_action(self, action: str) -> None:
         if self._instance_id:
