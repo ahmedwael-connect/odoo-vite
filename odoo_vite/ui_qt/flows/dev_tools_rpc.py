@@ -322,8 +322,8 @@ class DevToolsRpcFlows(QObject):
                 f"Refusing to delete from system model '{model}' — "
                 "framework metadata rows are off-limits, no exceptions")
             return
-        label = (f"{model} '{record.get('display_name')
-                                 or record.get('name', record_id)}'")
+        shown = record.get("display_name") or record.get("name", record_id)
+        label = f"{model} '{shown}'"
         expected = str(record.get("display_name")
                        or record.get("name", "") or record_id)
         from PySide6.QtWidgets import QWidget

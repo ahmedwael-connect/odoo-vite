@@ -16,7 +16,6 @@ No GTK imports.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 

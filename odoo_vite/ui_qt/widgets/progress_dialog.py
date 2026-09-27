@@ -7,7 +7,7 @@ queues to the GUI-thread `append` slot — the worker never touches the
 QTextEdit directly (threading-doc rule).
 """
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QDialog,

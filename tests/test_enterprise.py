@@ -2,7 +2,6 @@
 
 import types
 
-import pytest
 
 from odoo_vite.core import enterprise as ent
 

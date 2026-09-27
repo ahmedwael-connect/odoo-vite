@@ -22,7 +22,6 @@ from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
-    QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -30,7 +29,6 @@ from PySide6.QtWidgets import (
     QWizardPage,
 )
 
-from odoo_vite.ui_qt.workers import run_in_background
 
 
 class WorkerPage(QWizardPage):

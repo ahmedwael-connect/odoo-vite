@@ -14,7 +14,6 @@ No GTK imports.
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 
 from odoo_vite.core.result import Result
 

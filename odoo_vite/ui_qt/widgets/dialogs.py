@@ -9,7 +9,6 @@ buttons carry the `destructive-action` role via dynamic property
 `role="destructive"` (QSS matches [role="destructive"]).
 """
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,

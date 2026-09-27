@@ -69,7 +69,6 @@ def _inst(base, **overrides):
 
 @pytest.fixture
 def _no_collision(monkeypatch):
-    from odoo_vite.core import db_manager
 
     monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
                         lambda *a, **k: DbState(db_name="x", exists=False,
@@ -135,7 +134,6 @@ def test_first_start_declined_aborts(db, fake_fs, _popen, _no_collision, monkeyp
 
 
 def test_collision_returns_reuse_shape(db, fake_fs, _popen, monkeypatch):
-    from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
     monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
@@ -153,7 +151,6 @@ def test_collision_returns_reuse_shape(db, fake_fs, _popen, monkeypatch):
 
 def test_exists_but_empty_db_reinits_without_collision(
         db, fake_fs, _popen, monkeypatch):
-    from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
     monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
@@ -169,7 +166,6 @@ def test_exists_but_empty_db_reinits_without_collision(
 
 
 def test_second_start_skips_i_base_and_confirm(db, fake_fs, _popen, monkeypatch):
-    from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
     # healthy second start: DB exists AND is initialized (else the recovery
@@ -188,7 +184,6 @@ def test_second_start_skips_i_base_and_confirm(db, fake_fs, _popen, monkeypatch)
 
 def test_uninitialized_db_reengages_confirm(db, fake_fs, _popen, monkeypatch):
     """BUG-3: db_created=True but DB empty/gone → confirm + -i, not plain -d."""
-    from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
     monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",
@@ -324,7 +319,6 @@ def test_stop_already_stopped(db, fake_fs):
 
 # ----------------------------------------------------------- restart
 def test_restart_composes_stop_and_start(db, fake_fs, _popen, monkeypatch):
-    from odoo_vite.core import db_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
     monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",

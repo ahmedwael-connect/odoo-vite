@@ -142,7 +142,6 @@ def test_initialize_refuses_while_running(tmp_path, db, monkeypatch):
     from odoo_vite.core import process_manager
 
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: 123)
-    base = tmp_path / "i"
     inst = _e2e_like(tmp_path, status="running", pid=123,
                      primary_db="not_init_db")
     assert create_instance(inst, db).ok
@@ -159,7 +158,6 @@ def test_initialize_noop_when_initialized(tmp_path, db, monkeypatch):
         mod, "get_db_state",
         lambda *a, **k: DbState(db_name="x", exists=True, initialized=True,
                                 odoo_version="17.0"))
-    base = tmp_path / "i"
     inst = _e2e_like(tmp_path)
     assert create_instance(inst, db).ok
     res = process_manager.initialize_database(inst.id, "e2e_17_demo", db_path=db)

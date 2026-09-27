@@ -83,7 +83,6 @@ def _fake_stop_recording(calls, inst_id, db, alive=None):
 
 
 def test_switch_running_to_existing_db(tmp_path, db, monkeypatch):
-    from odoo_vite.core import db_manager
 
     alive = {"on": True}
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
@@ -109,7 +108,6 @@ def test_switch_running_to_existing_db(tmp_path, db, monkeypatch):
 
 
 def test_switch_running_to_new_db_uses_confirm_flow(tmp_path, db, monkeypatch):
-    from odoo_vite.core import db_manager
 
     alive = {"on": True}
     monkeypatch.setattr(subprocess, "Popen", FakePopen)

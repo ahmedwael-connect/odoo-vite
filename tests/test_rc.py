@@ -64,7 +64,6 @@ def test_bug1_double_start_launches_once(tmp_path, db, monkeypatch):
     """BUG-1: two rapid Starts → exactly one odoo-bin, other refused."""
     monkeypatch.setattr(subprocess, "Popen", SlowPopen)
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
-    from odoo_vite.core import db_manager
 
     # healthy instance (initialized DB) so both threads reach the launch gate
     monkeypatch.setattr("odoo_vite.core.db_state.get_db_state",

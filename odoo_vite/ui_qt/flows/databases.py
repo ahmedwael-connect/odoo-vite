@@ -52,15 +52,18 @@ class DatabaseFlows(QObject):
     # ------------------------------------------------------------ refresh
 
     def refresh_states(self, instance_id: str) -> None:
-        def _work():
+        # Keyring resolves HERE (GUI thread) — never inside _work.
+        # Secret Service dbus calls from worker threads hang/abort.
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit("Instance not found")
+            return
+        try:
+            pw = get_db_password(inst) or None
+        except Exception:
+            pw = None
 
-            inst = get_instance(instance_id)
-            if inst is None:
-                return Result.failure("Instance not found")
-            try:
-                pw = get_db_password(inst) or None
-            except Exception:
-                pw = None
+        def _work():
             names = list(dict.fromkeys(
                 (inst.tracked_dbs or [])
                 + ([inst.primary_db] if inst.primary_db else [])))
@@ -102,17 +105,17 @@ class DatabaseFlows(QObject):
     def drop_db(self, instance_id: str, db_name: str) -> None:
         """Assumes typed-confirm already happened on the GUI thread."""
 
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit("Instance not found")
+            return
+        try:
+            pw = get_db_password(inst) or None
+        except Exception:
+            pw = None
         self.message.emit(f"Dropping {db_name}…")
 
         def _work():
-
-            inst = get_instance(instance_id)
-            if inst is None:
-                return Result.failure("Instance not found")
-            try:
-                pw = get_db_password(inst) or None
-            except Exception:
-                pw = None
             # Verify-then-act: never drop blind (GTK Part A parity).
             if not get_db_state(db_name, inst.db_user, pw).exists:
                 return Result(ok=True,
@@ -127,17 +130,17 @@ class DatabaseFlows(QObject):
         run_in_background(self, _work, _done)
 
     def backup_db(self, instance_id: str, db_name: str, dest: str) -> None:
-
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit("Instance not found")
+            return
+        try:
+            pw = get_db_password(inst) or None
+        except Exception:
+            pw = None
         self.message.emit(f"Backing up {db_name}…")
 
         def _work():
-            inst = get_instance(instance_id)
-            if inst is None:
-                return Result.failure("Instance not found")
-            try:
-                pw = get_db_password(inst) or None
-            except Exception:
-                pw = None
             return db_backup.backup_database(
                 db_name, dest, db_user=inst.db_user, db_password=pw,
                 instance_id=inst.id, instance_name=inst.name)
@@ -151,16 +154,17 @@ class DatabaseFlows(QObject):
     def restore_db(self, instance_id: str, dump: str, target: str) -> None:
         """Assumes target typed-confirm already happened on the GUI thread."""
 
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit("Instance not found")
+            return
+        try:
+            pw = get_db_password(inst) or None
+        except Exception:
+            pw = None
         self.message.emit(f"Restoring into {target}…")
 
         def _work():
-            inst = get_instance(instance_id)
-            if inst is None:
-                return Result.failure("Instance not found")
-            try:
-                pw = get_db_password(inst) or None
-            except Exception:
-                pw = None
             return db_backup.restore_database(
                 dump, target, db_user=inst.db_user, db_password=pw)
 

@@ -102,3 +102,25 @@ def test_no_unbound_globals_in_ui_qt():
         if missing:
             problems[path.name] = sorted(missing)
     assert not problems, f"unbound globals in ui_qt: {problems}"
+
+
+def test_no_keyring_in_worker_closures():
+    """Keyring (Secret Service dbus) from a worker thread hangs/aborts —
+    verified twice. get_db_password must resolve on the GUI thread and be
+    passed in, never called inside a _work closure."""
+    import ast as _ast
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[1] / "odoo_vite" / "ui_qt"
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        tree = _ast.parse(path.read_text())
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)) \
+                    and node.name == "_work":
+                if "get_db_password" in _ast.dump(node):
+                    offenders.append(
+                        f"{path.relative_to(root)}:{node.lineno}")
+    assert not offenders, (
+        "get_db_password inside _work closures (move to GUI thread): "
+        f"{offenders}")

@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from odoo_vite.core import provisioning, registry
+from odoo_vite.core import provisioning
 from odoo_vite.core.instance import Instance
 from odoo_vite.core.registry import (
     create_instance,

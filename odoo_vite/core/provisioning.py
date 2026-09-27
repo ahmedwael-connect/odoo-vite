@@ -17,7 +17,6 @@ slugify_db_name, default/unique instance paths. No GTK imports.
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import socket

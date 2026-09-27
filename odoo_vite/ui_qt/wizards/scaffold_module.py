@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QTextEdit,
-    QVBoxLayout,
     QWidget,
     QWizardPage,
 )
@@ -204,7 +203,7 @@ def _scaffold_and_install(definition: dict, dest: str, instance_id: str,
     inst = get_instance(instance_id)
     if inst is None:
         return Result.failure("Instance disappeared after scaffold — "
-                              f"module folder was generated")
+                              "module folder was generated")
     res = module_manager.install_modules(inst, db_name, [tech])
     if not res.ok:
         return Result.failure(

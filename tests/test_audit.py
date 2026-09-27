@@ -1,6 +1,5 @@
 """Ticket 3.8 test: audit log roundtrip + Sprint 3 schema migration."""
 
-import json
 
 from odoo_vite.core import audit as audit_log
 from odoo_vite.core.registry import ensure_schema, get_instance

@@ -90,7 +90,6 @@ def test_restore_backup(conf):
 
 
 def test_regenerate_preserves_extra_sections(tmp_path, db):
-    from odoo_vite.core.registry import update_instance
 
     base = tmp_path / "i"
     inst = Instance(name="R", version="17.0", path=str(base),

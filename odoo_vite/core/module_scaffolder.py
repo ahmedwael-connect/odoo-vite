@@ -184,7 +184,7 @@ def scaffold(definition: dict, dest_dir: str | Path) -> Result:
             for model in norm["models"]:
                 short = model["name"].replace(".", "_")
                 view = model["name"].split(".")[-1]
-                xml = [f'<?xml version="1.0" encoding="utf-8"?>', "<odoo>",
+                xml = ['<?xml version="1.0" encoding="utf-8"?>', "<odoo>",
                        f'    <record id="view_{view}_tree" model="ir.ui.view">',
                        '        <field name="name">' + view + '.tree</field>',
                        f'        <field name="model">{model["name"]}</field>',
@@ -247,7 +247,7 @@ def scaffold(definition: dict, dest_dir: str | Path) -> Result:
             "    'depends': ['base'],",
             f"    'data': {data_files!r},",
             f"    'demo': {demo_files!r},",
-            f"    'installable': True,",
+            "    'installable': True,",
             f"    'application': {norm['application']!r},",
             "}",
             ""]

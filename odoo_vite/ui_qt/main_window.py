@@ -321,7 +321,6 @@ class QtMainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _close_when_idle(self) -> None:
-        from odoo_vite.ui_qt.workers import wait_for_background
 
         if wait_for_background(timeout_s=120.0):
             self.close()

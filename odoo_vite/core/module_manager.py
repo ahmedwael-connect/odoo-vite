@@ -22,7 +22,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from collections.abc import Callable
 from pathlib import Path
 
 from odoo_vite.core.instance import effective_python
@@ -196,7 +195,7 @@ def update_code(instance, module_names: list[str], progress_cb=None,  # type: ig
     restart anyway; refusing is clearer than half-applying). Enterprise is
     deliberately never pulled (user-owned clone) — said in the log + UI.
     """
-    from odoo_vite.core import git_manager, venv_manager
+    from odoo_vite.core import venv_manager
     from odoo_vite.core.process_manager import _alive_pid
 
     mods = [m.strip() for m in (module_names or []) if m.strip()]

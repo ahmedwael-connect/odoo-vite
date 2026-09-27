@@ -11,7 +11,6 @@ from PySide6.QtCore import QObject, QFileSystemWatcher, QTimer, Signal
 
 from odoo_vite.core import devwatch, odoo_shell, process_manager
 from odoo_vite.core.registry import get_instance
-from odoo_vite.core.result import Result
 from odoo_vite.ui_qt.widgets.dialogs import ask_confirm
 from odoo_vite.ui_qt.widgets.progress_dialog import ProgressDialog
 from odoo_vite.ui_qt.workers import run_in_background

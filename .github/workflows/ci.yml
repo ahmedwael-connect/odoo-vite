@@ -1,0 +1,21 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install (incl. test + lint extras)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client libxcb-cursor0
+          pip install --break-system-packages ".[dev]"
+      - name: Lint (ruff, pyflakes + syntax only per pyproject)
+        run: python3 -m ruff check odoo_vite/ tests/
+      - name: Tests (Postgres-dependent tests skip without a server)
+        run: python3 -m pytest tests/ -q

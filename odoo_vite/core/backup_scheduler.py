@@ -570,7 +570,6 @@ def timer_status() -> dict:
 
 def install_timer() -> Result:
     """Write units, reload, enable --now. Idempotent."""
-    import sys as _sys
 
     try:
         unit_dir = _unit_dir()

@@ -129,7 +129,7 @@ def start_instance(
 ) -> Result:
     """Start (or first-create + start) an instance. See module docstring."""
     from odoo_vite.core import db_manager
-    from odoo_vite.core.registry import get_instance, update_instance
+    from odoo_vite.core.registry import get_instance
 
     inst = get_instance(instance_id, db_path)
     if inst is None:
@@ -158,7 +158,6 @@ def start_instance(
     pw = _password_for(inst) or None
     state = get_db_state(target_db, inst.db_user, pw)
     exists, initialized = state.exists, state.initialized
-    first_start = not bool(inst.db_created)
     needs_init = (not inst.db_created) or (not initialized)
 
     # Preconditions with actionable messages (before touching the registry).

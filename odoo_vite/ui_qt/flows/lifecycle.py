@@ -213,16 +213,19 @@ class LifecycleFlows(QObject):
                          on_ready) -> None:
         """Fetch untracked-database entries, then call on_ready(payload)
         on the GUI thread. The caller shows the SelectionList dialog."""
+        # Keyring resolves HERE (GUI thread) — never inside _work.
+        # Secret Service dbus calls from worker threads hang/abort.
+        inst = get_instance(instance_id)
+        if inst is None:
+            on_ready({"ok": False, "message": "Instance not found",
+                      "entries": []})
+            return
+        try:
+            pw = get_db_password(inst) or None
+        except Exception:
+            pw = None
 
         def _work():
-
-            inst = get_instance(instance_id)
-            if inst is None:
-                return Result.failure("Instance not found")
-            try:
-                pw = get_db_password(inst) or None
-            except Exception:
-                pw = None
             res = db_manager.list_databases_for_user(inst.db_user, pw)
             if not res.ok:
                 return Result.failure(res.message)

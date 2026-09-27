@@ -86,13 +86,13 @@ class LogFlows(QObject):
         inst = get_instance(instance_id)
         if inst is None:
             return
+        try:
+            pw = get_db_password(inst) or None
+        except Exception:
+            pw = None
         self.message.emit("Querying pg_stat_statements…")
 
         def _work():
-            try:
-                pw = get_db_password(inst) or None
-            except Exception:
-                pw = None
             if not db_manager.pg_stat_statements_enabled(inst.db_user, pw):
                 return Result.failure(
                     "pg_stat_statements is not available to this role. "

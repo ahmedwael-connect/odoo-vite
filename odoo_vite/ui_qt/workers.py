@@ -134,7 +134,9 @@ def run_in_background(host: QObject, fn: Callable,
     tracker = busy if busy is not None else _tracker_for(host)
     if tracker is not None and not quiet:
         tracker.acquire()
-    delivery = _Delivery(worker, on_done, host)
+    # Held alive by host parentage (unlike the worker, which needs the
+    # thread anchor above) — no reference needed beyond construction.
+    _Delivery(worker, on_done, host)
     thread.started.connect(worker.run)
     # Quit rides on finished directly (thread-safe slot), never on
     # delivery — see _deliver's NOTE.

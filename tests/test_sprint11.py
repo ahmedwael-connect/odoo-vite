@@ -1,7 +1,6 @@
 """Sprint 11 tests: shell session (fake process), debounce burst (fake
 clock), run-tests flags/refusals/summary parsing."""
 
-import io
 import os
 import threading
 import time
@@ -208,7 +207,6 @@ def test_shell_validates_before_spawning(tmp_path, db, monkeypatch):
 
 
 def test_shell_double_start_refused(tmp_path, db, monkeypatch):
-    from odoo_vite.core import odoo_shell
 
     base = tmp_path / "s"
     inst = _inst(path=str(base))

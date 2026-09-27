@@ -37,7 +37,7 @@ tar xzf odoo-vite-1.0.0.tar.gz && cd odoo-vite-1.0.0
 
 # 3. Python dependencies (PEP 668-safe: use --break-system-packages on
 #    Ubuntu 24.04+, or a venv)
-pip install --break-system-packages -r requirements.txt
+pip install --break-system-packages ".[test]"
 
 # 4. Run (from the extracted folder root — note: `python3`, not `python`,
 #    which Ubuntu does not ship by default)

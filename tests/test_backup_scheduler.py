@@ -111,7 +111,6 @@ def test_due_schedules_minute_match(tmp_path):
 
 def test_list_backup_files_from_sidecars(tmp_path):
     import json
-    import time
 
     root = tmp_path / "backups"
     d = root / "Inst" / "db1"
