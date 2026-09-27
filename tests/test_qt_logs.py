@@ -166,3 +166,22 @@ def test_event_dock_feeds(qapp, qtbot):
     from odoo_vite.ui_qt.workers import wait_for_background
     assert wait_for_background()
     win.close()
+
+
+def test_event_dock_toggle_stays_synced(qapp, qtbot, tmp_path, monkeypatch):
+    """Closing the dock via its X must uncheck the toggle (else drift)."""
+    from odoo_vite.ui_qt.main_window import QtMainWindow
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "qt-dock.db"))
+    win = QtMainWindow()
+    qtbot.addWidget(win)
+    win.show()
+    win.btn_events.click()
+    assert win.event_dock.isVisible()
+    assert win.btn_events.isChecked()
+    win.event_dock.close()
+    assert not win.btn_events.isChecked()
+    win._poll.stop()
+    from odoo_vite.ui_qt.workers import wait_for_background
+    assert wait_for_background()
+    win.close()

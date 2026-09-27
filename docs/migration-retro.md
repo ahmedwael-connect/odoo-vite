@@ -63,3 +63,30 @@ cleaned before — not after — the run that needs a pristine state.
 passes post-fix" — every fix in this migration shipped with the command
 that would prove it wrong. Claims without that ("should cover", "works
 on my reasoning") were sent back, correctly, every time.
+
+## 9. Addendum: visual-design stretch (Part B + busy indicator)
+
+- **QToolBar action-widgets lie about visibility.** A widget added via
+  `toolbar.addWidget()` reports stale `QWidget::isVisible()` (True when
+  hidden) — verified against a bare toolbar where the same calls behave.
+  Consequence: never gate logic or assertions on a toolbar child's
+  visibility; the busy indicator lives in the status bar for exactly
+  this reason. If Qt ever needs toolbar-resident state again, re-probe
+  first — do not assume.
+- **Screenshots need settle time.** Grabbing immediately after a tab
+  switch captures half-painted frames that read as missing widgets.
+  Settle ~2.5s before grabbing; when a screenshot shows something odd,
+  reproduce with settled captures before filing it as product.
+- **Stale-frame rule, stated once:** a screenshot is evidence only if
+  you viewed it yourself before writing about it. Twice now, reading
+  the pixels caught what the test run missed (white-on-white text,
+  shoved-off-screen button).
+- **Design tokens need a consumer audit, not just a definition.**
+  UX-1.1 defined the scale; Part B found screens never governed by it.
+  A token system is done when every screen is checked against it, not
+  when the doc is written.
+- **Destructive flows deserve their own dialogs, not flag parameters.**
+  The managed-remove dialog (typed name + per-DB drop checkboxes) was
+  ported as a real dialog because the alternative — overloading the
+  simple remove() path — would have hidden the dangerous options.
+  Same principle as the wizard pattern: match the ceremony to the risk.

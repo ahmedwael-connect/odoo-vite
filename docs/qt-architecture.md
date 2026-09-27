@@ -118,6 +118,23 @@ recommendation) — details in that ticket's report.
 construction in tests that must run display-free — same caution as GTK.
 `pytest-qt`: adopted from PSQ-1.6 (see ticket report for reasoning).
 
+Qt tests never touch the real registry: every Qt test module isolates
+via `ODOO_VITE_DB` into tmp (real keyring/dbus access from a worker
+thread aborts the suite — verified, twice, in two different ways).
+GUI tests must also quiesce: stop window timers and drain workers before
+qtbot teardown destroys owners (a QThread destroyed while running
+aborts, and fixture teardown order runs your drain AFTER qtbot's
+destroy — so quiesce explicitly in the test body, not just the fixture).
+
+## Widget-trust notes (verified, do not re-derive)
+
+- QToolBar action-widgets report stale `isVisible()` — keep stateful
+  indicators in the status bar, never the toolbar.
+- `QWidget::isVisible()` on an explicitly hidden widget can read True
+  while `isHidden()` reads True in the same breath (offscreen + toolbar
+  ancestry involved) — assert on behavior (pixels, state changes), not
+  on visibility flags alone, for toolbar-resident widgets.
+
 ## Wizard pattern (PSQ-9, designed against Create Instance)
 
 QWizard + per-page validatePage() + a WorkerPage final page — no

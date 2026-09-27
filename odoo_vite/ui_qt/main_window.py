@@ -199,6 +199,9 @@ class QtMainWindow(QMainWindow):
         dock.setWidget(body)
         self.addDockWidget(_Qt.BottomDockWidgetArea, dock)
         dock.setVisible(False)
+        # Closing the dock via its own X must uncheck the toggle, or the
+        # two drift apart (toggle says open, dock gone).
+        dock.visibilityChanged.connect(self._on_dock_visibility)
         self.event_dock = dock
         self._event_timer = QTimer(self)
         self._event_timer.setInterval(1000)
@@ -229,6 +232,15 @@ class QtMainWindow(QMainWindow):
         if show:
             self._event_start()
         else:
+            self._event_timer.stop()
+            self._event_follower = None
+
+    def _on_dock_visibility(self, visible: bool) -> None:
+        blocked = self.btn_events.signalsBlocked()
+        self.btn_events.blockSignals(True)
+        self.btn_events.setChecked(visible)
+        self.btn_events.blockSignals(blocked)
+        if not visible:
             self._event_timer.stop()
             self._event_follower = None
 
