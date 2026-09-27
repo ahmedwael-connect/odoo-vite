@@ -30,6 +30,7 @@ from odoo_vite.core import (  # noqa: E402
     db_manager, process_manager, removal)
 from odoo_vite.core import clone as clone_core  # noqa: E402
 from odoo_vite.core import provisioning as provisioning_core  # noqa: E402
+from odoo_vite.core import transfer as transfer_core  # noqa: E402
 from odoo_vite.core import venv_manager as venv_manager_core  # noqa: E402
 from odoo_vite.ui_qt.widgets.progress_dialog import (  # noqa: E402
     ProgressDialog,
@@ -229,6 +230,94 @@ class LifecycleFlows(QObject):
             self.refreshRequested.emit()
 
         run_in_background(self, _work, _done)
+
+    def export_bundle(self, instance_id: str, dest: str) -> None:
+        """Write a portable bundle in a worker (trees can be GBs).
+
+        Keyring resolves HERE (GUI thread) — never inside _work.
+        """
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit(f"No instance with id '{instance_id}'")
+            return
+        try:
+            password = get_db_password(inst)
+        except Exception:
+            password = ""
+        self.message.emit(f"Exporting '{inst.name}'…")
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            self.message.emit(message)
+            self.refreshRequested.emit()
+
+        run_in_background(
+            self, transfer_core.export_instance, _done, instance_id, dest,
+            src_password=password)
+
+    def import_dialog(self, parent_widget, archive: str) -> None:
+        """U5.5: preview a bundle, then import as a new instance."""
+        preview = transfer_core.export_preview(archive)
+        if not preview.ok:
+            self.message.emit(preview.message)
+            return
+        info = preview.data or {}
+        parent = (parent_widget if isinstance(parent_widget, QWidget)
+                  else None)
+        from PySide6.QtWidgets import QFormLayout, QSpinBox
+
+        dlg = QDialog(parent)
+        dlg.setWindowTitle(f"Import '{info.get('name', '?')}'")
+        dlg.setMinimumWidth(460)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        summary = QLabel(
+            f"Bundle: {info.get('name', '?')} (Odoo {info.get('version', '?')})")
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        form = QFormLayout()
+        form.setSpacing(8)
+        name_entry = QLineEdit(str(info.get("name", "")))
+        form.addRow("Name:", name_entry)
+        port_spin = QSpinBox()
+        port_spin.setRange(1024, 65535)
+        try:
+            port_spin.setValue(
+                provisioning_core.suggest_port(
+                    int(info.get("port", 8069) or 8069) + 1))
+        except Exception:
+            port_spin.setValue(8070)
+        form.addRow("Port:", port_spin)
+        layout.addLayout(form)
+        note = QLabel(
+            "Imports files + settings only — databases travel via "
+            "Backup/Restore, and the venv is rebuilt before first start. "
+            "The bundle holds the DB password (like odoo.conf does); "
+            "keep it private.")
+        note.setWordWrap(True)
+        note.setProperty("class", "dim")
+        layout.addWidget(note)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
+        buttons.button(QDialogButtonBox.Ok).setText("Import")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        new_name = name_entry.text().strip()
+        if not new_name:
+            self.message.emit("Import needs a name — cancelled")
+            return
+        self.message.emit(f"Importing '{new_name}'…")
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            self.message.emit(message)
+            self.refreshRequested.emit()
+
+        run_in_background(
+            self, transfer_core.import_instance, _done, archive, new_name,
+            new_port=int(port_spin.value()))
 
     def remove_dialog(self, parent_widget, instance_id: str) -> None:
         """GTK remove parity: adopted = plain confirm; managed = typed

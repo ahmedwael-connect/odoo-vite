@@ -88,6 +88,10 @@ class QtMainWindow(QMainWindow):
         toolbar.addWidget(self.btn_prefs)
         try:
             file_menu = self.menuBar().addMenu("&File")
+            export_action = file_menu.addAction("Export instance…")
+            export_action.triggered.connect(self._export_pick)
+            import_action = file_menu.addAction("Import instance…")
+            import_action.triggered.connect(self._import_pick)
             prefs_action = file_menu.addAction("Preferences…")
             prefs_action.triggered.connect(self._open_preferences)
         except Exception:
@@ -557,6 +561,31 @@ class QtMainWindow(QMainWindow):
                 f"Retype the target name to restore into '{target}'.",
                 target, "Restore (drop + recreate)"):
             self.db_flows.restore_db(instance_id, dump, target)
+
+    def _export_pick(self) -> None:
+        """U5.5: bundle the selected instance to a .tar.gz file."""
+        if self._current_id is None:
+            self._on_flow_message("Select an instance first")
+            return
+        inst = get_instance(self._current_id)
+        if inst is None:
+            return
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        slug = "".join(
+            c if c.isalnum() else "_" for c in (inst.name or "instance"))
+        dest, _ = QFileDialog.getSaveFileName(
+            self, f"Export '{inst.name}' as…", f"{slug}_{stamp}.tar.gz",
+            "Odoo Vite bundles (*.tar.gz)")
+        if dest:
+            self.flows.export_bundle(self._current_id, dest)
+
+    def _import_pick(self) -> None:
+        """U5.5: pick a bundle, then import it as a new instance."""
+        archive, _ = QFileDialog.getOpenFileName(
+            self, "Select instance bundle to import", "",
+            "Odoo Vite bundles (*.tar.gz)")
+        if archive:
+            self.flows.import_dialog(self, archive)
 
     def _on_db_states(self, instance_id: str, states: dict) -> None:
         if instance_id == self._current_id:

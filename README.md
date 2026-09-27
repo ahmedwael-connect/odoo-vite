@@ -2,7 +2,7 @@
 
 Native Qt6 Ubuntu desktop app that manages the full lifecycle of
 local Odoo instances — "Docker Desktop, but for Odoo". Create, start, stop,
-restart, adopt, remove instances; switch/track databases; least-privilege
+restart, adopt, remove, clone, export/import instances; switch/track databases; least-privilege
 managed mode; OS-keyring secrets.
 
 Status: GTK → Qt migration complete (PSQ-1..9 + human pass + cutover);

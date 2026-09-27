@@ -372,3 +372,14 @@ def test_quiet_workers_skip_tracker(qapp, qtbot):
     qtbot.wait(1500)
     assert changes == []
     assert tracker.busy is False
+
+
+def test_flows_export_import_unknown_paths(qapp, qtbot, tmp_path):
+    """U5.5: export/import failure paths report without workers."""
+    flows = LifecycleFlows()
+    messages = []
+    flows.message.connect(messages.append)
+    flows.export_bundle("no-such-id", str(tmp_path / "x.tar.gz"))
+    assert messages == ["No instance with id 'no-such-id'"]
+    flows.import_dialog(None, str(tmp_path / "missing.tar.gz"))
+    assert len(messages) == 2 and "Cannot read bundle" in messages[-1]
