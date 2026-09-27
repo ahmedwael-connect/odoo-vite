@@ -22,6 +22,20 @@ def test_audit_never_raises(tmp_path, monkeypatch):
     assert audit_log.read_events() == []
 
 
+def test_audit_rotates_when_over_limit(tmp_path, monkeypatch):
+    """U4.1: exceeding MAX_BYTES shifts audit.log -> .1, keeps logging."""
+    monkeypatch.setenv("ODOO_VITE_AUDIT", str(tmp_path / "audit.log"))
+    monkeypatch.setattr(audit_log, "MAX_BYTES", 200)
+    for i in range(20):
+        audit_log.log_event("id-1", "Demo", "start", f"event-{i}")
+    rotated = tmp_path / "audit.log.1"
+    assert rotated.exists(), "expected a rotated audit.log.1"
+    # New events still land in the live file and stay readable.
+    audit_log.log_event("id-1", "Demo", "stop", "after-rotation")
+    events = audit_log.read_events()
+    assert events and events[-1]["action"] == "stop"
+
+
 def test_db_created_migration(tmp_path):
     import sqlite3
 

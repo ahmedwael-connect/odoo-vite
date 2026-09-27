@@ -1,8 +1,9 @@
 """Dev-mode file watching, core half (Sprint 11, Ticket 11.2).
 
-Mechanism decision: Gio.FileMonitor in the UI layer (GTK-native, zero new
-dependencies, events arrive on the main loop — no threads). This module is
-the pure, testable half: WHICH paths matter + the debounce controller.
+Mechanism decision: QFileSystemWatcher in the UI layer (Qt-native, zero
+new dependencies, events arrive on the main thread — no threads). This
+module is the pure, testable half: WHICH paths matter + the debounce
+controller.
 
 Debounce: first event arms a quiet window (default 0.8s); every further
 event re-arms; exactly one restart fires after quiet. Same batching spirit
@@ -57,7 +58,7 @@ class DebounceController:
     """Feed filesystem events; exactly one on_quiet() per burst.
 
     on_quiet is invoked synchronously from check() when the quiet window
-    elapses — the UI layer calls check() from a GLib timer (or tests drive
+    elapses — the UI layer calls check() from a QTimer tick (or tests drive
     it with a fake clock).
     """
 

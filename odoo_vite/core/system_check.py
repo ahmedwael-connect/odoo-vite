@@ -49,6 +49,13 @@ VERSION_REQUIREMENTS: dict[str, dict[str, object]] = {
     # PG 12+ per docs. requirements markers still carry 3.10 branches.
     "18.0": {"min_python": (3, 10), "min_node": 18, "min_postgres": 12,
              "notes": "Python 3.10+, Node >= 18 (conservative), PG 12+"},
+    # [docs 19.0] on_premise/source.rst: "Odoo requires Python 3.10 or
+    # later" (unchanged since 17); "Changed in version 19: Minimum
+    # requirement updated from PostgreSQL 12 to PostgreSQL 13"
+    # (supported: 13.0+). setup.py 19.0 keeps python_requires >= 3.10.
+    # Node floor stays our conservative 18 (no upstream engines field).
+    "19.0": {"min_python": (3, 10), "min_node": 18, "min_postgres": 13,
+             "notes": "Python 3.10+, Node >= 18 (conservative), PG 13+"},
 }
 
 

@@ -35,3 +35,15 @@ def test_install_dry_run_builds_pkexec_command():
 
 def test_install_empty_is_noop():
     assert install_requirements([], dry_run=True).ok
+
+
+def test_version_matrix_covers_19():
+    """U1.4: Odoo 19.0 needs Python 3.10+ and PG 13+ per 19.0 docs."""
+    from odoo_vite.core.system_check import VERSION_REQUIREMENTS
+
+    req19 = VERSION_REQUIREMENTS.get("19.0")
+    assert req19 is not None, "VERSION_REQUIREMENTS lacks 19.0"
+    assert req19["min_python"] == (3, 10)
+    assert req19["min_postgres"] == 13
+    res = check_requirements("19.0")
+    assert res.ok, res.message

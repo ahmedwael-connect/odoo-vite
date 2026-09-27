@@ -1,8 +1,9 @@
-"""Simple pub/sub event bus with a GLib.idle_add bridge to the UI.
+"""Simple pub/sub event bus (framework-agnostic).
 
-Zero hard GTK dependency: GLib is imported lazily and only used when
-available (i.e. inside the running desktop app). Under pytest (no GTK
-main loop) callbacks fire synchronously, which keeps core/ testable.
+Zero GUI dependencies: this module imports only stdlib. Delivery to the
+UI thread is the frontend's job — the Qt frontend does it with queued
+signals in odoo_vite.ui_qt.workers (run_in_background). Under pytest
+callbacks fire synchronously, which keeps core/ testable.
 """
 
 from __future__ import annotations
@@ -34,20 +35,13 @@ def emit(event: str, data: Any = None) -> None:
 
 
 def emit_ui(event: str, data: Any = None) -> None:
-    """Emit an event on the GTK main thread when possible, else synchronously.
+    """Deprecated alias of emit() (U1.1: legacy toolkit bridge removed).
 
-    UI code should prefer this when emitting from background threads.
+    Kept so old callers keep working; new code should use emit() in
+    core and let the Qt layer marshal via queued signals. Will be
+    removed in a future release.
     """
-    try:
-        from gi.repository import GLib  # type: ignore
-
-        def _dispatch() -> bool:
-            emit(event, data)
-            return False  # one-shot idle callback
-
-        GLib.idle_add(_dispatch)
-    except Exception:
-        emit(event, data)
+    emit(event, data)
 
 
 def clear_all() -> None:

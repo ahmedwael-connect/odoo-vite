@@ -10,6 +10,7 @@ unnecessary — nothing triggers backend discovery on bare core imports.
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 
 def test_core_has_no_gtk_imports():
@@ -46,6 +47,8 @@ def test_core_has_no_gtk_imports():
         "odoo_vite.core.odoo_shell",
         "odoo_vite.core.devwatch",
         "odoo_vite.core.backup_scheduler",
+        "odoo_vite.core.clone",
+        "odoo_vite.core.disk_usage",
     ]
     probe = (
         "import sys, importlib, json; "
@@ -65,3 +68,12 @@ def test_core_has_no_gtk_imports():
     assert proc.returncode == 0, proc.stderr[-2000:]
     bad = json.loads(proc.stdout)
     assert not bad, f"core pulled in GUI modules: {bad}"
+
+
+def test_events_has_no_gi_source():
+    """U1.1: events.py must not reference gi/GLib even lazily (Qt uses
+    queued signals in ui_qt/workers.py instead)."""
+    src = (Path(__file__).resolve().parent.parent
+           / "odoo_vite" / "core" / "events.py").read_text()
+    for token in ("from gi", "import gi", "GLib", "idle_add"):
+        assert token not in src, f"events.py still mentions {token!r}"

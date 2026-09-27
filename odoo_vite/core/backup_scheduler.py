@@ -1,6 +1,6 @@
 """Scheduled backups: data model + cron math + retention (Sprint BK.1).
 
-No GTK imports. Scheduling *execution* lives in BK.2 (systemd timer +
+No GUI imports. Scheduling *execution* lives in BK.2 (systemd timer +
 headless runner); this module is the mechanism-independent core:
 - cron-expression parsing (5-field, numeric) + next-run computation
 - backup_schedules registry table (CRUD + run-status tracking)

@@ -1,7 +1,7 @@
 """Interactive odoo-bin shell sessions (Sprint 11, Ticket 11.1).
 
 Architecture decision (per spec's explicit question — decided with reasoning):
-DIRECT SUBPROCESS with a PTY, not WebSocket. This is a single-machine GTK
+DIRECT SUBPROCESS with a PTY, not WebSocket. This is a single-machine Qt
 desktop app: backend and UI share the process space, so a WebSocket hop
 would add a server, ports, auth, and framing bugs for zero benefit (no
 remote/web companion exists in scope).
