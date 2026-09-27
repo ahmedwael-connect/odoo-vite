@@ -36,6 +36,7 @@ from odoo_vite.core.registry import (
     migrate_password_to_keyring,
 )
 from odoo_vite.core.version import __version__
+from odoo_vite.ui_qt.flows.backup_schedules import BackupSchedulesFlows
 from odoo_vite.ui_qt.flows.configuration import ConfigurationFlows
 from odoo_vite.ui_qt.flows.databases import DatabaseFlows, group_discover_entries
 from odoo_vite.ui_qt.flows.dev_tools_process import DevToolsProcessFlows
@@ -134,6 +135,10 @@ class QtMainWindow(QMainWindow):
         self.conf_flows = ConfigurationFlows(self)
         self.conf_flows.message.connect(self._on_flow_message)
         self.conf_flows.refreshRequested.connect(self.refresh_all)
+        self.sched_flows = BackupSchedulesFlows(self)
+        self.sched_flows.message.connect(self._on_flow_message)
+        self.sched_flows.refreshRequested.connect(self.refresh_all)
+        self.sched_flows.schedulesReady.connect(self._on_schedules_ready)
         self.log_flows = LogFlows(self)
         self.log_flows.message.connect(self._on_flow_message)
         self.log_flows.searchReady.connect(self._on_search_ready)
@@ -386,6 +391,7 @@ class QtMainWindow(QMainWindow):
             self.configuration.show_instance(inst)
             self.logs.show_instance(inst)
             self.db_flows.refresh_states(instance_id)
+            self.sched_flows.refresh_schedules(instance_id)
             self.mod_flows.refresh_modules(instance_id)
         self.stack.setEnabled(True)
 
@@ -452,6 +458,22 @@ class QtMainWindow(QMainWindow):
             self.db_flows.refresh_states(instance_id)
         elif action == "discover":
             self._discover_dialog(instance_id)
+        elif action == "sched-add":
+            self.sched_flows.sched_add_dialog(self, instance_id)
+        elif action == "sched-delete":
+            self.sched_flows.sched_delete(
+                self, instance_id, str(payload or ""))
+        elif action == "sched-toggle":
+            self.sched_flows.sched_toggle(instance_id, str(payload or ""))
+        elif action == "sched-run-now":
+            self.sched_flows.sched_run_now(instance_id, str(payload or ""))
+        elif action == "backups-browse":
+            self.sched_flows.backups_browse_dialog(self, instance_id)
+
+    def _on_schedules_ready(self, instance_id: str, scheds: list,
+                            status: dict) -> None:
+        if instance_id == self._current_id:
+            self.databases.refresh_schedules(scheds, status)
 
     def _backup_picker(self, instance_id: str, db_name: str) -> None:
         if not db_name:

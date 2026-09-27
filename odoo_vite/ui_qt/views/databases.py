@@ -7,12 +7,14 @@ not concatenated text lines. Empty list shows an explicit empty state.
 """
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -137,6 +139,51 @@ class DatabasesPage(QWidget):
         ops_layout.addLayout(ops_row)
         layout.addWidget(ops_box)
 
+        sched_box = QGroupBox("Scheduled backups")
+        sched_layout = QVBoxLayout(sched_box)
+        sched_layout.setSpacing(8)
+        self.lbl_sched_status = QLabel()
+        self.lbl_sched_status.setProperty("class", "dim")
+        self.lbl_sched_status.setWordWrap(True)
+        sched_layout.addWidget(self.lbl_sched_status)
+        self.sched_list = QListWidget()
+        self.sched_list.setMaximumHeight(150)
+        self.sched_list.currentRowChanged.connect(
+            lambda _row: self._sync_sched_buttons())
+        sched_layout.addWidget(self.sched_list)
+        sched_row = QHBoxLayout()
+        sched_row.setSpacing(8)
+        self.btn_sched_add = QPushButton("Add schedule…")
+        self.btn_sched_add.setToolTip(
+            "Back up on a cron schedule, even when Odoo Vite is closed")
+        self.btn_sched_add.clicked.connect(
+            lambda: self._emit("sched-add", None))
+        sched_row.addWidget(self.btn_sched_add)
+        self.btn_sched_run = QPushButton("Run Now")
+        self.btn_sched_run.setToolTip(
+            "Back up immediately, outside the schedule")
+        self.btn_sched_run.clicked.connect(
+            lambda: self._emit("sched-run-now", self._selected_sched()))
+        sched_row.addWidget(self.btn_sched_run)
+        self.btn_sched_toggle = QPushButton("Enable/Disable")
+        self.btn_sched_toggle.clicked.connect(
+            lambda: self._emit("sched-toggle", self._selected_sched()))
+        sched_row.addWidget(self.btn_sched_toggle)
+        self.btn_sched_delete = QPushButton("Delete")
+        self.btn_sched_delete.setProperty("role", "destructive")
+        self.btn_sched_delete.clicked.connect(
+            lambda: self._emit("sched-delete", self._selected_sched()))
+        sched_row.addWidget(self.btn_sched_delete)
+        self.btn_backups_browse = QPushButton("Browse backups…")
+        self.btn_backups_browse.setToolTip(
+            "List, restore, or delete scheduled backup files")
+        self.btn_backups_browse.clicked.connect(
+            lambda: self._emit("backups-browse", None))
+        sched_row.addWidget(self.btn_backups_browse)
+        sched_row.addStretch(1)
+        sched_layout.addLayout(sched_row)
+        layout.addWidget(sched_box)
+
     # ------------------------------------------------------------------ API
 
     def show_instance(self, instance) -> None:
@@ -171,8 +218,6 @@ class DatabasesPage(QWidget):
 
     def set_db_states(self, states: dict) -> None:
         """Fill live per-DB state (ground truth from db_state.py)."""
-        from PySide6.QtGui import QColor
-
         self._last_states = states or {}
         for row in range(self.tracked_list.topLevelItemCount()):
             item = self.tracked_list.topLevelItem(row)
@@ -196,6 +241,65 @@ class DatabasesPage(QWidget):
         for col in range(4):
             self.tracked_list.resizeColumnToContents(col)
         self._sync_row_buttons()
+
+    def refresh_schedules(self, scheds: list, status: dict) -> None:
+        """Render scheduler state + per-schedule rows (BKQ.1)."""
+        from odoo_vite.core import backup_scheduler as _bs
+
+        if status.get("active"):
+            state_txt = "Scheduler: active (runs while app is closed)"
+        elif status.get("installed"):
+            state_txt = ("Scheduler: installed but not running — "
+                         "create a schedule to re-enable it")
+        else:
+            state_txt = ("Scheduler: not installed — creating a schedule "
+                         "installs the per-minute systemd timer")
+        self.lbl_sched_status.setText(state_txt)
+        self.sched_list.clear()
+        self._sched_ids: list[str] = []
+        if not scheds:
+            self.sched_list.addItem("No schedules — add one to back up "
+                                    "automatically.")
+        for sched in scheds or []:
+            cron = sched.cron if hasattr(sched, "cron") else sched.get(
+                "cron", "")
+            try:
+                nxt = _bs.describe(cron)
+            except Exception:
+                nxt = ""
+            get = (lambda k, d="": getattr(sched, k, None)
+                   if hasattr(sched, k) else sched.get(k, d))
+            dbs = ", ".join(get("databases", []) or [])
+            last = get("last_run", "") or "never"
+            st = get("last_status", "") or "—"
+            sid = get("id", "")
+            on = bool(get("enabled", True))
+            self._sched_ids.append(sid)
+            self.sched_list.addItem(
+                f"{dbs}  ·  {cron}  ·  {nxt}"
+                f"{'' if on else '  (disabled)'}"
+                f"  ·  last: {last}  ·  {st}")
+        self._sync_sched_buttons()
+
+    def _selected_sched(self):
+        row = self.sched_list.currentRow()
+        if 0 <= row < len(getattr(self, "_sched_ids", [])):
+            return self._sched_ids[row]
+        return None
+
+    def _sync_sched_buttons(self) -> None:
+        if getattr(self, "_busy", False):
+            for btn in (self.btn_sched_run, self.btn_sched_toggle,
+                        self.btn_sched_delete):
+                try:
+                    btn.setEnabled(False)
+                except Exception:
+                    pass
+            return
+        has = self._selected_sched() is not None
+        self.btn_sched_run.setEnabled(has)
+        self.btn_sched_toggle.setEnabled(has)
+        self.btn_sched_delete.setEnabled(has)
 
     # -------------------------------------------------------------- internals
 
@@ -245,4 +349,15 @@ class DatabasesPage(QWidget):
     def set_actions_enabled(self, enabled: bool) -> None:
         """Busy-state gating (GTK _set_actions_sensitive parity)."""
         self._busy = not enabled
+        for btn in (self.btn_set_primary, self.btn_switch,
+                    self.btn_init, self.btn_backup, self.btn_drop,
+                    self.btn_untrack, self.btn_discover, self.btn_refresh,
+                    self.btn_restore, self.btn_validate, self.btn_sched_add,
+                    self.btn_sched_run, self.btn_sched_toggle,
+                    self.btn_sched_delete, self.btn_backups_browse):
+            try:
+                btn.setEnabled(enabled)
+            except Exception:
+                pass
         self._sync_row_buttons()
+        self._sync_sched_buttons()
