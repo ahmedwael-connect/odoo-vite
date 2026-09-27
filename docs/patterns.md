@@ -6,18 +6,22 @@ because we got burned once — the note says where.
 ## UI text containers (H-M1, Sprint 8 A.1 — twice-bitten rule)
 
 **Any new text container showing a value that could be long — paths, conf
-values, instance/database names — must use max-width + ellipsize.**
-Check this before shipping any new screen. Concretely, on every `Gtk.Label`
+values, instance/database names — must use max-width + elide.**
+Check this before shipping any new screen. Concretely, on every `QLabel`
 bound to user data or a path:
 
 ```python
-label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)  # paths/conf values
-label.set_max_width_chars(40)                    # tune per layout
-# or EllipsizeMode.END + ~26-32 chars for names/one-liners
+label.setWordWrap(False)
+label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+label.setMinimumWidth(0)
+label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+# + stylesheet max-width / Qt.ElideMiddle for paths, ElideRight for names
+# (see ui_qt/views/configuration.py refresh_conf() for the pattern)
 ```
 
 `wrap=True` alone does NOT save you: comma-joined paths and URLs have no
-break opportunities and still blow out the container. Wizards got this in
+break opportunities and still blow out the container. (History: GTK used
+`Pango.EllipsizeMode`; same rule, Qt mechanism.) Wizards got this in
 H-M1; the Configuration tab and sidebar got it in Sprint 8 A.1.
 
 ## Layering (Phase 1 §1.1, enforced by test)
@@ -25,8 +29,8 @@ H-M1; the Configuration tab and sidebar got it in Sprint 8 A.1.
 - `core/` is pure Python: zero GUI imports (`tests/test_no_gtk_in_core.py`
   and `tests/test_no_pyside_in_core.py` fail the suite otherwise). GUI
   crossing happens in `ui_qt/` via queued signal/slot delivery, never by
-  importing UI modules from core. (Pre-cutover history: GTK `ui/` via
-  `GLib.idle_add`; same rule, different mechanism.)
+  importing UI modules from core. (Pre-cutover history: GTK `ui/` is deleted;
+  same rule, Qt mechanism.)
 - Long operations run on `QThread` workers; the GUI thread is never blocked.
 
 ## Errors (Phase 1 §1.5)
@@ -69,9 +73,9 @@ H-M1; the Configuration tab and sidebar got it in Sprint 8 A.1.
 
 - Any layout/rendering change must be exercised against a realistically
   large dataset for at least one tab/list (the odoo_19_adopted instance's
-  1500-module list is the standing fixture) — GTK sizing/scroll bugs
+  1500-module list is the standing fixture) — sizing/scroll bugs
   involving shared containers only manifest at scale, never on small test
   instances.
 - Each tab owns its scroll container (`_scroll_wrap` per tab); never one
-  shared ScrolledWindow around a multi-tab Stack — the tallest tab drives
+  shared scroll area around a multi-tab widget — the tallest tab drives
   the viewport for all the others.

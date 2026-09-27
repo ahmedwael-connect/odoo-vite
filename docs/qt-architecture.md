@@ -1,14 +1,14 @@
 # Qt Architecture (PSQ-1.3+)
 
-The Qt frontend (`odoo_vite/ui_qt/`) parallels the GTK one (`odoo_vite/ui/`)
-during the migration. `core/` is shared untouched by both. Rules below are
+The Qt frontend (`odoo_vite/ui_qt/`) replaced the GTK one (`odoo_vite/ui/`,
+removed at PSQ-10 cutover). `core/` is shared untouched. Rules below are
 enforced by tests where noted — read them as law, not advice.
 
-## Threading discipline (the `idle_add` equivalent)
+## Threading discipline
 
-GTK rule, unchanged in spirit: **never touch UI objects from a background
+Legacy GTK rule, unchanged in spirit: **never touch UI objects from a background
 thread; marshal results back to the main thread.** The Qt mechanism is
-different — queued signal/slot connections instead of `GLib.idle_add`:
+different — queued signal/slot connections instead of the old `idle_add`:
 
 - A `QObject` worker lives on a `QThread`. It calls pure-`core/` functions
   (which return `Result`) and emits a `finished(Result-like payload)`

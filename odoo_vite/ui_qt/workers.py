@@ -1,6 +1,6 @@
 """Background core-call helper (PSQ-3.1): the threading-doc pattern as code.
 
-GTK equivalent: daemon thread + GLib.idle_add. Qt version: one-shot
+Legacy GTK equivalent was: daemon thread + GLib.idle_add. Qt version: one-shot
 QObject worker on a QThread, results back via queued signal. The worker
 touches core/ only; the slot touches widgets only. Never mix the two.
 """

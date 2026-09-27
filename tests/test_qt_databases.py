@@ -135,6 +135,19 @@ def _drain_workers():
     assert wait_for_background(), "background workers did not finish"
 
 
+def test_server_banner_hidden_when_reachable(qapp, qtbot):
+    """U5.4: banner shows only on outage, clears on recovery."""
+    page = DatabasesPage()
+    qtbot.addWidget(page)
+    page.show()
+    assert not page.server_banner.isVisible()
+    page.set_server_status(False)
+    assert page.server_banner.isVisible()
+    assert "unreachable" in page.server_banner.text()
+    page.set_server_status(True)
+    assert not page.server_banner.isVisible()
+
+
 def test_track_many_batches_sequentially(qapp, qtbot, tmp_path, monkeypatch):
     """Lost-update regression: 3 parallel tracks kept only 1 (live E2E).
     track_many must land all of them."""

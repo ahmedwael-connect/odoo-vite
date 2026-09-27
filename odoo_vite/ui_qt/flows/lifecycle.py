@@ -28,6 +28,8 @@ from odoo_vite.ui_qt.widgets.selection_list import (  # noqa: E402
 from odoo_vite.ui_qt.workers import run_in_background
 from odoo_vite.core import (  # noqa: E402
     db_manager, process_manager, removal)
+from odoo_vite.core import clone as clone_core  # noqa: E402
+from odoo_vite.core import provisioning as provisioning_core  # noqa: E402
 from odoo_vite.core.db_manager import (  # noqa: E402
     track_database, untrack_database)
 from odoo_vite.core.db_state import get_db_state, odoo_major  # noqa: E402
@@ -43,6 +45,7 @@ class LifecycleFlows(QObject):
     refreshRequested = Signal()  # re-read registry, update sidebar+page
     # confirmNeeded payload: {"key": str, "heading": str, "body": str}
     confirmNeeded = Signal(dict)
+    diskReady = Signal(str, str)  # (instance_id, "Disk: …" label text)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -107,6 +110,83 @@ class LifecycleFlows(QObject):
         self.message.emit("Removing…")
         self._run_op("remove", removal.remove_instance, instance_id,
                      drop_db=drop_db)
+
+    def clone(self, instance_id: str, new_name: str,
+              new_port: int | None = None) -> None:
+        """Duplicate files + settings in a worker (copies can be GBs).
+
+        Keyring resolves HERE (GUI thread) — never inside _work.
+        """
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit(f"No instance with id '{instance_id}'")
+            return
+        try:
+            password = get_db_password(inst)
+        except Exception:
+            password = ""
+        self.message.emit(f"Cloning '{inst.name}'…")
+
+        def _done(ok: bool, message: str, _data: dict) -> None:
+            self.message.emit(message)
+            self.refreshRequested.emit()
+
+        run_in_background(
+            self, clone_core.clone_instance, _done, instance_id, new_name,
+            new_port=new_port, src_password=password)
+
+    def clone_dialog(self, parent_widget, instance_id: str) -> None:
+        """Name + port picker with the honest scope note (no DB copy,
+        venv rebuilt before first start of the clone)."""
+        inst = get_instance(instance_id)
+        if inst is None:
+            return
+        if (inst.status or "") == "running":
+            self.message.emit(
+                f"Stop '{inst.name}' before cloning it")
+            return
+        parent = (parent_widget if isinstance(parent_widget, QWidget)
+                  else None)
+        from PySide6.QtWidgets import QFormLayout, QSpinBox
+
+        dlg = QDialog(parent)
+        dlg.setWindowTitle(f"Clone '{inst.name}'")
+        dlg.setMinimumWidth(460)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        form = QFormLayout()
+        form.setSpacing(8)
+        name_entry = QLineEdit(f"{inst.name} (clone)")
+        form.addRow("Name:", name_entry)
+        port_spin = QSpinBox()
+        port_spin.setRange(1024, 65535)
+        try:
+            port_spin.setValue(
+                provisioning_core.suggest_port((inst.port or 8069) + 1))
+        except Exception:
+            port_spin.setValue((inst.port or 8069) + 1)
+        form.addRow("Port:", port_spin)
+        layout.addLayout(form)
+        note = QLabel(
+            "Copies files + settings only — databases are NOT copied, "
+            "and the venv is rebuilt before the clone's first start.")
+        note.setWordWrap(True)
+        note.setProperty("class", "dim")
+        layout.addWidget(note)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
+        buttons.button(QDialogButtonBox.Ok).setText("Clone")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        new_name = name_entry.text().strip()
+        if not new_name:
+            self.message.emit("Clone needs a name — cancelled")
+            return
+        self.clone(instance_id, new_name, int(port_spin.value()))
 
     def remove_dialog(self, parent_widget, instance_id: str) -> None:
         """GTK remove parity: adopted = plain confirm; managed = typed
@@ -179,6 +259,26 @@ class LifecycleFlows(QObject):
     def untrack(self, instance_id: str, db_name: str) -> None:
 
         self._run_op("untrack", untrack_database, instance_id, db_name)
+
+    def measure_disk(self, instance_id: str) -> None:
+        """Folder-size breakdown in a worker (large trees take seconds)."""
+        from odoo_vite.core import disk_usage as disk_usage_core
+
+        inst = get_instance(instance_id)
+        if inst is None:
+            self.message.emit(f"No instance with id '{instance_id}'")
+            return
+        self.message.emit("Measuring disk usage…")
+
+        def _done(ok: bool, message: str, data: dict) -> None:
+            human = data.get("human", "") if ok else ""
+            self.diskReady.emit(
+                instance_id, f"Disk: {human}" if ok and human else message)
+            if not ok:
+                self.message.emit(message)
+
+        run_in_background(self, disk_usage_core.measure_instance, _done,
+                          inst)
 
     def track_many(self, instance_id: str, db_names: list) -> None:
         """Track several DBs in ONE worker, sequentially.

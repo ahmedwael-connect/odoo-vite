@@ -1,9 +1,9 @@
 # Odoo Vite Design System (UX-1.1)
 
-Single source of truth for app styling. GTK tokens lived in
+Single source of truth for app styling. The GTK build's tokens lived in
 `odoo_vite/ui/style.css` (removed at PSQ-10 cutover); the Qt build carries
-the same scale/roles in `odoo_vite/ui_qt/qt_style.qss` (+ dark variant).
-loaded once at startup via `odoo_vite.ui.load_app_css()`.
+the same scale/roles in `odoo_vite/ui_qt/qt_style.qss` (+ dark variant),
+loaded once at startup via `odoo_vite.ui_qt.theme.apply_theme()`.
 
 ## Spacing scale (px)
 
@@ -25,10 +25,10 @@ add new ones; migrate old ones when touching a screen (cataloged in
 
 ## Semantic colors
 
-Roles, never hex, for success / warning / error / info / selected. Values
-come from libadwaita's public named colors (`@success_color`,
-`@warning_color`, `@error_color`, `@accent_color`) so they adapt to
-light/dark theme changes. CSS classes:
+Roles, never hex, for success / warning / error / info / selected. The Qt
+build maps them to QSS in `qt_style.qss` / `qt_style_dark.qss` so they adapt
+to light/dark theme changes. (History: the GTK build used libadwaita's
+public named colors.) CSS classes:
 
 | Class | Role |
 |---|---|
@@ -36,7 +36,7 @@ light/dark theme changes. CSS classes:
 | `.status-error`, `.error` | error (+ bold for status) |
 | `.status-draft`, `.warning` | warning |
 | `.discover-picked` | selected-row treatment: bold + accent, always visible, never hover-only |
-| `.status-stopped` | neutral gray — deliberate exception (no libadwaita var exists); verified on both themes |
+| `.status-stopped` | neutral gray — deliberate exception; verified on both themes |
 
 ## Corners
 
@@ -45,7 +45,12 @@ toolkit default — don't set custom radii per screen.
 
 ## Typography
 
-No explicit font sizes anywhere in app code — use libadwaita type classes:
+No explicit font sizes anywhere in app code — use the type classes
+(`.title` / `.heading` / `.caption.dim-label` / `.monospace`, see
+`qt_style*.qss`). (History: the GTK build used libadwaita type classes.)
+
+Long strings in labels: elide (`Qt.ElideMiddle` for paths,
+`Qt.ElideRight` for names) — see `docs/patterns.md`.
 
 | Role | Class |
 |---|---|
@@ -53,10 +58,7 @@ No explicit font sizes anywhere in app code — use libadwaita type classes:
 | Section titles | `.heading` |
 | Body | default widget font |
 | Secondary text | `.caption.dim-label` |
-| Logs / code | `.monospace` or `Gtk.TextView(monospace=True)` |
-
-Long strings in labels: ellipsize (`Pango.EllipsizeMode.MIDDLE` for paths,
-`END` for names) — see `docs/patterns.md`.
+| Logs / code | `.monospace` (monospace QFont / QTextEdit) |
 
 ## When to use what (quick rules)
 

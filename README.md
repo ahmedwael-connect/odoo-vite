@@ -11,7 +11,8 @@ Status: GTK → Qt migration complete (PSQ-1..9 + human pass + cutover);
 ## Requirements
 
 - Ubuntu 22.04+ (24.04 recommended), Python 3.11+
-- PostgreSQL 12+ (server + client)
+- PostgreSQL 12+ (server + client; 13+ required for Odoo 19.0 — see
+  `core/system_check.py` VERSION_REQUIREMENTS)
 - A Secret Service for password storage (`gnome-keyring` — password login,
   not auto-login, so it unlocks)
 
@@ -31,9 +32,11 @@ sudo apt install -y \
   libxml2-dev libxslt1-dev libjpeg-dev libsasl2-dev libldap2-dev \
   libssl-dev zlib1g-dev gnome-keyring
 
-# 2. Get the app (tarball from the release, or clone)
-tar xzf odoo-vite-1.0.0.tar.gz && cd odoo-vite-1.0.0
+# 2. Get the app (tarball attached to the GitHub release, or clone)
+tar xzf odoo-vite-1.0.1.tar.gz && cd odoo-vite-1.0.1
 # or: git clone <repo-url> && cd odoo-vite
+# NOTE: *.tar.gz and odoo-vite-*/ are local release artifacts (git-ignored),
+# never committed — download them from the release page.
 
 # 3. Python dependencies (PEP 668-safe: use --break-system-packages on
 #    Ubuntu 24.04+, or a venv)

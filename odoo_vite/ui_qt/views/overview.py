@@ -1,7 +1,7 @@
 """Overview page (PSQ-3.3): instance identity, stats, lifecycle actions.
 
-Mirrors the GTK Overview tab's information (name, status, version, port,
-paths, primary DB) with Start/Stop/Restart/Remove buttons. Buttons emit
+Shows instance identity (name, status, version, port, paths, primary DB)
+with Start/Stop/Restart/Remove/Clone buttons. Buttons emit
 actionRequested(action, instance_id); a LifecycleFlows controller (flows/)
 executes them — this page never calls core/ directly.
 """
@@ -57,6 +57,19 @@ class OverviewPage(QWidget):
         self.ent_label.setWordWrap(True)
         layout.addWidget(self.ent_label)
 
+        disk_row = QHBoxLayout()
+        disk_row.setSpacing(8)
+        self.disk_label = QLabel("Disk: —")
+        self.disk_label.setProperty("class", "dim")
+        disk_row.addWidget(self.disk_label, 1)
+        self.btn_disk = QPushButton("Measure disk")
+        self.btn_disk.setToolTip(
+            "Measure this instance's folder size (runs in background)")
+        self.btn_disk.clicked.connect(
+            lambda: self._on_action("measure-disk"))
+        disk_row.addWidget(self.btn_disk)
+        layout.addLayout(disk_row)
+
         form = QFormLayout()
         form.setSpacing(4)
         self._fields: dict[str, QLabel] = {}
@@ -102,6 +115,12 @@ class OverviewPage(QWidget):
         self.btn_browser.clicked.connect(
             lambda: self._on_action("browser"))
         btn_row.addWidget(self.btn_browser)
+        self.btn_clone = QPushButton("Clone")
+        self.btn_clone.setToolTip(
+            "Duplicate files + settings (no databases; venv rebuilt later)")
+        self.btn_clone.clicked.connect(
+            lambda: self._on_action("clone"))
+        btn_row.addWidget(self.btn_clone)
         btn_row.addStretch(1)
         layout.addLayout(btn_row)
         layout.addStretch(1)
@@ -117,7 +136,11 @@ class OverviewPage(QWidget):
         name = get("name", "?") if isinstance(instance, dict) else instance.name
         self.name_label.setText(str(name))
         self.show_error("")
+        self.disk_label.setText("Disk: —")
         self.refresh_status(instance)
+
+    def set_disk_text(self, text: str) -> None:
+        self.disk_label.setText(text or "Disk: —")
 
     def show_error(self, message: str) -> None:
         self.error_label.setText(message or "")
@@ -171,7 +194,8 @@ class OverviewPage(QWidget):
             # Busy gating wins over state gating (poll ticks must not
             # re-enable mid-operation).
             for btn in list(self._buttons.values()) + [
-                    self.btn_secure, self.btn_browser]:
+                    self.btn_secure, self.btn_browser, self.btn_clone,
+                    self.btn_disk]:
                 try:
                     btn.setEnabled(False)
                 except Exception:
@@ -181,6 +205,7 @@ class OverviewPage(QWidget):
         self._buttons["stop"].setEnabled(running)
         self._buttons["restart"].setEnabled(running)
         self.btn_browser.setEnabled(running)
+        self.btn_clone.setEnabled(not running)
         # H.2 parity: plaintext warning + one-click keyring sweep.
         is_plain = (pw_storage or "") == "plaintext"
         self.lbl_security.setVisible(is_plain)

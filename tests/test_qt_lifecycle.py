@@ -131,6 +131,41 @@ def test_overview_shows_and_gates_buttons(qapp, qtbot):
     assert fired[-1] == ("secure", "x1")
 
 
+def test_overview_clone_button_gates_and_fires(qapp, qtbot):
+    """U5.1: Clone visible, disabled while running/busy, emits clone."""
+    page = OverviewPage()
+    qtbot.addWidget(page)
+    page.show_instance(_inst_dict(status="stopped"))
+    assert page.btn_clone.isEnabled()
+    page.refresh_status(_inst_dict(status="running"))
+    assert not page.btn_clone.isEnabled()
+    page.refresh_status(_inst_dict(status="stopped"))
+    fired = []
+    page.actionRequested.connect(lambda a, i: fired.append((a, i)))
+    page.btn_clone.click()
+    assert fired == [("clone", "x1")]
+    # Busy gating wins (poll ticks must not re-enable mid-operation).
+    page.set_actions_enabled(False)
+    assert not page.btn_clone.isEnabled()
+    page.set_actions_enabled(True)
+
+
+def test_overview_measure_disk_fires(qapp, qtbot):
+    """U5.3: Measure button emits measure-disk; label resets per instance."""
+    page = OverviewPage()
+    qtbot.addWidget(page)
+    page.show_instance(_inst_dict(status="stopped"))
+    assert page.disk_label.text() == "Disk: —"
+    fired = []
+    page.actionRequested.connect(lambda a, i: fired.append((a, i)))
+    page.btn_disk.click()
+    assert fired == [("measure-disk", "x1")]
+    page.set_disk_text("Disk: 1.2 GB")
+    assert page.disk_label.text() == "Disk: 1.2 GB"
+    page.show_instance(_inst_dict(status="stopped"))
+    assert page.disk_label.text() == "Disk: —"
+
+
 def test_overview_badges_and_fields(qapp, qtbot):
     page = OverviewPage()
     qtbot.addWidget(page)
@@ -176,6 +211,44 @@ def test_flows_discover_unknown_instance(qapp, qtbot):
     flows.discover_entries("no-such-id", payloads.append)
     qtbot.wait(3000)
     assert payloads and payloads[0]["ok"] is False
+
+
+def test_flows_clone_unknown_instance_fails(qapp, qtbot):
+    """U5.1: clone of a bogus id fails on the GUI thread, no worker."""
+    flows = LifecycleFlows()
+    messages = []
+    flows.message.connect(messages.append)
+    flows.clone("no-such-id", "Whatever")
+    assert messages == ["No instance with id 'no-such-id'"]
+
+
+def test_flows_measure_disk_unknown_instance(qapp, qtbot):
+    """U5.3: measure of a bogus id reports on the GUI thread, no worker."""
+    flows = LifecycleFlows()
+    messages = []
+    flows.message.connect(messages.append)
+    flows.measure_disk("no-such-id")
+    assert messages == ["No instance with id 'no-such-id'"]
+
+
+def test_flows_measure_disk_reports(qapp, qtbot, tmp_path):
+    """U5.3: real tmp folder -> diskReady with a human size."""
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance
+
+    base = tmp_path / "du-inst"
+    (base / "community").mkdir(parents=True)
+    (base / "community" / "f").write_bytes(b"z" * 2048)
+    inst = Instance(name="DuT", version="17.0", path=str(base),
+                    community_path=str(base / "community"))
+    assert create_instance(inst).ok
+    flows = LifecycleFlows()
+    ready = []
+    flows.diskReady.connect(lambda iid, text: ready.append((iid, text)))
+    flows.measure_disk(inst.id)
+    qtbot.wait(3000)
+    assert ready and ready[0][0] == inst.id
+    assert ready[0][1].startswith("Disk: ")
 
 
 @pytest.fixture(autouse=True)

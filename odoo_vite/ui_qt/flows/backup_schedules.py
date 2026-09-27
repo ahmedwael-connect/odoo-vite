@@ -152,7 +152,10 @@ class BackupSchedulesFlows(QObject):
         hint = QLabel(
             "Runs even when Odoo Vite is closed (systemd timer, checked "
             "every minute). Backups land under "
-            "~/.local/share/odoo-vite/backups/.")
+            "~/.local/share/odoo-vite/backups/. Dumps use pg_dump -Fc "
+            "(compressed custom format). Retention prunes: only the newest "
+            "“Keep last” dumps within “Keep days” survive — older files are "
+            "deleted.")
         hint.setProperty("class", "dim")
         hint.setWordWrap(True)
         layout.addWidget(hint)

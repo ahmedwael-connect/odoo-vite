@@ -37,6 +37,12 @@ class DatabasesPage(QWidget):
         layout.setSpacing(12)
         layout.setContentsMargins(16, 12, 16, 16)
 
+        self.server_banner = QLabel()
+        self.server_banner.setProperty("class", "error")
+        self.server_banner.setWordWrap(True)
+        self.server_banner.setVisible(False)
+        layout.addWidget(self.server_banner)
+
         switch_box = QGroupBox("Switch database")
         switch_layout = QVBoxLayout(switch_box)
         switch_layout.setSpacing(8)
@@ -201,6 +207,17 @@ class DatabasesPage(QWidget):
             tracked = list(instance.tracked_dbs or [])
             self._primary_db = instance.primary_db or ""
         self.refresh_databases(tracked)
+
+    def set_server_status(self, reachable: bool) -> None:
+        """U5.4: persistent Postgres banner (poll-driven, not a toast)."""
+        if reachable:
+            self.server_banner.setVisible(False)
+            return
+        self.server_banner.setText(
+            "⚠ PostgreSQL is unreachable — database operations will fail. "
+            "Start the server (e.g. `sudo service postgresql start`) and "
+            "it will clear automatically.")
+        self.server_banner.setVisible(True)
 
     def refresh_databases(self, tracked: list) -> None:
         """Rebuild combo + tracked rows (states arrive via set_db_states)."""

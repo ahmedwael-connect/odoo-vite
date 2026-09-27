@@ -1,9 +1,8 @@
 """Qt main window shell (PSQ-1.2, wired PSQ-3/PSQ-4): header, sidebar,
 tabbed content area.
 
-Same information architecture as the GTK MainWindow. Owns: sidebar +
-page composition, 2s get_statuses() polling (QThread worker, queued
-results), flow controllers, toasts. No feature logic.
+Owns: sidebar + page composition, 2s get_statuses() polling (QThread
+worker, queued results), flow controllers, toasts. No feature logic.
 """
 
 from datetime import datetime, timezone
@@ -82,6 +81,17 @@ class QtMainWindow(QMainWindow):
         self.btn_events.setToolTip("Application event log (audit trail)")
         self.btn_events.toggled.connect(self._on_events_toggled)
         toolbar.addWidget(self.btn_events)
+        self.btn_prefs = QPushButton("Preferences")
+        self.btn_prefs.setToolTip(
+            "Provisioning mode (Developer vs Managed) and environment")
+        self.btn_prefs.clicked.connect(self._open_preferences)
+        toolbar.addWidget(self.btn_prefs)
+        try:
+            file_menu = self.menuBar().addMenu("&File")
+            prefs_action = file_menu.addAction("Preferences…")
+            prefs_action.triggered.connect(self._open_preferences)
+        except Exception:
+            pass
 
         splitter = QSplitter()
         self.setCentralWidget(splitter)
@@ -123,6 +133,7 @@ class QtMainWindow(QMainWindow):
         self.flows.message.connect(self._on_flow_message)
         self.flows.refreshRequested.connect(self.refresh_all)
         self.flows.confirmNeeded.connect(self._on_confirm_needed)
+        self.flows.diskReady.connect(self._on_disk_ready)
         self.db_flows = DatabaseFlows(self)
         self.db_flows.message.connect(self._on_flow_message)
         self.db_flows.refreshRequested.connect(self.refresh_all)
@@ -226,6 +237,34 @@ class QtMainWindow(QMainWindow):
         wiz = AdoptWizard(self)
         wiz.instanceCreated.connect(lambda _iid: self.refresh_all())
         wiz.exec()
+
+    def _open_preferences(self) -> None:
+        from odoo_vite.core import registry as registry_mod
+        from odoo_vite.core import settings as settings_mod
+        from odoo_vite.ui_qt.widgets.preferences import PreferencesDialog
+
+        try:
+            current = settings_mod.get_provisioning_mode()
+        except Exception:
+            current = "developer"
+        try:
+            kr_available = bool(registry_mod.keyring_available())
+        except Exception:
+            kr_available = False
+        try:
+            db_path = str(registry_mod.get_db_path())
+        except Exception:
+            db_path = ""
+        dlg = PreferencesDialog(self, current, kr_available, db_path)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        chosen = dlg.selected_mode()
+        if chosen == current:
+            return
+        res = settings_mod.set_provisioning_mode(chosen)
+        self._on_flow_message(
+            res.message if res.ok
+            else f"Could not save preferences: {res.message}")
 
     def _open_scaffold_wizard(self) -> None:
         from odoo_vite.ui_qt.wizards.scaffold_module import ScaffoldWizard
@@ -361,6 +400,11 @@ class QtMainWindow(QMainWindow):
                 if status.get("id") == self._current_id:
                     self.overview.refresh_status(status)
             try:
+                self.databases.set_server_status(
+                    bool(data.get("server_reachable", True)))
+            except Exception:
+                pass
+            try:
                 self.sidebar.set_instances(list_instances())
             except Exception:
                 pass
@@ -404,6 +448,10 @@ class QtMainWindow(QMainWindow):
             self.flows.restart(instance_id)
         elif action == "remove":
             self.flows.remove_dialog(self, instance_id)
+        elif action == "clone":
+            self.flows.clone_dialog(self, instance_id)
+        elif action == "measure-disk":
+            self.flows.measure_disk(instance_id)
         elif action == "browser":
             inst = get_instance(instance_id)
             if inst is not None:
@@ -807,6 +855,13 @@ class QtMainWindow(QMainWindow):
                                 payload.get("body", ""), "Confirm")
         self.flows.reply_confirm(payload.get("key", ""), confirmed)
 
+    def _on_disk_ready(self, instance_id: str, text: str) -> None:
+        if instance_id == self._current_id:
+            try:
+                self.overview.set_disk_text(text)
+            except Exception:
+                pass
+
     def _on_flow_message(self, message: str) -> None:
         try:
             self.statusBar().showMessage(message, 5000)
@@ -825,4 +880,11 @@ def _statuses_payload() -> object:
         statuses = get_statuses()
     except Exception as exc:
         return Result.failure(str(exc))
-    return Result(ok=True, message="", data={"statuses": statuses})
+    try:
+        from odoo_vite.core.db_manager import server_reachable
+        reachable = bool(server_reachable())
+    except Exception:
+        reachable = True  # unknown: don't banner on probe failure
+    return Result(ok=True, message="",
+                  data={"statuses": statuses,
+                        "server_reachable": reachable})
