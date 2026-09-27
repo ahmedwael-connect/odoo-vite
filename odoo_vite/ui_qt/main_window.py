@@ -396,6 +396,20 @@ class QtMainWindow(QMainWindow):
         # half-finished tick (QThread destroyed while running aborts).
         if self._poll_busy:
             return
+        # S3: don't repaint into modal dialogs (a model reset under an open
+        # picker drops clicks on dead indexes) or while minimized (nobody
+        # watches). Timers keep firing; only the work is skipped.
+        try:
+            from PySide6.QtWidgets import QApplication as _QApplication
+            if _QApplication.activeModalWidget() is not None:
+                return
+        except Exception:
+            pass
+        try:
+            if self.isMinimized():
+                return
+        except Exception:
+            pass
         self._poll_busy = True
 
         def _done(ok: bool, _message: str, data: dict) -> None:

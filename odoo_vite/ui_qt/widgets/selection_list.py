@@ -24,6 +24,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QFontMetrics, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QLabel,
     QLineEdit,
     QListView,
     QStyledItemDelegate,
@@ -252,7 +253,14 @@ class SelectionList(QWidget):
         layout.addWidget(self.view)
         self.filter_edit.textChanged.connect(self._on_filter)
         self._model.dataChanged.connect(lambda *_: self.checkedChanged.emit())
+        self._model.dataChanged.connect(
+            lambda *_: self._sync_count())
         self._model.modelReset.connect(lambda: self._apply_height_cap())
+        self._model.modelReset.connect(lambda: self._sync_count())
+        self.count_label = QLabel(self)
+        self.count_label.setProperty("class", "dim")
+        self.count_label.setVisible(False)
+        layout.addWidget(self.count_label)
         self.view.selectionModel().selectionChanged.connect(
             lambda *_: self.selectionChanged.emit())
         # Key events land on the viewport (focus proxy), not the view.
@@ -262,7 +270,15 @@ class SelectionList(QWidget):
     # ------------------------------------------------------------------ API
 
     def set_items(self, rows: list[dict]) -> None:
-        """Rows as documented in the module docstring; groups ordered."""
+        """Rows as documented in the module docstring; groups ordered.
+
+        Refresh-safe: the active filter and keyboard position survive —
+        a background refresh must not clear what the user typed or move
+        their cursor. (Poll-driven pages rebuild rows while typing.)
+        """
+        keep_current = self.current_id()
+        needle = (self.filter_edit.text()
+                  if self.filter_edit.isVisible() else "")
         flat: list[dict] = []
         seen_groups: list[str] = []
         by_group: dict[str, list[dict]] = {}
@@ -283,6 +299,16 @@ class SelectionList(QWidget):
                          "header": True})
             flat.extend(by_group[group])
         self._model.set_rows(flat)
+        if needle:
+            self._model.apply_filter(needle)
+        if keep_current is not None:
+            model = self.view.model()
+            for row in range(model.rowCount()):
+                index = model.index(row, 0)
+                if (not index.data(_HEADER_ROLE)
+                        and index.data(_ID_ROLE) == keep_current):
+                    self.view.setCurrentIndex(index)
+                    break
 
     def checked_ids(self) -> list:
         return self._model.checked_ids()
@@ -349,19 +375,52 @@ class SelectionList(QWidget):
         self.view.setMinimumHeight(min(row_h * 3 + margins,
                                        row_h * self._max_visible_rows + margins))
 
+    def _sync_count(self) -> None:
+        """'2 checked · 5 of 12 shown' (multi) or '5 of 12 shown' when
+        filtered — otherwise hidden. Blind lists hide mistakes."""
+        model = self._model
+        total = 0
+        visible = 0
+        for row in range(model.rowCount()):
+            if model.index(row, 0).data(_HEADER_ROLE):
+                continue
+            visible += 1
+        for row in model._rows:
+            if not row.get("header"):
+                total += 1
+        needle = (self.filter_edit.text().strip()
+                  if self.filter_edit.isVisible() else "")
+        if self._multi:
+            checked = len(model.checked_ids())
+            self.count_label.setText(
+                f"{checked} checked · {visible} of {total} shown")
+            self.count_label.setVisible(True)
+        elif needle:
+            self.count_label.setText(f"{visible} of {total} shown")
+            self.count_label.setVisible(True)
+        else:
+            self.count_label.setVisible(False)
+
     def eventFilter(self, watched, event) -> bool:
         if watched is self.view.viewport() and event.type() == QEvent.KeyPress:
             key_event: QKeyEvent = event
-            if (self._multi and key_event.key() in (Qt.Key_Space,)
+            if (key_event.key() in (Qt.Key_Space,)
                     and not key_event.modifiers()):
                 index = self.view.currentIndex()
                 if index.isValid() and not index.data(_HEADER_ROLE):
-                    current = index.data(Qt.CheckStateRole) == Qt.Checked
-                    self._model.setData(
-                        index,
-                        Qt.Unchecked if current else Qt.Checked,
-                        Qt.CheckStateRole)
-                    self.checkedChanged.emit()
+                    if self._multi:
+                        current = index.data(Qt.CheckStateRole) == Qt.Checked
+                        self._model.setData(
+                            index,
+                            Qt.Unchecked if current else Qt.Checked,
+                            Qt.CheckStateRole)
+                        self.checkedChanged.emit()
+                    else:
+                        # Single-select: Space selects like a click (arrows
+                        # alone only move the cursor otherwise).
+                        self.view.selectionModel().select(
+                            index, self.view.selectionModel().
+                            SelectionFlag.ClearAndSelect)
                     return True
             if (key_event.text().isprintable() and self.filter_edit.isVisible()
                     and not key_event.modifiers()):

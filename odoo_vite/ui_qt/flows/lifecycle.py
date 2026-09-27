@@ -222,7 +222,8 @@ class LifecycleFlows(QObject):
 
         def _work():
             return venv_manager_core.rebuild_venv(
-                instance_id, progress_cb=dlg.request_append.emit)
+                instance_id, progress_cb=dlg.request_append.emit,
+                cancel=dlg.cancel_event.is_set)
 
         def _done(ok: bool, message: str, _data: dict) -> None:
             dlg.request_done.emit(ok, message)

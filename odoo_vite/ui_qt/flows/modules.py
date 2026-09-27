@@ -60,7 +60,7 @@ class ModuleFlows(QObject):
         def _work():
             try:
                 return op(*args, progress_cb=dlg.request_append.emit,
-                          **kwargs)
+                          cancel=dlg.cancel_event.is_set, **kwargs)
             except TypeError:
                 return op(*args, **kwargs)
 

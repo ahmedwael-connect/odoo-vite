@@ -258,7 +258,8 @@ class DevToolsProcessFlows(QObject):
         def _work():
             return module_manager.run_module_tests(
                 inst, target, module,
-                progress_cb=dlg.request_append.emit)
+                progress_cb=dlg.request_append.emit,
+                cancel=dlg.cancel_event.is_set)
 
         def _done(ok: bool, message: str, _data: dict) -> None:
             dlg.request_done.emit(ok, message)

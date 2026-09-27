@@ -75,3 +75,13 @@ def test_rebuild_install_failure_propagates(_env, monkeypatch):
         lambda *a, **k: Result.failure("pip exploded"))
     res = venv_manager.rebuild_venv(inst.id)
     assert not res.ok and "pip exploded" in res.message
+
+
+def test_rebuild_honours_cancel(_env):
+    """S2: pre-cancelled rebuild fails fast (install step never reached)."""
+    tmp_path = _env
+    inst, base = _make_instance(tmp_path)
+    res = venv_manager.rebuild_venv(inst.id, cancel=lambda: True)
+    assert not res.ok
+    assert "ancel" in res.message  # "Cancelled by user" from run_streaming
+    assert get_instance(inst.id).venv_path == str(base / "venv")

@@ -295,6 +295,48 @@ def test_flows_rebuild_unknown_instance(qapp, qtbot):
     assert messages == ["No instance with id 'no-such-id'"]
 
 
+def test_poll_skips_modal_and_minimized(qapp, qtbot, tmp_path, monkeypatch):
+    """S3: no poll workers into open modals or while minimized."""
+    from PySide6.QtWidgets import QDialog
+
+    from odoo_vite.ui_qt import main_window as mw
+    from odoo_vite.ui_qt.workers import wait_for_background
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "poll.db"))
+    win = mw.QtMainWindow()
+    qtbot.addWidget(win)
+    win.show()
+    win._poll.stop()
+    calls = []
+    monkeypatch.setattr(
+        mw, "run_in_background", lambda *a, **k: calls.append(1))
+    # NOTE: the mock never runs _done, so clear the overlap guard manually
+    # before each tick — otherwise every tick after the first skips.
+    win._poll_busy = False
+    win._poll_tick()
+    assert len(calls) == 1
+    win.showMinimized()
+    win._poll_busy = False
+    win._poll_tick()
+    assert len(calls) == 1, "minimized window must not poll"
+    win.showNormal()
+    assert not win.isMinimized()
+    modal = QDialog(win)
+    modal.setModal(True)
+    modal.show()
+    qtbot.wait(100)
+    win._poll_busy = False
+    win._poll_tick()
+    assert len(calls) == 1, "modal dialog must not be polled under"
+    modal.close()
+    qtbot.wait(100)
+    win._poll_busy = False
+    win._poll_tick()
+    assert len(calls) == 2
+    assert wait_for_background()
+    win.close()
+
+
 @pytest.fixture(autouse=True)
 def _drain_workers():
     """No QThread may outlive its test (teardown abort otherwise)."""

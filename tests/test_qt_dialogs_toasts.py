@@ -106,6 +106,44 @@ def test_toast_shows_and_expires(qapp, qtbot):
     assert not shiboken6.isValid(toast)  # expired + deleteLater ran
 
 
+def test_progress_dialog_cancel_and_done(qapp, qtbot):
+    """S2: Cancel sets the worker event; done locks both buttons."""
+    from odoo_vite.ui_qt.widgets.progress_dialog import ProgressDialog
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    dlg = ProgressDialog(host, "Rebuilding venv — T")
+    qtbot.addWidget(dlg)
+    assert not dlg.cancel_event.is_set()
+    assert dlg.cancel_btn.isEnabled()
+    assert not dlg.close_btn.isEnabled()
+    dlg.cancel_btn.click()
+    assert dlg.cancel_event.is_set()
+    assert not dlg.cancel_btn.isEnabled()
+    assert "Cancelling" in dlg.status_label.text()
+    dlg.request_done.emit(False, "cancelled by test")
+    assert dlg.close_btn.isEnabled()
+    assert not dlg.cancel_btn.isEnabled()
+    dlg.close()
+
+
+def test_toasts_coalesce_per_host(qapp, qtbot):
+    """S4: rapid messages update one toast instead of stacking."""
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(400, 300)
+    host.show()
+    first = Toaster.show_text(host, "one", timeout_ms=600)
+    second = Toaster.show_text(host, "two", timeout_ms=600)
+    assert second is first
+    assert first.text() == "two"
+    assert len(Toaster._live) == 1
+    qtbot.wait(900)
+    import shiboken6
+
+    assert not shiboken6.isValid(first)
+
+
 def test_button_icons_and_hierarchy(qapp, qtbot):
     from PySide6.QtWidgets import QPushButton
 
