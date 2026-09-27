@@ -303,7 +303,6 @@ class BackupSchedulesFlows(QObject):
                 f"Retype the target name to restore into '{target}'.",
                 target, "Restore (drop + recreate)"):
             return
-        dlg.accept()
         self._restore_dump(instance_id, dump, target)
 
     def _restore_dump(self, instance_id: str, dump: str,
@@ -348,4 +347,3 @@ class BackupSchedulesFlows(QObject):
             self.message.emit(message)
 
         run_in_background(self, _work, _done)
-        dlg.accept()
