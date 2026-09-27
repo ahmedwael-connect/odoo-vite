@@ -161,3 +161,22 @@ def test_button_icons_and_hierarchy(qapp, qtbot):
     style_button(plain, "no-such-icon")
     assert plain.icon().isNull()
     assert not plain.isDefault()
+
+
+def test_toolbar_icons_mapped(qapp, qtbot):
+    """S5: Adopt/Events toolbar buttons resolve to real style icons."""
+    from PySide6.QtWidgets import QPushButton
+
+    from odoo_vite.ui_qt.widgets.icons import ICONS, style_button
+
+    assert set(ICONS) >= {"adopt", "events"}
+    for name in ("adopt", "events", "new"):
+        btn = QPushButton(name)
+        qtbot.addWidget(btn)
+        style_button(btn, name)
+        assert not btn.icon().isNull(), f"toolbar icon missing: {name}"
+    # Unknown names stay icon-less and never raise.
+    bare = QPushButton("Preferences")
+    qtbot.addWidget(bare)
+    style_button(bare, "preferences")
+    assert bare.icon().isNull()

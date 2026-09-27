@@ -22,6 +22,12 @@ ICONS = {
     "add": QStyle.SP_ArrowForward,
     "connect": QStyle.SP_CommandLink,
     "run": QStyle.SP_MediaPlay,
+    # Toolbar (S5): adopt = take over an existing folder; events = info
+    # list. Preferences stays text-only on purpose — no StandardPixmap
+    # reads as "settings" (a gear would need bundled art, against the
+    # platform-consistent rule above), and it already lives in File menu.
+    "adopt": QStyle.SP_DirOpenIcon,
+    "events": QStyle.SP_MessageBoxInformation,
 }
 
 

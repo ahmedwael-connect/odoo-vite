@@ -74,9 +74,12 @@ class QtMainWindow(QMainWindow):
         self.btn_new.clicked.connect(self._open_create_wizard)
         toolbar.addWidget(self.btn_new)
         self.btn_adopt = QPushButton("Adopt")
+        self.btn_adopt.setToolTip("Take over an existing Odoo installation")
+        style_button(self.btn_adopt, "adopt")
         self.btn_adopt.clicked.connect(self._open_adopt_wizard)
         toolbar.addWidget(self.btn_adopt)
         self.btn_events = QPushButton("Events")
+        style_button(self.btn_events, "events")
         self.btn_events.setCheckable(True)
         self.btn_events.setToolTip("Application event log (audit trail)")
         self.btn_events.toggled.connect(self._on_events_toggled)
@@ -88,11 +91,11 @@ class QtMainWindow(QMainWindow):
         toolbar.addWidget(self.btn_prefs)
         try:
             file_menu = self.menuBar().addMenu("&File")
-            export_action = file_menu.addAction("Export instance…")
+            export_action = file_menu.addAction("&Export instance…")
             export_action.triggered.connect(self._export_pick)
-            import_action = file_menu.addAction("Import instance…")
+            import_action = file_menu.addAction("&Import instance…")
             import_action.triggered.connect(self._import_pick)
-            prefs_action = file_menu.addAction("Preferences…")
+            prefs_action = file_menu.addAction("&Preferences…")
             prefs_action.triggered.connect(self._open_preferences)
         except Exception:
             pass
