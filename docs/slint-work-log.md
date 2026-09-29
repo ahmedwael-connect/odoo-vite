@@ -121,8 +121,8 @@ Full story + upstream draft: `docs/slint-thread-safety.md`.
   `dialogs.py`, `selection.py`.
 - `tests/test_slint_{bridge,ops,selection,components,databases,modules,
   configuration}.py` + `test_no_slint_in_core.py`: Slint suite.
-- Suite: **514 passed, twice consecutively**; ruff clean; live X11
-  proof re-run per sprint (empty log + timeout-kill = healthy loop).
+- Suite: **402 passed** (514 pre-cutover minus ~112 Qt tests deleted
+  with ui_qt/); ruff clean; live X11 proof re-run per sprint.
 
 ## PSS-8 — Preferences + Export/Import (suite 503 → 514)
 
