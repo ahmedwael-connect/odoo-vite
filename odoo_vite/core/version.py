@@ -4,4 +4,4 @@ Bump this one constant on release; everything (header subtitle, packaging
 metadata) reads from here. Keep in sync with the git tag.
 """
 
-__version__ = "1.0.1"
+__version__ = "3.0.0"

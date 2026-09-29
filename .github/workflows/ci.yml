@@ -5,18 +5,15 @@ on: [push, pull_request]
 jobs:
   check:
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
       - name: Install (incl. test + lint extras)
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y postgresql-client libxcb-cursor0
+          sudo apt-get install -y postgresql-client
           pip install --break-system-packages ".[dev]"
       - name: Lint (ruff, pyflakes + syntax only per pyproject)
         run: python3 -m ruff check odoo_vite/ tests/

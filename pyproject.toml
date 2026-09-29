@@ -4,24 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odoo-vite"
-version = "1.0.1"
-description = "Native Qt6 Ubuntu desktop app to manage local Odoo instances (creation wizard + lifecycle + DB/modules/config/logs/devtools)"
+version = "3.0.0"
+description = "Native Slint Ubuntu desktop app to manage local Odoo instances (creation wizard + lifecycle + DB/modules/config/logs/devtools)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "psutil>=5.9",
     "keyring>=24.0",
-    # PSQ-1.1: pinned exact — Qt has meaningful behavior differences
-    # across minor versions; verified 6.9.1 on Ubuntu 24.04 / Python 3.12
-    # (both xcb under Xvfb and offscreen platform plugin work; xcb needs
-    # a user-space libxcb-cursor0, see docs/qt-architecture.md).
-    "PySide6==6.9.1",
+    # PSS-9: Slint is the frontend now (was an opt-in extra while Qt
+    # coexisted). Pinned exact — the Python API is still beta:
+    # type-only callback args and Timer(timedelta) verified against
+    # this build; re-verify the three syntax facts on every bump
+    # (docs/slint-thread-safety.md). Licensed royalty-free; the app
+    # shows the AboutSlint disclosure (sidebar → About Slint).
+    "slint==1.18.1b1",
 ]
 authors = [{ name = "Odoo Vite Team" }]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "pytest-qt>=4.0"]
-dev = ["pytest>=8.0", "pytest-qt>=4.0", "ruff>=0.8"]
+test = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.8"]
 
 [tool.setuptools.packages.find]
 include = ["odoo_vite*"]
@@ -33,5 +35,5 @@ testpaths = ["tests"]
 # Maintenance-ticket scope: pyflakes (unused imports/names, undefined
 # names) + syntax errors only. The bug class linters catch instantly;
 # style rules stay out until someone wants that fight.
-target-version = "py311"
+target-version = "py312"
 select = ["F", "E9"]

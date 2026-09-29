@@ -1,16 +1,16 @@
-# Odoo Vite — Qt6 frontend (PSQ-10 cutover)
+# Odoo Vite — Slint frontend (v3.0.0 cutover)
 
-Native Qt6 Ubuntu desktop app that manages the full lifecycle of
+Native Slint Ubuntu desktop app that manages the full lifecycle of
 local Odoo instances — "Docker Desktop, but for Odoo". Create, start, stop,
 restart, adopt, remove, clone, export/import instances; switch/track databases; least-privilege
 managed mode; OS-keyring secrets.
 
-Status: GTK → Qt migration complete (PSQ-1..9 + human pass + cutover);
+Status: Qt → Slint migration complete (PSS-1..9);
 `pytest tests/` green plus live E2E runs on real Ubuntu.
 
 ## Requirements
 
-- Ubuntu 22.04+ (24.04 recommended), Python 3.11+
+- Ubuntu 22.04+ (24.04 recommended), Python 3.12+
 - PostgreSQL 12+ (server + client; 13+ required for Odoo 19.0 — see
   `core/system_check.py` VERSION_REQUIREMENTS)
 - A Secret Service for password storage (`gnome-keyring` — password login,
@@ -24,8 +24,6 @@ Status: GTK → Qt migration complete (PSQ-1..9 + human pass + cutover);
 #    NOT apt-install `nodejs` and `npm` together — the two debs conflict and
 #    apt aborts the whole transaction. Need newer Node? Use NodeSource
 #    (deb.nodesource.com) instead of Ubuntu's nodejs package.
-#    NOTE for X11/Xvfb display: Qt needs libxcb-cursor0, absent on stock
-#    24.04 — user-space workaround documented in docs/qt-architecture.md.
 sudo apt install -y \
   python3-venv python3-pip git postgresql postgresql-client \
   libpq-dev wkhtmltopdf npm build-essential \
@@ -33,7 +31,7 @@ sudo apt install -y \
   libssl-dev zlib1g-dev gnome-keyring
 
 # 2. Get the app (tarball attached to the GitHub release, or clone)
-tar xzf odoo-vite-1.0.1.tar.gz && cd odoo-vite-1.0.1
+tar xzf odoo-vite-3.0.0.tar.gz && cd odoo-vite-3.0.0
 # or: git clone <repo-url> && cd odoo-vite
 # NOTE: *.tar.gz and odoo-vite-*/ are local release artifacts (git-ignored),
 # never committed — download them from the release page.
@@ -44,7 +42,7 @@ pip install --break-system-packages ".[test]"
 
 # 4. Run (from the extracted folder root — note: `python3`, not `python`,
 #    which Ubuntu does not ship by default)
-python3 main.py            # or: python3 -m odoo_vite.main (Qt app)
+python3 main.py            # or: python3 -m odoo_vite.main (Slint app)
 ```
 
 On first launch the app creates `~/.local/share/odoo-vite/` (registry +
@@ -67,9 +65,16 @@ python3 -m pytest tests/ -q
 
 ## Layout
 
-`odoo_vite/` package with strict `ui_qt/` (Qt only) + `core/` (pure Python,
-zero GUI imports — enforced by `tests/test_no_gtk_in_core.py` and
-`tests/test_no_pyside_in_core.py`) separation.
+`odoo_vite/` package with strict `ui_slint/` (Slint markup + Python
+bridge) + `core/` (pure Python, zero GUI imports — enforced by
+`tests/test_no_slint_in_core.py`) separation.
 `tests/` lives at the project root, and a root `main.py` shim forwards to
 `odoo_vite.main`. PM specs for each sprint are kept under
-`development phases/` for history.
+`development phases/` for history; the Slint migration log lives in
+`docs/slint-work-log.md`.
+
+## License note
+
+The UI toolkit (Slint) is used under its royalty-free license, which
+asks for a visible disclosure: open **About Slint** from the sidebar to
+see it.
