@@ -1,0 +1,183 @@
+// Configuration view (PSS-5b, cards MX-2): odoo.conf table +
+// common-key editors + managed addons_path row + raw key/value +
+// save/restore/regenerate + registry metadata. Display reads are local
+// (bridge paints from read_conf_view); writes dispatch grouped calls.
+import { Button, ComboBox, GroupBox, LineEdit, ListView, SpinBox } from "std-widgets.slint";
+
+export component ConfigurationView inherits VerticalLayout {
+    in-out property<bool> has-instance: false;
+    in-out property<string> conf-path: "";
+    in-out property<[string]> conf-lines;
+    in-out property<string> conf-db-host: "";
+    in-out property<string> conf-db-port: "";
+    in-out property<string> conf-db-user: "";
+    in-out property<string> conf-xmlrpc-port: "";
+    in-out property<string> conf-logfile: "";
+    in-out property<string> conf-addons: "";
+    in-out property<string> conf-raw-key: "";
+    in-out property<string> conf-raw-value: "";
+    in-out property<string> conf-notice: "";
+    in-out property<bool> conf-has-backup: false;
+    in-out property<string> conf-backup-label: "";
+    in-out property<string> conf-description: "";
+    in-out property<int> conf-workers: 0;
+    in-out property<[string]> conf-log-levels;
+    in-out property<int> conf-log-idx: 0;
+    in-out property<string> conf-python: "";
+    in-out property<string> conf-py-error: "";
+
+    // NOTE Slint 1.18: callback args are type-only, no names.
+    callback conf-action(string);
+
+    GroupBox {
+        title: "Configuration (odoo.conf)";
+        VerticalLayout {
+            Text {
+                text: conf-path;
+                color: gray;
+            }
+            ListView {
+                for line in conf-lines: Text {
+                    overflow: elide;
+                    text: line;
+                }
+            }
+        }
+    }
+    GroupBox {
+        title: "Edit common keys";
+        VerticalLayout {
+            HorizontalLayout {
+                Text { text: "db_host"; width: 110px; }
+                LineEdit { text <=> conf-db-host; }
+            }
+            HorizontalLayout {
+                Text { text: "db_port"; width: 110px; }
+                LineEdit { text <=> conf-db-port; }
+            }
+            HorizontalLayout {
+                Text { text: "db_user"; width: 110px; }
+                LineEdit { text <=> conf-db-user; }
+            }
+            HorizontalLayout {
+                Text { text: "xmlrpc_port"; width: 110px; }
+                LineEdit { text <=> conf-xmlrpc-port; }
+            }
+            HorizontalLayout {
+                Text { text: "logfile"; width: 110px; }
+                LineEdit { text <=> conf-logfile; }
+            }
+            HorizontalLayout {
+                Text { text: "addons_path"; width: 110px; }
+                Text {
+                    text: conf-addons;
+                    color: gray;
+                    wrap: word-wrap;
+                }
+                Button {
+                    text: "Manage…";
+                    enabled: has-instance;
+                    clicked => { conf-action("addons-manage"); }
+                }
+            }
+            HorizontalLayout {
+                LineEdit {
+                    placeholder-text: "raw key";
+                    text <=> conf-raw-key;
+                }
+                LineEdit {
+                    placeholder-text: "value (empty deletes the key)";
+                    text <=> conf-raw-value;
+                }
+                Button {
+                    text: "Set";
+                    enabled: has-instance;
+                    clicked => { conf-action("raw-set"); }
+                }
+            }
+            Text {
+                visible: conf-notice != "";
+                text: conf-notice;
+                color: orange;
+            }
+            HorizontalLayout {
+                Button {
+                    text: "Save changes";
+                    primary: true;
+                    enabled: has-instance;
+                    clicked => { conf-action("conf-save"); }
+                }
+                Button {
+                    text: "Restore last backup";
+                    enabled: has-instance && conf-has-backup;
+                    clicked => { conf-action("conf-restore"); }
+                }
+            }
+            Text {
+                visible: conf-backup-label != "";
+                text: conf-backup-label;
+                color: gray;
+            }
+        }
+    }
+    GroupBox {
+        title: "Advanced";
+        VerticalLayout {
+            Button {
+                text: "Regenerate from registry…";
+                enabled: has-instance;
+                clicked => { conf-action("conf-regenerate"); }
+            }
+        }
+    }
+    GroupBox {
+        title: "Metadata";
+        VerticalLayout {
+            Text { text: "Description (registry only, for organization)"; }
+            LineEdit {
+                text <=> conf-description;
+            }
+            HorizontalLayout {
+                Text { text: "Workers"; }
+                SpinBox {
+                    minimum: 0;
+                    maximum: 64;
+                    value <=> conf-workers;
+                }
+                Text { text: "Log level"; }
+                ComboBox {
+                    model: conf-log-levels;
+                    current-index <=> conf-log-idx;
+                }
+            }
+            Text {
+                text: "Workers: 0 = single-process dev mode. Above 0 needs a free gevent/longpolling port and more RAM; cron moves to a dedicated worker. When in doubt, keep 0.";
+                wrap: word-wrap;
+                color: gray;
+            }
+            HorizontalLayout {
+                Text { text: "Custom interpreter"; }
+                LineEdit {
+                    placeholder-text: "empty = venv's own python";
+                    text <=> conf-python;
+                }
+                Button {
+                    text: "Browse…";
+                    enabled: has-instance;
+                    clicked => { conf-action("browse-python"); }
+                }
+            }
+            Text {
+                visible: conf-py-error != "";
+                text: conf-py-error;
+                color: red;
+            }
+            Button {
+                text: "Save metadata";
+                primary: true;
+                enabled: has-instance;
+                clicked => { conf-action("meta-save"); }
+            }
+        }
+    }
+}

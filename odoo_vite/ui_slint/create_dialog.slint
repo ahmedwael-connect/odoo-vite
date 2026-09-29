@@ -1,0 +1,207 @@
+// Create Instance wizard (PSS-7a): version → syscheck → details →
+// provision page stack in one Dialog. Pages switch on page-idx;
+// validation gates live in the Python driver (Qt validatePage parity).
+// The provision page reuses the progress pattern: streamed log + Cancel
+// + Retry/Discard, driven through the bridge queue.
+import { Button, CheckBox, ComboBox, LineEdit, ListView, ScrollView, SpinBox } from "std-widgets.slint";
+import { Row, SelectionList } from "selection_list.slint";
+
+export component CreateDialog inherits Dialog {
+    title: "New Instance";
+
+    in-out property<int> page-idx: 0;
+    in-out property<[Row]> branch-rows;
+    in-out property<string> branch-counts: "";
+    in-out property<string> branch-selected: "";
+    in-out property<string> branch-status: "Loading branches…";
+    in-out property<[string]> syscheck-lines;
+    in-out property<string> syscheck-status: "";
+    in-out property<string> det-name: "";
+    in-out property<int> det-port: 8069;
+    in-out property<string> det-dbuser: "odoo";
+    in-out property<string> det-dbpass: "odoo";
+    in-out property<bool> det-plaintext: false;
+    in-out property<string> det-dbname: "";
+    in-out property<string> det-err: "";
+    in-out property<string> prov-status: "";
+    in-out property<string> prov-log: "";
+    in-out property<bool> prov-running: false;
+    in-out property<bool> prov-failed: false;
+    in-out property<bool> prov-done: false;
+
+    callback branch-picked(string);
+    callback branches-refresh();
+    callback gen-password();
+    callback wiz-nav(string);
+    callback prov-cancel();
+    callback prov-retry();
+    callback prov-discard();
+
+    VerticalLayout {
+        Text {
+            text: "Odoo version — pick the branch to clone.";
+            font-size: 16px;
+            font-weight: 700;
+            visible: page-idx == 0;
+        }
+        SelectionList {
+            visible: page-idx == 0;
+            is-multi: false;
+            show-filter: false;
+            rows: branch-rows;
+            counts-text: branch-counts;
+            selected-id: branch-selected;
+            row-picked(id) => { branch-picked(id); }
+        }
+        HorizontalLayout {
+            visible: page-idx == 0;
+            Button {
+                text: "Refresh";
+                clicked => { branches-refresh(); }
+            }
+            Text {
+                text: branch-status;
+                color: gray;
+            }
+        }
+        Text {
+            text: "System check — advisory, warnings don't block.";
+            font-size: 16px;
+            font-weight: 700;
+            visible: page-idx == 1;
+        }
+        Text {
+            visible: page-idx == 1;
+            text: syscheck-status;
+            color: gray;
+            wrap: word-wrap;
+        }
+        ListView {
+            visible: page-idx == 1;
+            for line in syscheck-lines: Text {
+                overflow: elide;
+                text: line;
+            }
+        }
+        Text {
+            text: "Instance details";
+            font-size: 16px;
+            font-weight: 700;
+            visible: page-idx == 2;
+        }
+        VerticalLayout {
+            visible: page-idx == 2;
+            HorizontalLayout {
+                Text { text: "Instance name:"; width: 150px; }
+                LineEdit {
+                    placeholder-text: "e.g. Client A — Odoo 17";
+                    text <=> det-name;
+                }
+            }
+            HorizontalLayout {
+                Text { text: "Port:"; width: 150px; }
+                SpinBox {
+                    minimum: 1024;
+                    maximum: 65535;
+                    value <=> det-port;
+                }
+            }
+            HorizontalLayout {
+                Text { text: "Database user:"; width: 150px; }
+                LineEdit { text <=> det-dbuser; }
+            }
+            HorizontalLayout {
+                Text { text: "Database password:"; width: 150px; }
+                LineEdit {
+                    input-type: password;
+                    text <=> det-dbpass;
+                }
+                Button {
+                    text: "Generate";
+                    clicked => { gen-password(); }
+                }
+            }
+            Text {
+                text: "Stored in the OS keyring; check below only to opt out explicitly.";
+                color: gray;
+            }
+            CheckBox {
+                text: "I understand the risk, store this password in plaintext locally";
+                checked <=> det-plaintext;
+            }
+            HorizontalLayout {
+                Text { text: "Database name:"; width: 150px; }
+                LineEdit {
+                    placeholder-text: "odoo database name";
+                    text <=> det-dbname;
+                }
+            }
+            Text {
+                visible: det-err != "";
+                text: det-err;
+                color: red;
+            }
+        }
+        Text {
+            text: "Provisioning — cloning, venv, requirements, conf.";
+            font-size: 16px;
+            font-weight: 700;
+            visible: page-idx == 3;
+        }
+        Text {
+            visible: page-idx == 3;
+            text: prov-status;
+            color: gray;
+        }
+        prov-scroll := ScrollView {
+            visible: page-idx == 3;
+            min-height: 200px;
+            prov-text := Text {
+                text: prov-log;
+                wrap: word-wrap;
+            }
+            content-y: max(0px, prov-text.height - self.visible-height);
+        }
+        HorizontalLayout {
+            visible: page-idx == 3;
+            Button {
+                visible: prov-running;
+                text: "Cancel";
+                clicked => { prov-cancel(); }
+            }
+            Button {
+                visible: prov-failed;
+                text: "Retry (resumes)";
+                clicked => { prov-retry(); }
+            }
+            Button {
+                visible: prov-failed;
+                text: "Discard draft";
+                clicked => { prov-discard(); }
+            }
+            Button {
+                visible: prov-done;
+                text: "Close";
+                primary: true;
+                clicked => { wiz-nav("close"); }
+            }
+        }
+        HorizontalLayout {
+            Button {
+                text: "Back";
+                enabled: page-idx > 0 && !prov-running;
+                clicked => { wiz-nav("back"); }
+            }
+            Button {
+                text: page-idx == 3 ? "Close" : "Cancel";
+                clicked => { wiz-nav("cancel"); }
+            }
+            Button {
+                visible: page-idx < 3;
+                text: "Next";
+                primary: true;
+                clicked => { wiz-nav("next"); }
+            }
+        }
+    }
+}

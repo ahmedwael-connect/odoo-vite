@@ -1,0 +1,199 @@
+// Databases view (PSS-4): switch/track/table/ops/schedules.
+//
+// One grouped action callback per section (bridge reads current props),
+// mirroring the Qt DatabasesPage sections without per-button signals.
+import { Button, ComboBox, GroupBox, LineEdit, ListView, SpinBox, StandardTableView } from "std-widgets.slint";
+
+export struct SchedRow {
+    id: string,
+    label: string,
+    detail: string,
+}
+
+export component DatabasesView inherits VerticalLayout {
+    in-out property<bool> has-instance: false;
+    in-out property<bool> db-busy: false;
+    in-out property<[string]> db-names;
+    in-out property<string> db-picked: "";
+    in-out property<string> db-manual: "";
+    in-out property<[[StandardListViewItem]]> table-rows;
+    in-out property<int> table-row: -1;
+    in-out property<[SchedRow]> sched-rows;
+    in-out property<int> sched-row: -1;
+    in-out property<string> sched-empty: "";
+    in-out property<string> server-note: "";
+
+    // NOTE Slint 1.18: callback args are type-only, no names.
+    callback db-action(string);
+    callback sched-action(string);
+    callback sched-picked(int);
+
+    Text {
+        visible: server-note != "";
+        text: server-note;
+        color: red;
+    }
+    GroupBox {
+        title: "Switch database";
+        VerticalLayout {
+            HorizontalLayout {
+                ComboBox {
+                    model: db-names;
+                    current-value <=> db-picked;
+                }
+                Button {
+                    text: "Set as Primary";
+                    enabled: has-instance && !db-busy;
+                    clicked => { db-action("set-primary"); }
+                }
+                Button {
+                    text: "Switch Now";
+                    enabled: has-instance && !db-busy;
+                    clicked => { db-action("switch"); }
+                }
+            }
+            HorizontalLayout {
+                Text { text: "Database name:"; }
+                LineEdit {
+                    placeholder-text: "Add by name…";
+                    text <=> db-manual;
+                }
+                Button {
+                    text: "Track";
+                    enabled: has-instance && !db-busy;
+                    clicked => { db-action("track"); }
+                }
+            }
+        }
+    }
+    GroupBox {
+        title: "Tracked databases";
+        VerticalLayout {
+            StandardTableView {
+                columns: [{ title: "Database" }, { title: "Size" },
+                          { title: "Version" }, { title: "Status" }];
+                rows: table-rows;
+                current-row <=> table-row;
+            }
+    Text {
+        text: "Inspect";
+        font-size: 14px;
+        font-weight: 700;
+    }
+    HorizontalLayout {
+        Button {
+            text: "Discover";
+            enabled: has-instance && !db-busy;
+            clicked => { db-action("discover"); }
+        }
+        Button {
+            text: "Refresh states";
+            enabled: has-instance && !db-busy;
+            clicked => { db-action("refresh-states"); }
+        }
+        Button {
+            text: "Validate";
+            enabled: has-instance && !db-busy;
+            clicked => { db-action("validate"); }
+        }
+    }
+    Text {
+        text: "Danger zone";
+        font-size: 14px;
+        font-weight: 700;
+    }
+    HorizontalLayout {
+        Button {
+            text: "Init";
+            enabled: has-instance && !db-busy;
+            clicked => { db-action("init-db"); }
+        }
+        Button {
+            text: "Drop";
+            enabled: has-instance && !db-busy;
+            clicked => { db-action("drop-db"); }
+        }
+    }
+    Text {
+        text: "Transfer";
+        font-size: 14px;
+        font-weight: 700;
+    }
+    HorizontalLayout {
+        Button {
+            text: "Backup";
+            enabled: has-instance && !db-busy;
+            clicked => { db-action("backup-db"); }
+        }
+        Button {
+            text: "Restore";
+            enabled: has-instance && !db-busy;
+            clicked => { db-action("restore-db"); }
+        }
+    }
+    }
+    }
+    GroupBox {
+        title: "Backup schedules";
+        VerticalLayout {
+    ListView {
+        for s[idx] in sched-rows: TouchArea {
+            mouse-cursor: pointer;
+            clicked => { sched-picked(idx); }
+            VerticalLayout {
+                Text {
+                    overflow: elide;
+                    text: s.label;
+                    font-weight: idx == sched-row ? 700 : 400;
+                }
+                Text {
+                    overflow: elide;
+                    text: s.detail;
+                    color: gray;
+                }
+            }
+        }
+    }
+    Text {
+        visible: sched-empty != "";
+        text: sched-empty;
+        color: gray;
+    }
+    HorizontalLayout {
+        Button {
+            text: "Add";
+            enabled: has-instance && !db-busy;
+            clicked => { sched-action("add"); }
+        }
+        Button {
+            text: "Edit";
+            enabled: has-instance && !db-busy;
+            clicked => { sched-action("edit"); }
+        }
+        Button {
+            text: "Delete";
+            enabled: has-instance && !db-busy;
+            clicked => { sched-action("delete"); }
+        }
+    }
+    HorizontalLayout {
+        Button {
+            text: "Run Now";
+            enabled: has-instance && !db-busy;
+            clicked => { sched-action("run"); }
+        }
+        Button {
+            text: "Toggle";
+            enabled: has-instance && !db-busy;
+            clicked => { sched-action("toggle"); }
+        }
+        Button {
+            text: "Files";
+            enabled: has-instance && !db-busy;
+            clicked => { sched-action("files"); }
+        }
+    }
+        }
+    }
+}
+

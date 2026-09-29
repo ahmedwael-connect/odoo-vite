@@ -1,0 +1,44 @@
+// Discover dialog (PSS-4): untracked databases grouped Likely/Other with
+// only-Likely pre-checked (A.1 parity). Reuses the shared SelectionList;
+// the Python driver owns SelectionState and pushes view_rows().
+import { Button } from "std-widgets.slint";
+import { Row, SelectionList } from "selection_list.slint";
+
+export component DiscoverDialog inherits Dialog {
+    title: "Discover databases";
+
+    in-out property<[Row]> rows;
+    in-out property<string> filter-text: "";
+    in-out property<string> counts-text: "";
+
+    callback toggled(string);
+    callback filter-changed(string);
+    callback track-requested();
+    callback cancelled();
+
+    VerticalLayout {
+        Text {
+            text: "Untracked databases (Likely pre-checked):";
+        }
+        SelectionList {
+            is-multi: true;
+            show-filter: true;
+            rows: rows;
+            filter-text <=> filter-text;
+            counts-text: counts-text;
+            row-toggled(id) => { toggled(id); }
+            filter-changed(text) => { filter-changed(text); }
+        }
+        HorizontalLayout {
+            Button {
+                text: "Cancel";
+                clicked => { cancelled(); }
+            }
+            Button {
+                text: "Track checked";
+                primary: true;
+                clicked => { track-requested(); }
+            }
+        }
+    }
+}

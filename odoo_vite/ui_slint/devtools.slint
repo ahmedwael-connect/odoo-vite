@@ -1,0 +1,273 @@
+// DevTools view (PSS-6b, cards MX-2): RPC connection, model inspector,
+// paged record browser, cron jobs, launch/editors, Odoo shell, module
+// tests. Model + record pickers reuse the shared SelectionList; shell
+// output streams through a capped ListView.
+import { Button, CheckBox, ComboBox, GroupBox, LineEdit, ListView } from "std-widgets.slint";
+import { Row, SelectionList } from "selection_list.slint";
+
+export component DevToolsView inherits VerticalLayout {
+    in-out property<bool> has-instance: false;
+    in-out property<string> dev-rpc-user: "";
+    in-out property<string> dev-rpc-pass: "";
+    in-out property<bool> dev-rpc-remember: false;
+    in-out property<string> dev-rpc-status: "Not connected.";
+    in-out property<[Row]> dev-model-rows;
+    in-out property<string> dev-model-counts: "";
+    in-out property<string> dev-model-selected: "";
+    in-out property<string> dev-models-empty: "Connect to an instance to inspect models.";
+    in-out property<string> dev-meta: "";
+    in-out property<string> dev-dom-field: "";
+    in-out property<[string]> dev-dom-ops;
+    in-out property<int> dev-dom-op-idx: 0;
+    in-out property<string> dev-dom-value: "";
+    in-out property<[Row]> dev-rec-rows;
+    in-out property<string> dev-rec-counts: "";
+    in-out property<string> dev-rec-selected: "";
+    in-out property<string> dev-rec-empty: "No query yet — search above.";
+    in-out property<string> dev-rec-page: "No query yet.";
+    in-out property<[string]> dev-cron-lines;
+    in-out property<string> dev-cron-empty: "No cron jobs loaded — press Refresh.";
+    in-out property<string> dev-shell-status: "Shell not running.";
+    in-out property<bool> dev-shell-running: false;
+    in-out property<[string]> dev-shell-lines;
+    in-out property<string> dev-shell-in: "";
+    in-out property<string> dev-test-module: "";
+    in-out property<string> dev-test-db: "";
+    in-out property<bool> dev-busy: false;
+
+    // NOTE Slint 1.18: callback args are type-only, no names.
+    callback dev-action(string);
+    callback dev-models-picked(string);
+    callback dev-rec-picked(string);
+
+    GroupBox {
+        title: "RPC connection";
+        VerticalLayout {
+            HorizontalLayout {
+                LineEdit {
+                    placeholder-text: "Odoo user (default admin)";
+                    text <=> dev-rpc-user;
+                }
+                LineEdit {
+                    placeholder-text: "password";
+                    input-type: password;
+                    text <=> dev-rpc-pass;
+                }
+                CheckBox {
+                    text: "Remember";
+                    checked <=> dev-rpc-remember;
+                }
+                Button {
+                    text: "Connect";
+                    primary: true;
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("rpc-connect"); }
+                }
+            }
+            Text {
+                text: dev-rpc-status;
+                color: gray;
+            }
+        }
+    }
+    GroupBox {
+        title: "Model Inspector";
+        VerticalLayout {
+            SelectionList {
+                is-multi: false;
+                show-filter: true;
+                rows: dev-model-rows;
+                counts-text: dev-model-counts;
+                selected-id: dev-model-selected;
+                row-picked(id) => { dev-models-picked(id); }
+            }
+            Text {
+                visible: dev-models-empty != "";
+                text: dev-models-empty;
+                color: gray;
+            }
+            Text {
+                text: dev-meta;
+                color: gray;
+            }
+        }
+    }
+    GroupBox {
+        title: "Record Browser";
+        VerticalLayout {
+            HorizontalLayout {
+                LineEdit {
+                    placeholder-text: "field (empty = all)";
+                    text <=> dev-dom-field;
+                }
+                ComboBox {
+                    model: dev-dom-ops;
+                    current-index <=> dev-dom-op-idx;
+                }
+                LineEdit {
+                    placeholder-text: "value";
+                    text <=> dev-dom-value;
+                }
+                Button {
+                    text: "Search";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("rec-search"); }
+                }
+            }
+            SelectionList {
+                is-multi: false;
+                show-filter: false;
+                rows: dev-rec-rows;
+                counts-text: dev-rec-counts;
+                selected-id: dev-rec-selected;
+                row-picked(id) => { dev-rec-picked(id); }
+            }
+            Text {
+                visible: dev-rec-empty != "";
+                text: dev-rec-empty;
+                color: gray;
+            }
+            HorizontalLayout {
+                Button {
+                    text: "◀ Prev";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("rec-prev"); }
+                }
+                Text {
+                    text: dev-rec-page;
+                    color: gray;
+                }
+                Button {
+                    text: "Next ▶";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("rec-next"); }
+                }
+            }
+            HorizontalLayout {
+                Button {
+                    text: "New…";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("rec-new"); }
+                }
+                Button {
+                    text: "Edit…";
+                    enabled: has-instance && !dev-busy && dev-rec-selected != "";
+                    clicked => { dev-action("rec-edit"); }
+                }
+                Button {
+                    text: "Delete…";
+                    enabled: has-instance && !dev-busy && dev-rec-selected != "";
+                    clicked => { dev-action("rec-delete"); }
+                }
+            }
+        }
+    }
+    GroupBox {
+        title: "Cron Jobs";
+        VerticalLayout {
+            HorizontalLayout {
+                Button {
+                    text: "Refresh";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("cron-refresh"); }
+                }
+            }
+            ListView {
+                max-height: 150px;
+                for line in dev-cron-lines: Text {
+                    overflow: elide;
+                    text: line;
+                }
+            }
+            Text {
+                visible: dev-cron-empty != "";
+                text: dev-cron-empty;
+                color: gray;
+            }
+        }
+    }
+    GroupBox {
+        title: "Launch & editors";
+        VerticalLayout {
+            HorizontalLayout {
+                Button {
+                    text: "Generate launch.json";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("gen-launch"); }
+                }
+                Button {
+                    text: "Open in VS Code";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("open-code"); }
+                }
+                Button {
+                    text: "Open in Cursor";
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("open-cursor"); }
+                }
+            }
+        }
+    }
+    GroupBox {
+        title: "Odoo Shell (PTY REPL)";
+        VerticalLayout {
+            HorizontalLayout {
+                Button {
+                    text: "Start shell";
+                    primary: true;
+                    enabled: has-instance && !dev-shell-running;
+                    clicked => { dev-action("shell-start"); }
+                }
+                Button {
+                    text: "Stop";
+                    enabled: dev-shell-running;
+                    clicked => { dev-action("shell-stop"); }
+                }
+                Text {
+                    text: dev-shell-status;
+                    color: gray;
+                }
+            }
+            ListView {
+                min-height: 160px;
+                max-height: 280px;
+                for line in dev-shell-lines: Text {
+                    overflow: elide;
+                    text: line;
+                    font-family: "monospace";
+                }
+            }
+            LineEdit {
+                placeholder-text: "Type Python to run in the shell… (Enter sends)";
+                text <=> dev-shell-in;
+                accepted => { dev-action("shell-send"); }
+            }
+        }
+    }
+    Text {
+        text: "Dev Mode Watch arrives in a later sprint (needs a file-watch design — Slint has no QFileSystemWatcher).";
+        color: gray;
+        wrap: word-wrap;
+    }
+    GroupBox {
+        title: "Module tests";
+        VerticalLayout {
+            HorizontalLayout {
+                LineEdit {
+                    placeholder-text: "module name";
+                    text <=> dev-test-module;
+                }
+                LineEdit {
+                    placeholder-text: "test database (never primary!)";
+                    text <=> dev-test-db;
+                }
+                Button {
+                    text: "Run tests";
+                    primary: true;
+                    enabled: has-instance && !dev-busy;
+                    clicked => { dev-action("test-run"); }
+                }
+            }
+        }
+    }
+}

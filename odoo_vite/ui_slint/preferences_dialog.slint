@@ -1,0 +1,59 @@
+// Preferences dialog (PSS-8): provisioning-mode switch + environment
+// status. Qt used radio buttons; Slint uses a ComboBox (same choice,
+// no custom radio group needed). Pure UI: constructed with values, the
+// mode index delivers on Save.
+import { Button, ComboBox } from "std-widgets.slint";
+
+export component PreferencesDialog inherits Dialog {
+    title: "Preferences";
+
+    in-out property<[string]> mode-labels;
+    in-out property<int> mode-idx: 0;
+    in-out property<string> mode-note: "";
+    in-out property<string> keyring-text: "";
+    in-out property<string> db-path: "";
+
+    callback mode-changed(int);
+    callback save-requested();
+    callback cancelled();
+
+    VerticalLayout {
+        Text {
+            text: "Provisioning mode (applies to new instances)";
+            font-size: 16px;
+            font-weight: 700;
+        }
+        ComboBox {
+            model: mode-labels;
+            current-index <=> mode-idx;
+            selected => { mode-changed(self.current-index); }
+        }
+        Text {
+            text: mode-note;
+            color: gray;
+            wrap: word-wrap;
+        }
+        Text {
+            text: keyring-text;
+            color: gray;
+            wrap: word-wrap;
+        }
+        Text {
+            visible: db-path != "";
+            text: "Registry: " + db-path;
+            color: gray;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            Button {
+                text: "Cancel";
+                clicked => { cancelled(); }
+            }
+            Button {
+                text: "Save";
+                primary: true;
+                clicked => { save-requested(); }
+            }
+        }
+    }
+}

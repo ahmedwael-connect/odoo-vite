@@ -1,0 +1,100 @@
+// Overview view (PSS-4, hierarchy pass UXS-3): status pill + grouped
+// Server / Database sections. Path display is middle-elided (Qt rule);
+// the full path rides along for accessible readers.
+import { Button, GroupBox } from "std-widgets.slint";
+
+export component OverviewView inherits VerticalLayout {
+    in-out property<string> ov-name: "";
+    in-out property<string> ov-version: "";
+    in-out property<string> ov-port: "";
+    in-out property<string> ov-path: "";
+    in-out property<string> ov-path-full: "";
+    in-out property<string> ov-primary: "";
+    in-out property<string> ov-dbuser: "";
+    in-out property<string> ov-status: "";
+    in-out property<bool> is-running: false;
+    in-out property<string> ent-text: "";
+    in-out property<bool> ent-warn: false;
+
+    callback ov-start();
+    callback ov-stop();
+    callback ov-restart();
+    callback ov-remove();
+    callback ov-clone();
+    callback ov-export();
+
+    Text {
+        text: ov-name == "" ? "Select an instance" : ov-name;
+        font-size: 20px;
+        font-weight: 700;
+    }
+    Rectangle {
+        background: is-running ? green : gray;
+        border-radius: 6px;
+        animate background { duration: 250ms; }
+        HorizontalLayout {
+            padding: 6px;
+            Text {
+                text: ov-status;
+                color: white;
+                font-weight: 700;
+            }
+        }
+    }
+    GroupBox {
+        title: "Server";
+        VerticalLayout {
+            Text { text: "Version: " + ov-version; }
+            Text { text: "Port: " + ov-port; }
+            Text {
+                text: "Path: " + ov-path;
+                accessible-label: ov-path-full;
+            }
+        }
+    }
+    GroupBox {
+        title: "Database";
+        VerticalLayout {
+            Text { text: "Primary DB: " + ov-primary; }
+            Text { text: "DB user: " + ov-dbuser; }
+        }
+    }
+    Text {
+        text: ent-text;
+        visible: ent-text != "";
+        color: ent-warn ? orange : gray;
+    }
+    HorizontalLayout {
+        Button {
+            text: "Start";
+            primary: true;
+            enabled: !is-running && ov-name != "";
+            clicked => { ov-start(); }
+        }
+        Button {
+            text: "Stop";
+            enabled: is-running;
+            clicked => { ov-stop(); }
+        }
+        Button {
+            text: "Restart";
+            enabled: is-running;
+            clicked => { ov-restart(); }
+        }
+        Button {
+            text: "Remove";
+            enabled: ov-name != "";
+            clicked => { ov-remove(); }
+        }
+        Button {
+            text: "Clone";
+            enabled: !is-running && ov-name != "";
+            clicked => { ov-clone(); }
+        }
+        Button {
+            text: "Export…";
+            enabled: ov-name != "";
+            clicked => { ov-export(); }
+        }
+    }
+}

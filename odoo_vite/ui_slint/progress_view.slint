@@ -1,0 +1,42 @@
+// Streaming progress (PSS-2): Qt ProgressDialog parity — log view,
+// cancel-while-running, close-at-end. Python driver owns the log lines
+// and the cancel Event; this view only renders + emits. The log lives in
+// a ScrollView pinned to the bottom so long runs stay inside the dialog.
+import { Button, ScrollView } from "std-widgets.slint";
+
+export component ProgressView inherits Dialog {
+    title: "Working…";
+
+    in-out property<string> status: "Running…";
+    in-out property<string> log: "";
+    in-out property<bool> finished: false;
+
+    callback cancel-requested();
+    callback closed();
+
+    VerticalLayout {
+        Text {
+            text: status;
+        }
+        log-scroll := ScrollView {
+            min-height: 200px;
+            log-text := Text {
+                text: log;
+                wrap: word-wrap;
+            }
+            content-y: max(0px, log-text.height - self.visible-height);
+        }
+        HorizontalLayout {
+            Button {
+                text: "Cancel";
+                visible: !finished;
+                clicked => { cancel-requested(); }
+            }
+            Button {
+                text: "Close";
+                visible: finished;
+                clicked => { closed(); }
+            }
+        }
+    }
+}

@@ -1,0 +1,51 @@
+// Record editor (PSS-6b): metadata-driven field form. Fields are fixed
+// at open time; LineEdits own their text one-way (no model fights) and
+// report through field-edited — the Python driver keeps the values dict.
+import { Button, LineEdit, ListView } from "std-widgets.slint";
+
+export struct FieldRow {
+    name: string,
+    value: string,
+}
+
+export component RecordDialog inherits Dialog {
+    title: "Record";
+
+    in-out property<string> rec-title: "";
+    in-out property<[FieldRow]> fields;
+
+    callback field-edited(string, string);
+    callback save-requested();
+    callback cancelled();
+
+    VerticalLayout {
+        Text {
+            text: rec-title;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        ListView {
+            for f in fields: HorizontalLayout {
+                Text {
+                    text: f.name + ":";
+                    width: 140px;
+                }
+                LineEdit {
+                    text: f.value;
+                    edited(t) => { field-edited(f.name, t); }
+                }
+            }
+        }
+        HorizontalLayout {
+            Button {
+                text: "Cancel";
+                clicked => { cancelled(); }
+            }
+            Button {
+                text: "Save";
+                primary: true;
+                clicked => { save-requested(); }
+            }
+        }
+    }
+}

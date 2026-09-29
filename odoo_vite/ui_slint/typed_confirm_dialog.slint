@@ -1,0 +1,49 @@
+// Destructive tier (PSS-2): Qt ask_confirm_typed parity — OK enables
+// only on exact match. (Qt strips surrounding whitespace in typed_gate_ok;
+// Slint compares exact here, the Python driver strips on read.)
+import { Button, LineEdit } from "std-widgets.slint";
+
+export component TypedConfirmDialog inherits Dialog {
+    title: "Confirm";
+
+    in-out property<string> heading: "";
+    in-out property<string> body: "";
+    in-out property<string> expected: "";
+    in-out property<string> confirm-label: "Delete";
+    in-out property<string> entry: "";
+
+    // Named gate rule (headless-testable): OK enables only on match.
+    out property<bool> ok-enabled: entry == expected && expected != "";
+
+    callback confirmed();
+    callback cancelled();
+
+    VerticalLayout {
+        Text {
+            text: "⚠ " + heading;
+            font-size: 18px;
+            font-weight: 700;
+            color: red;
+        }
+        Text {
+            text: body;
+            wrap: word-wrap;
+        }
+        LineEdit {
+            placeholder-text: "Type the expected text to confirm";
+            text <=> entry;
+        }
+        HorizontalLayout {
+            Button {
+                text: "Cancel";
+                clicked => { cancelled(); }
+            }
+            Button {
+                text: confirm-label;
+                primary: true;
+                enabled: ok-enabled;
+                clicked => { confirmed(); }
+            }
+        }
+    }
+}

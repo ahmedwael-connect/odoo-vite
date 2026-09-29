@@ -1,0 +1,104 @@
+// Modules view (PSS-5a): search + state filter + checked multi-pick +
+// Install/Update on checked, Uninstall/Dependencies on the current row,
+// Update-Code over auto_update_modules. Checked-set preservation and row
+// rendering ride on the shared SelectionList (Qt _checked parity lives in
+// SelectionState.set_items — rows without explicit flags keep picks).
+import { Button, ComboBox, GroupBox, LineEdit } from "std-widgets.slint";
+import { Row, SelectionList } from "selection_list.slint";
+
+export component ModulesView inherits VerticalLayout {
+    in-out property<bool> has-instance: false;
+    in-out property<string> mod-db: "";
+    in-out property<string> mod-search: "";
+    in-out property<[string]> mod-filters;
+    in-out property<int> mod-filter-idx: 0;
+    in-out property<[Row]> mod-rows;
+    in-out property<string> mod-counts: "";
+    in-out property<string> mod-selected: "";
+    in-out property<bool> mod-has-checked: false;
+    in-out property<string> mod-empty: "No modules loaded — select an instance with a primary database, then press Refresh.";
+    in-out property<bool> mod-busy: false;
+
+    // NOTE Slint 1.18: callback args are type-only, no names.
+    callback mod-action(string);
+    callback mod-search-changed(string);
+    callback mod-filter-changed(int);
+    callback mod-toggled(string);
+    callback mod-picked(string);
+
+    GroupBox {
+        title: "Modules";
+        VerticalLayout {
+            Text {
+                text: mod-db;
+                color: gray;
+            }
+            HorizontalLayout {
+                LineEdit {
+                    placeholder-text: "Filter by name or summary…";
+                    text <=> mod-search;
+                    edited(text) => { mod-search-changed(text); }
+                }
+                ComboBox {
+                    model: mod-filters;
+                    current-index <=> mod-filter-idx;
+                    selected => { mod-filter-changed(self.current-index); }
+                }
+                Button {
+                    text: "Refresh";
+                    enabled: has-instance && !mod-busy;
+                    clicked => { mod-action("refresh"); }
+                }
+            }
+            SelectionList {
+                is-multi: true;
+                show-filter: false;
+                rows: mod-rows;
+                counts-text: mod-counts;
+                selected-id: mod-selected;
+                row-toggled(id) => { mod-toggled(id); }
+                row-picked(id) => { mod-picked(id); }
+            }
+            Text {
+                visible: mod-empty != "";
+                text: mod-empty;
+                color: gray;
+            }
+        }
+    }
+    HorizontalLayout {
+        Button {
+            text: "Install Checked";
+            primary: true;
+            enabled: has-instance && !mod-busy && mod-has-checked;
+            clicked => { mod-action("install"); }
+        }
+        Button {
+            text: "Update Checked";
+            enabled: has-instance && !mod-busy && mod-has-checked;
+            clicked => { mod-action("update"); }
+        }
+        Button {
+            text: "Uninstall";
+            enabled: has-instance && !mod-busy && mod-selected != "";
+            clicked => { mod-action("uninstall"); }
+        }
+    }
+    HorizontalLayout {
+        Button {
+            text: "Update Code…";
+            enabled: has-instance && !mod-busy;
+            clicked => { mod-action("update-code"); }
+        }
+        Button {
+            text: "Dependencies…";
+            enabled: has-instance && !mod-busy && mod-selected != "";
+            clicked => { mod-action("deps"); }
+        }
+        Button {
+            text: "New Module…";
+            enabled: has-instance && !mod-busy;
+            clicked => { mod-action("scaffold"); }
+        }
+    }
+}
