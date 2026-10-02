@@ -255,8 +255,9 @@ class AppApi(Domain):
 
 
 class LifecycleApi(Domain):
-    def __init__(self, push: PushChannel) -> None:
+    def __init__(self, push: PushChannel, cancels: CancelRegistry) -> None:
         self._push = push
+        self._cancels = cancels
         self._ops = LifecycleOps(
             on_message=_sink_message(push), on_refresh=_sink_refresh(push)
         )
@@ -269,6 +270,20 @@ class LifecycleApi(Domain):
 
     def stop(self, instance_id: str) -> Any:
         return asyncio.run(self._ops.stop(instance_id))
+
+    def start_many(self, ids: list, op_id: str = "") -> Any:
+        """Bulk start — sequential, streamed, cancelable between ids."""
+        return _progress_call(
+            self._push, self._cancels, self._ops.start_many, op_id,
+            [str(i) for i in (ids or [])],
+        )
+
+    def stop_many(self, ids: list, op_id: str = "") -> Any:
+        """Bulk stop — sequential, streamed, cancelable between ids."""
+        return _progress_call(
+            self._push, self._cancels, self._ops.stop_many, op_id,
+            [str(i) for i in (ids or [])],
+        )
 
     def restart(self, instance_id: str) -> Any:
         return asyncio.run(self._ops.restart(instance_id))
@@ -902,7 +917,7 @@ class Api:
         self._push = push
         cancels = CancelRegistry()
         self.app = AppApi(push, file_dialog)
-        self.lifecycle = LifecycleApi(push)
+        self.lifecycle = LifecycleApi(push, cancels)
         self.databases = DatabasesApi(push)
         self.modules = ModulesApi(push, cancels)
         self.config = ConfigApi(push, cancels)

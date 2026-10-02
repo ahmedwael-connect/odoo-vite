@@ -548,3 +548,58 @@ def test_rebuild_venv_streams_progress(env, tmp_path, monkeypatch):
     assert all(e["payload"]["op_id"] == "op-v1" for e in lines)
     done = events.last("progress-done")
     assert done is not None and done["payload"]["op_id"] == "op-v1"
+
+
+# ---------------------------------------------------------------- bulk ops
+
+
+def test_lifecycle_stop_many_streams_progress(env, monkeypatch):
+    from odoo_vite.core import process_manager
+
+    monkeypatch.setattr(
+        process_manager, "get_statuses", lambda *a, **k: [
+            {"id": "i1", "name": "One", "status": "running"},
+            {"id": "i2", "name": "Two", "status": "stopped"},
+        ])
+    monkeypatch.setattr(
+        "odoo_vite.core.process_manager.stop_instance",
+        lambda iid: Result(ok=True, message=f"stopped {iid}"))
+
+    api, events = env
+    res = api.lifecycle.stop_many(["i1", "i2"], "op-bulk")
+
+    assert res["ok"] is True
+    assert "stopped 1" in res["message"]
+    assert "skipped 1 not running" in res["message"]
+    lines = [e for e in events.events if e["kind"] == "progress-line"]
+    texts = [e["payload"]["line"] for e in lines]
+    assert any("Stopping One" in t for t in texts)
+    assert any("skipped (not running)" in t for t in texts)
+    assert all(e["payload"]["op_id"] == "op-bulk" for e in lines)
+    done = events.last("progress-done")
+    assert done is not None and done["payload"]["op_id"] == "op-bulk"
+    msg = events.last("message")
+    assert msg["payload"]["level"] == "info"
+    json.dumps(events.events)
+
+
+def test_lifecycle_start_many_failure_is_error_message(env, monkeypatch):
+    from odoo_vite.core import process_manager
+
+    monkeypatch.setattr(
+        process_manager, "get_statuses", lambda *a, **k: [
+            {"id": "i1", "name": "One", "status": "stopped"},
+        ])
+    monkeypatch.setattr(
+        "odoo_vite.core.process_manager.start_instance",
+        lambda *a, **k: Result.failure("venv python missing"))
+
+    api, events = env
+    res = api.lifecycle.start_many(["i1"], "op-bulk2")
+
+    assert res["ok"] is False
+    assert "venv python missing" in res["message"]
+    msg = events.last("message")
+    assert msg["payload"]["level"] == "error"
+    done = events.last("progress-done")
+    assert done is not None and done["payload"]["op_id"] == "op-bulk2"

@@ -42,6 +42,98 @@ class LifecycleOps:
     async def stop(self, instance_id: str):
         return await self._run(process_manager.stop_instance, instance_id)
 
+    async def start_many(self, instance_ids: list[str], progress_cb=None,
+                         cancel=None) -> Result:
+        """Batch start — sequential in ONE worker (qt-architecture §5:
+        parallel lifecycle workers would lose registry RMW updates)."""
+        return await self._batch(
+            "start", instance_ids, progress_cb, cancel)
+
+    async def stop_many(self, instance_ids: list[str], progress_cb=None,
+                        cancel=None) -> Result:
+        """Batch stop — same single-worker rule as start_many."""
+        return await self._batch("stop", instance_ids, progress_cb, cancel)
+
+    async def _batch(self, action: str, instance_ids: list[str],
+                     progress_cb=None, cancel=None) -> Result:
+        """Run start/stop per id, sequentially. Running-state skips come
+        from one live get_statuses() read (self-healing, before the loop);
+        first-start DB confirmations are skipped — bulk cannot host
+        per-instance preview dialogs, so they stay a single-instance flow.
+        """
+        ids = [str(i) for i in (instance_ids or []) if i]
+        total = len(ids)
+        by_id = {s["id"]: s for s in process_manager.get_statuses()}
+        participle = "started" if action == "start" else "stopped"
+        verb = "Starting" if action == "start" else "Stopping"
+        done: list[str] = []
+        skipped: list[str] = []
+        confirms: list[str] = []
+        failed: list[dict] = []
+        left = 0
+
+        for idx, iid in enumerate(ids, 1):
+            if cancel is not None and cancel():
+                left = total - idx + 1
+                break
+            entry = by_id.get(iid)
+            if entry is None:
+                failed.append({"name": iid, "reason": "not found"})
+                if progress_cb is not None:
+                    progress_cb(f"[{idx}/{total}] {iid}: not found")
+                continue
+            name = str(entry.get("name") or iid)
+            running = str(entry.get("status") or "") == "running"
+            if (action == "start" and running) or (
+                    action == "stop" and not running):
+                skipped.append(name)
+                if progress_cb is not None:
+                    label = "already running" if action == "start" \
+                        else "not running"
+                    progress_cb(f"[{idx}/{total}] {name}: skipped ({label})")
+                continue
+            if progress_cb is not None:
+                progress_cb(f"[{idx}/{total}] {verb} {name}…")
+            if action == "start":
+                res = await asyncio.to_thread(
+                    process_manager.start_instance, iid, None, None)
+            else:
+                res = await asyncio.to_thread(
+                    process_manager.stop_instance, iid)
+            if res.ok:
+                done.append(name)
+            elif isinstance(res.data, dict) and res.data.get("needs_confirm"):
+                confirms.append(name)
+            elif "is already running" in (res.message or ""):
+                skipped.append(name)
+            else:
+                failed.append({"name": name, "reason": res.message})
+            if progress_cb is not None:
+                progress_cb(f"[{idx}/{total}] {name}: {res.message}")
+
+        parts: list[str] = []
+        if done:
+            parts.append(f"{participle} {len(done)}")
+        if skipped:
+            label = "already running" if action == "start" else "not running"
+            parts.append(f"skipped {len(skipped)} {label}")
+        if confirms:
+            parts.append(
+                f"{len(confirms)} need database confirmation — "
+                "start them individually")
+        if failed:
+            parts.append(f"{len(failed)} failed")
+        if left:
+            parts.append(f"cancelled ({left} remaining)")
+        msg = "; ".join(parts) if parts else "nothing to do"
+        for item in failed[:3]:
+            msg += f" — {item['name']}: {item['reason']}"
+        data = {"done": done, "skipped": skipped,
+                "needs_confirm": confirms, "failed": failed}
+        self._message(msg, "error" if failed else "info")
+        self._refresh()
+        return Result(ok=not failed, message=msg, data=data)
+
     async def restart(self, instance_id: str):
         return await self._run(
             process_manager.restart_instance, instance_id)

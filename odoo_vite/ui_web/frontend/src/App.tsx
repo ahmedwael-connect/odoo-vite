@@ -5,10 +5,11 @@
  */
 
 import { useEffect, useState } from 'react'
-import { useBridgeReady } from './bridge'
+import { getApi, useBridgeReady } from './bridge'
+import { useConfirm, useProgressRun } from './components/dialog'
 import { SelectionList, type SelRow } from './components/selection'
 import { ActionButton, SectionHeader, Spinner, StatusPill } from './components/ui'
-import { useProgress } from './events'
+import { route, useProgress } from './events'
 import { AboutDialog, EventLogDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
 import { AdoptWizard, CreateWizard } from './dialogs/wizards'
 import { useApp } from './store'
@@ -43,11 +44,17 @@ export default function App() {
     toast,
     hideToast,
     busy,
+    setBusy,
     dialog,
     setDialog,
   } = useApp()
   const ops = useProgress()
+  const confirm = useConfirm()
+  const runProgress = useProgressRun()
+  const api = getApi()
   const [tab, setTab] = useState<Tab>('overview')
+  const [bulkMode, setBulkMode] = useState(false)
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
   const activeOps = ops.filter((o) => !o.done).length
 
@@ -90,7 +97,53 @@ export default function App() {
     id: s.id,
     title: s.name,
     badge: cap(s.status),
+    checked: checkedIds.has(s.id),
   }))
+
+  // drop ghosts (removed instances) from the checked set at use time
+  const selectedIds = [...checkedIds].filter((id) =>
+    statuses.some((s) => s.id === id),
+  )
+
+  const toggleChecked = (id: string, on: boolean) =>
+    setCheckedIds((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+
+  const runBulk = async (action: 'start_many' | 'stop_many') => {
+    const ids = selectedIds
+    if (ids.length === 0 || busy) return
+    if (action === 'stop_many') {
+      const names = ids.map((id) => statuses.find((s) => s.id === id)?.name ?? id)
+      const ok = await confirm({
+        heading: `Stop ${ids.length} instance(s)?`,
+        body: names.join(', '),
+        confirmLabel: 'Stop',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    try {
+      const title =
+        action === 'start_many'
+          ? `Starting ${ids.length} instance(s)`
+          : `Stopping ${ids.length} instance(s)`
+      const res = await runProgress(title, (opId) =>
+        action === 'start_many'
+          ? api.lifecycle.start_many(ids, opId)
+          : api.lifecycle.stop_many(ids, opId),
+      )
+      route({ kind: 'message', payload: { text: res.message, level: res.ok ? 'info' : 'error' } })
+      if (res.ok) setCheckedIds(new Set())
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const statusRow = currentId ? statuses.find((s) => s.id === currentId) : undefined
   const statusLine = `${statuses.length} instance(s) — ${
@@ -103,18 +156,62 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="sidebar-title">Instances</div>
+        {statuses.length > 0 && (
+          <div className="btn-row">
+            <ActionButton
+              disabled={busy}
+              onClick={() => {
+                setBulkMode((b) => !b)
+                setCheckedIds(new Set())
+              }}
+            >
+              {bulkMode ? 'Done selecting' : 'Bulk select…'}
+            </ActionButton>
+            {bulkMode && selectedIds.length > 0 && (
+              <ActionButton onClick={() => setCheckedIds(new Set())}>Clear</ActionButton>
+            )}
+          </div>
+        )}
         <SelectionList
           rows={rows}
           selectedId={currentId ?? undefined}
           onPick={select}
+          multi={bulkMode}
+          onToggle={toggleChecked}
           showFilter
-          counts={statuses.length ? `${statuses.length} instance(s)` : ''}
+          counts={
+            statuses.length
+              ? bulkMode && selectedIds.length
+                ? `${selectedIds.length} of ${statuses.length} selected`
+                : `${statuses.length} instance(s)`
+              : ''
+          }
           emptyState={
             <p className="empty-state dim-label">
               No instances yet — create or adopt one to begin.
             </p>
           }
         />
+        {bulkMode && selectedIds.length > 0 && (
+          <div className="btn-row">
+            <ActionButton
+              primary
+              disabled={busy}
+              title="Start the selected instances sequentially (one worker)"
+              onClick={() => void runBulk('start_many')}
+            >
+              Start ({selectedIds.length})
+            </ActionButton>
+            <ActionButton
+              danger
+              disabled={busy}
+              title="Stop the selected instances sequentially (one worker)"
+              onClick={() => void runBulk('stop_many')}
+            >
+              Stop ({selectedIds.length})
+            </ActionButton>
+          </div>
+        )}
         <div className="sidebar-divider" />
         <SectionHeader text="System" />
         <div className="btn-row">

@@ -112,3 +112,131 @@ def test_set_primary_round_trip_tmp_registry(monkeypatch, tmp_path):
     res = asyncio.run(ops.set_primary(inst.id, "extra"))
     assert res.ok, res.message
     assert get_instance(inst.id).primary_db == "extra"
+
+
+# ------------------------------------------------------------------- bulk
+
+
+def _statuses(*rows):
+    return [{"id": i, "name": n, "status": s} for i, n, s in rows]
+
+
+def test_start_many_sequential_batch(monkeypatch):
+    from odoo_vite.core import process_manager
+
+    monkeypatch.setattr(
+        process_manager, "get_statuses",
+        lambda *a, **k: _statuses(
+            ("a", "Alpha", "running"), ("b", "Beta", "stopped"),
+            ("c", "Gamma", "stopped")))
+    calls, off_main = [], []
+
+    def _start(iid, database=None, confirm_cb=None):
+        calls.append(iid)
+        off_main.append(threading.current_thread() is not threading.main_thread())
+        if iid == "c":
+            return Result.failure(
+                "confirm needed", data={"needs_confirm": True})
+        return Result(ok=True, message=f"started {iid}")
+
+    monkeypatch.setattr(process_manager, "start_instance", _start)
+    ops, messages, refreshes = _ops()
+    lines = []
+    res = asyncio.run(
+        ops.start_many(["a", "b", "c"], progress_cb=lines.append))
+    # a skipped (running), b then c attempted in order, off the main thread
+    assert calls == ["b", "c"] and all(off_main)
+    # needs_confirm is a skip, not a failure
+    assert res.ok is True
+    assert res.data == {
+        "done": ["Beta"], "skipped": ["Alpha"],
+        "needs_confirm": ["Gamma"], "failed": []}
+    assert "started 1" in res.message
+    assert "skipped 1 already running" in res.message
+    assert "database confirmation" in res.message
+    assert lines == [
+        "[1/3] Alpha: skipped (already running)",
+        "[2/3] Starting Beta…", "[2/3] Beta: started b",
+        "[3/3] Starting Gamma…", "[3/3] Gamma: confirm needed",
+    ]
+    assert messages == [(res.message, "info")]
+    assert refreshes == [1]
+
+
+def test_start_many_failure_reports_and_refreshes(monkeypatch):
+    from odoo_vite.core import process_manager
+
+    monkeypatch.setattr(
+        process_manager, "get_statuses",
+        lambda *a, **k: _statuses(("x", "Xray", "stopped")))
+    monkeypatch.setattr(
+        process_manager, "start_instance",
+        lambda *a, **k: Result.failure("port 8069 busy"))
+    ops, messages, refreshes = _ops()
+    res = asyncio.run(ops.start_many(["x", "ghost"]))
+    assert res.ok is False
+    assert "2 failed" in res.message and "port 8069 busy" in res.message
+    assert "ghost" in res.message and "not found" in res.message
+    assert res.data["failed"] == [
+        {"name": "Xray", "reason": "port 8069 busy"},
+        {"name": "ghost", "reason": "not found"},
+    ]
+    assert messages == [(res.message, "error")] and refreshes == [1]
+
+
+def test_start_many_cancel_stops_early(monkeypatch):
+    from odoo_vite.core import process_manager
+
+    monkeypatch.setattr(
+        process_manager, "get_statuses",
+        lambda *a, **k: _statuses(
+            ("0", "N0", "stopped"), ("1", "N1", "stopped"),
+            ("2", "N2", "stopped")))
+    calls = []
+    monkeypatch.setattr(
+        process_manager, "start_instance",
+        lambda iid, *a, **k: calls.append(iid) or Result(ok=True, message="ok"))
+    state = {"n": 0}
+
+    def cancel() -> bool:
+        state["n"] += 1
+        return state["n"] > 1  # allow the first, refuse the rest
+
+    ops, messages, refreshes = _ops()
+    res = asyncio.run(ops.start_many(["0", "1", "2"], cancel=cancel))
+    assert calls == ["0"]
+    assert "cancelled (2 remaining)" in res.message
+    assert res.ok is True  # cancel is not a failure
+    assert messages == [(res.message, "info")] and refreshes == [1]
+
+
+def test_stop_many_skips_not_running(monkeypatch):
+    from odoo_vite.core import process_manager
+
+    monkeypatch.setattr(
+        process_manager, "get_statuses",
+        lambda *a, **k: _statuses(
+            ("a", "Alpha", "running"), ("b", "Beta", "stopped")))
+    calls = []
+    monkeypatch.setattr(
+        process_manager, "stop_instance",
+        lambda iid, *a, **k: calls.append(iid) or Result(ok=True, message="stopped"))
+    ops, messages, refreshes = _ops()
+    res = asyncio.run(ops.stop_many(["a", "b"]))
+    assert calls == ["a"]
+    assert res.ok is True
+    assert "stopped 1" in res.message
+    assert "skipped 1 not running" in res.message
+    assert res.data == {
+        "done": ["Alpha"], "skipped": ["Beta"],
+        "needs_confirm": [], "failed": []}
+
+
+def test_bulk_empty_ids_is_noop(monkeypatch):
+    from odoo_vite.core import process_manager
+
+    monkeypatch.setattr(process_manager, "get_statuses", lambda *a, **k: [])
+    ops, messages, refreshes = _ops()
+    res = asyncio.run(ops.start_many([]))
+    assert res.ok and res.message == "nothing to do"
+    assert messages == [("nothing to do", "info")] and refreshes == [1]

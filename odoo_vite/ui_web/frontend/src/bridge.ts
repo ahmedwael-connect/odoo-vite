@@ -80,12 +80,20 @@ const mock: ApiTree = {
       route({ kind: 'refresh', payload: {} })
       return res
     },
+    start_many: async (ids: string[]): Promise<Result> => ({
+      ok: true,
+      message: `mock: started ${ids.length} instance(s)`,
+    }),
     stop: async (id: string): Promise<Result> => {
       const res: Result = { ok: true, message: `mock: stop ${id}` }
       route({ kind: 'message', payload: { text: res.message, level: 'info' } })
       route({ kind: 'refresh', payload: {} })
       return res
     },
+    stop_many: async (ids: string[]): Promise<Result> => ({
+      ok: true,
+      message: `mock: stopped ${ids.length} instance(s)`,
+    }),
     restart: async (id: string): Promise<Result> => ({ ok: true, message: `mock: restart ${id}` }),
     remove: async (id: string): Promise<Result> => ({ ok: true, message: `mock: remove ${id}` }),
     clone: async (id: string, name: string): Promise<Result> => ({

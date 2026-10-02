@@ -160,7 +160,9 @@ export interface AppApi {
 
 export interface LifecycleApi {
   start(instance_id: string, database?: string | null, confirm?: boolean): Async<Result>
+  start_many(ids: string[], op_id?: string): Async<Result>
   stop(instance_id: string): Async<Result>
+  stop_many(ids: string[], op_id?: string): Async<Result>
   restart(instance_id: string): Async<Result>
   remove(
     instance_id: string,
