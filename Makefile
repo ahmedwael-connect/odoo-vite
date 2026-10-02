@@ -1,10 +1,22 @@
-.PHONY: lint test install-desktop
+.PHONY: lint test install-desktop shot frontend-install frontend-build frontend-dev
 
 lint:
-	python3 -m ruff check odoo_vite/ tests/
+	python3 -m ruff check odoo_vite/ tests/ tools/
 
 test:
 	python3 -m pytest tests/ -q
+
+frontend-install:
+	cd odoo_vite/ui_web/frontend && npm install
+
+frontend-build:
+	cd odoo_vite/ui_web/frontend && npm run build
+
+frontend-dev:
+	cd odoo_vite/ui_web/frontend && npm run dev
+
+shot:
+	python3 tools/shots.py "$(LABEL)"
 
 install-desktop:
 	mkdir -p "$(HOME)/.local/share/applications"

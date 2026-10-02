@@ -1,4 +1,4 @@
-"""Odoo Vite — native GTK4 Ubuntu desktop app for managing local Odoo instances."""
+"""Odoo Vite — native (pywebview) Ubuntu desktop app for managing local Odoo instances."""
 
 from odoo_vite.core.version import __version__
 

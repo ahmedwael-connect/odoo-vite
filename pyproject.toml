@@ -5,19 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "odoo-vite"
 version = "3.0.0"
-description = "Native Slint Ubuntu desktop app to manage local Odoo instances (creation wizard + lifecycle + DB/modules/config/logs/devtools)"
+description = "Native pywebview + React desktop app to manage local Odoo instances (creation wizard + lifecycle + DB/modules/config/logs/devtools)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "psutil>=5.9",
     "keyring>=24.0",
-    # PSS-9: Slint is the frontend now (was an opt-in extra while Qt
-    # coexisted). Pinned exact — the Python API is still beta:
-    # type-only callback args and Timer(timedelta) verified against
-    # this build; re-verify the three syntax facts on every bump
-    # (docs/slint-thread-safety.md). Licensed royalty-free; the app
-    # shows the AboutSlint disclosure (sidebar → About Slint).
-    "slint==1.18.1b1",
+    # Web cutover: window shell for the React frontend. The GTK backend
+    # uses the system PyGObject (README apt line: python3-gi,
+    # gir1.2-gtk-3.0, gir1.2-webkit2-4.1) — no pip GUI build needed.
+    "pywebview>=6.2",
 ]
 authors = [{ name = "Odoo Vite Team" }]
 

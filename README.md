@@ -1,12 +1,12 @@
-# Odoo Vite — Slint frontend (v3.0.0 cutover)
+# Odoo Vite — pywebview + React frontend (v3.0.0 cutover)
 
-Native Slint Ubuntu desktop app that manages the full lifecycle of
+Native Ubuntu desktop app that manages the full lifecycle of
 local Odoo instances — "Docker Desktop, but for Odoo". Create, start, stop,
 restart, adopt, remove, clone, export/import instances; switch/track databases; least-privilege
 managed mode; OS-keyring secrets.
 
-Status: Qt → Slint migration complete (PSS-1..9);
-`pytest tests/` green plus live E2E runs on real Ubuntu.
+Status: Qt → Slint → web migration complete; `pytest tests/` green
+plus live E2E runs (real window) on real Ubuntu.
 
 ## Requirements
 
@@ -42,7 +42,9 @@ pip install --break-system-packages ".[test]"
 
 # 4. Run (from the extracted folder root — note: `python3`, not `python`,
 #    which Ubuntu does not ship by default)
-python3 main.py            # or: python3 -m odoo_vite.main (Slint app)
+python3 main.py            # or: python3 -m odoo_vite.main
+                            # add --dev for the Vite dev server
+                            # (make frontend-dev), else serves dist/
 ```
 
 On first launch the app creates `~/.local/share/odoo-vite/` (registry +
@@ -65,16 +67,12 @@ python3 -m pytest tests/ -q
 
 ## Layout
 
-`odoo_vite/` package with strict `ui_slint/` (Slint markup + Python
-bridge) + `core/` (pure Python, zero GUI imports — enforced by
-`tests/test_no_slint_in_core.py`) separation.
+`odoo_vite/` package with strict `ui_web/` (pywebview window + React/TS
+frontend in `ui_web/frontend/`) + `ops/` (framework-free ops classes) +
+`core/` (pure Python, zero GUI imports — enforced by
+`tests/test_no_slint_in_core.py`, `tests/test_no_webview_in_core.py`)
+separation.
 `tests/` lives at the project root, and a root `main.py` shim forwards to
 `odoo_vite.main`. PM specs for each sprint are kept under
-`development phases/` for history; the Slint migration log lives in
-`docs/slint-work-log.md`.
-
-## License note
-
-The UI toolkit (Slint) is used under its royalty-free license, which
-asks for a visible disclosure: open **About Slint** from the sidebar to
-see it.
+`development phases/` for history; the Slint migration log (historical)
+lives in `docs/slint-work-log.md`.

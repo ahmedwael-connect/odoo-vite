@@ -1,0 +1,716 @@
+/*
+ * Odoo Vite web shell — docs/design-system.md:
+ * spacing scale 4/8/12/16/24/32 (nothing else), semantic color roles,
+ * .ov-card 12px radius, type via classes (title/heading/dim-label/mono).
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #14161a;
+  --panel: #1c1f26;
+  --panel-2: #21252e;
+  --border: #2b303b;
+  --text: #d7dbe3;
+  --muted: #8b93a3;
+  --accent: #7aa2f7;
+  --ok: #7ddc9a;
+  --bad: #f7768e;
+  --warn: #e0af68;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-card: 12px;
+  --radius-ctl: 6px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------------ shell */
+
+.shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 260px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+}
+
+.sidebar-title,
+.app-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--border);
+  margin: var(--space-2) 0;
+}
+
+.main-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.app-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.tabbar {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4) 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--muted);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-ctl) var(--radius-ctl) 0 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tab.active {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.statusline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+button {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #10131a;
+  font-weight: 600;
+}
+
+.btn.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.btn.action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.btn-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  margin: var(--space-2) 0;
+}
+
+.split-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--space-2) 0;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-3);
+}
+
+/* ------------------------------------------------------------------ forms */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+}
+
+.field-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.input,
+select.input,
+textarea.input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-ctl);
+  font: inherit;
+  min-width: 0;
+  width: 100%;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.input.spin {
+  max-width: 120px;
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox input {
+  accent-color: var(--accent);
+}
+
+.checkbox.inline {
+  margin: 0;
+}
+
+/* ----------------------------------------------------------------- layout */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 1100px;
+}
+
+.view-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ov-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.heading {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 var(--space-1);
+}
+
+.section-header {
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: var(--space-2);
+}
+
+.dim-label {
+  color: var(--muted);
+  margin: var(--space-1) 0;
+}
+
+.empty-state {
+  margin: var(--space-2) 0;
+}
+
+.error {
+  color: var(--bad);
+  margin: var(--space-1) 0;
+}
+
+.warn,
+.warning {
+  color: var(--warn);
+}
+
+.mono,
+.monospace,
+textarea.mono {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.elide {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.elide-path {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--muted);
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-1) var(--space-3);
+}
+
+/* ------------------------------------------------------------- status pill */
+
+.pill {
+  font-size: 11px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  text-transform: lowercase;
+}
+
+.status-running {
+  color: var(--ok);
+  border-color: var(--ok);
+  font-weight: 700;
+}
+
+.status-error {
+  color: var(--bad);
+  border-color: var(--bad);
+  font-weight: 700;
+}
+
+.status-draft {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.status-stopped {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.discover-picked {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.chip.on {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.chip.off {
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ selection */
+
+.sel-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.sel-list {
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: var(--bg);
+}
+
+.sel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+
+.sel-row:hover {
+  background: var(--panel-2);
+}
+
+.sel-row.selected {
+  background: var(--panel-2);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.sel-row.header {
+  cursor: default;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.sel-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sel-badge {
+  font-size: 11px;
+  color: var(--muted);
+  flex: none;
+}
+
+.sel-counts {
+  font-size: 11px;
+}
+
+/* -------------------------------------------------------------- line list */
+
+.linelist {
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: var(--bg);
+  padding: var(--space-1);
+}
+
+.linelist-line {
+  padding: 1px var(--space-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+.linelist.monospace .linelist-line {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
+
+/* ---------------------------------------------------------------- tables */
+
+table.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+th.sortable {
+  cursor: pointer;
+}
+
+th.sortable:hover {
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- modals */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: var(--space-4);
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  width: 560px;
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-head .title {
+  flex: 1;
+}
+
+.modal-x {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: var(--muted);
+  padding: 0 var(--space-1);
+}
+
+.modal-body {
+  padding: var(--space-3);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.modal-foot {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  align-items: center;
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.confirm-body {
+  margin: var(--space-1) 0;
+  white-space: pre-wrap;
+}
+
+/* --------------------------------------------------------------- snackbar */
+
+.snackbar {
+  position: fixed;
+  bottom: var(--space-5);
+  right: var(--space-5);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-ctl);
+  padding: var(--space-2) var(--space-3);
+  max-width: 420px;
+  cursor: pointer;
+  z-index: 60;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+.snackbar.toast-error {
+  border-left-color: var(--bad);
+}
+
+.snackbar.toast-warn {
+  border-left-color: var(--warn);
+}
+
+.snackbar.toast-info {
+  border-left-color: var(--accent);
+}
+
+/* --------------------------------------------------------------- spinner */
+
+.spinner-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.busy-dot {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------ view extras */
+
+.tail-wrap {
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tail-lines {
+  flex: 1;
+  max-height: none !important;
+}
+
+.shell-out {
+  background: var(--bg);
+}
+
+.addons-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.addons-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.addons-row .elide {
+  flex: 1;
+}
+
+.addons-path-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  min-width: 0;
+}
+
+.addons-path-row .field-label {
+  width: 110px;
+  flex: none;
+}
+
+.gap-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  margin: var(--space-1) 0;
+}
+
+.gap-row .input {
+  grid-column: 2;
+}
+
+.gap-missing {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.flame-wrap {
+  overflow: auto;
+  max-height: 420px;
+}
+
+.flame-wrap svg {
+  min-width: 100%;
+}

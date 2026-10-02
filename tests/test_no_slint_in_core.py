@@ -1,14 +1,39 @@
-"""Architectural guardrails (PSS-1): frontend/backend separation, Slint era.
+"""Architectural guardrails: frontend/backend separation (web era).
 
-- core/ must import neither Qt NOR Slint (framework-agnostic backend).
-- ui_slint/ must not import Qt (no PySide6/gi); ui_qt/ must not import
-  slint. Both frontends share core/ untouched (migration-retro §4).
+- core/ must import neither Qt nor Slint nor pywebview (framework-
+  agnostic backend; siblings: test_no_gtk_in_core.py,
+  test_no_webview_in_core.py).
+- odoo_vite/ops/ (the framework-free ops layer both frontends shared)
+  must import neither Slint nor Qt — the pywebview facade wraps it.
+- odoo_vite/ui_web/ headless sources must not import Slint directly.
+
 Verified in a FRESH interpreter like the older guardrails.
 """
 
 import json
 import subprocess
 import sys
+
+_GUI_PREFIXES = ("slint", "PySide6", "pyside6", "shiboken6", "shiboken", "gi")
+
+_OPS_MODULES = [
+    "odoo_vite.ops",
+    "odoo_vite.ops.configuration",
+    "odoo_vite.ops.databases",
+    "odoo_vite.ops.devtools",
+    "odoo_vite.ops.lifecycle",
+    "odoo_vite.ops.logs",
+    "odoo_vite.ops.modules",
+    "odoo_vite.ops.transfer",
+    "odoo_vite.ops.wizards",
+]
+
+_UI_WEB_HEADLESS = [
+    "odoo_vite.ui_web",
+    "odoo_vite.ui_web.api",
+    "odoo_vite.ui_web.push",
+    "odoo_vite.ui_web.serialize",
+]
 
 
 def _probe(mods: list[str], prefixes: tuple[str, ...]) -> list[str]:
@@ -46,7 +71,13 @@ def test_core_has_no_slint_imports():
     assert not bad, f"core pulled in Slint modules: {bad}"
 
 
-def test_slint_frontend_has_no_qt_imports():
-    bad = _probe(["odoo_vite.ui_slint", "odoo_vite.ui_slint.bridge"],
-                 ("PySide6", "pyside6", "shiboken6", "shiboken", "gi"))
-    assert not bad, f"ui_slint pulled in Qt modules: {bad}"
+def test_ops_has_no_gui_imports():
+    bad = _probe(_OPS_MODULES, _GUI_PREFIXES)
+    assert not bad, f"ops layer pulled in Slint/Qt modules: {bad}"
+
+
+def test_ui_web_headless_has_no_gui_imports():
+    # window.py is excluded: it is the one module allowed to import
+    # pywebview (its GTK backend may pull gi at start time).
+    bad = _probe(_UI_WEB_HEADLESS, _GUI_PREFIXES)
+    assert not bad, f"ui_web headless pulled in Slint/Qt modules: {bad}"

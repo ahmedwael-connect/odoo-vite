@@ -1,33 +1,29 @@
-"""Application entrypoint (PSS-9 cutover: Slint is the app now).
+"""Application entrypoint (web cutover Phase 5: pywebview + React).
 
-Run with:  python -m odoo_vite.main   (or ./main.py from the project root)
+Run with:  python3 main.py   (or ./main.py / python3 -m odoo_vite.main)
 
-Thread-safety (docs/slint-thread-safety.md): slint-python still frees
-Slint values on whichever thread runs cyclic GC, which aborts the
-process when that thread isn't the UI thread. Automatic GC therefore
-stays OFF for the whole session (refcounting still frees acyclic trash
-immediately); the bridge collects explicitly on the owner thread at
-quiescence (dialog release, teardown). Memory grows only with true
-cycles between collects — bounded and observable, unlike a SIGABRT.
+``--dev`` points the window at the Vite dev server (localhost:5173 —
+start it first with ``make frontend-dev``); without it the window serves
+the built ``frontend/dist`` (``make frontend-build``). ``ODOO_VITE_DEV=1``
+works too.
 """
 
-import gc
+from __future__ import annotations
+
+import sys
 
 
 def main(argv: list[str] | None = None) -> int:
-    del argv
-    gc.disable()
-    try:
-        from odoo_vite.ui_slint.bridge import SlintBridge
+    args = sys.argv[1:] if argv is None else list(argv)
+    dev: bool | None = None
+    if "--dev" in args:
+        dev = True
+    elif "--prod" in args:
+        dev = False
 
-        bridge = SlintBridge()
-        try:
-            bridge.run()
-        finally:
-            bridge.close()
-    finally:
-        gc.enable()
-    return 0
+    from odoo_vite.ui_web.window import run
+
+    return run(dev=dev)
 
 
 if __name__ == "__main__":

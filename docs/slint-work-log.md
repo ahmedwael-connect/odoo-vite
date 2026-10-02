@@ -316,6 +316,65 @@ Full story + upstream draft: `docs/slint-thread-safety.md`.
 - Verification: `docs/slint-v2-checklist.md` (v2 re-run adapted with
   D1–D8 divergences) — owner's live pass gates the tag.
 
+## RM-0 — Remake guardrails (suite → 407)
+
+- Remake plan adopted: `docs/slint-remake-plan.md` (RM-0..RM-7,
+  architecture-first, Material look kept, staged strangler). State
+  analysis: theme used in 7 files only (3/27 tokens), app shell has
+  108 props + 28 callbacks, 112 inline buttons / 48 enable-gates /
+  17 empty-state gates, bridge.py is a 2.6k-line God object with two
+  string-dispatch chains (50 + ~93 branches), and bridge-owned
+  confirm dialogs' Cancel is a live no-op (`bridge.py:706` clobbers
+  `dialogs.py:67-68`) — planned as RM-4a.
+- Probe results recorded in the plan (globals accept callbacks and
+  struct-typed props; FocusScope key handling; width conditionals)
+  so no sprint promises an unverified construct.
+- `tests/test_no_slint_styles.py`: banned style literals outside
+  `theme.slint` vs `tests/style_allowlist.txt` (104 entries, exact
+  match both directions, ceiling may only shrink → 0 in RM-1) plus
+  duplication non-growth counters (73/48/17). New violations fail
+  immediately (mutation-verified).
+- `tools/shots.py` + `make shot` (Pillow X11 capture); baseline
+  seeded at `docs/shots/20261001-132033-rm0-baseline-default.png`.
+  Note: first capture shows **light** mode — system-follow works.
+- Incident: `git checkout` during the mutation test reverted the
+  uncommitted changes in `about_dialog.slint`. Reconstructed from
+  its structural twin (`deps_dialog.slint`: import StandardButton +
+  `kind: close`), compile + tests green. Rule: never `git checkout`
+  a file with uncommitted work — delete the appended test line
+  instead.
+- Verification: full suite **407 green**, ruff clean (incl. new
+  tools/), app relaunched live (pid in /tmp/slint-app.log).
+
+## RM-1 — Token truth (suite 407 green)
+
+- `theme.slint` v2: scheme signal `Theme.dark` =
+  `Palette.color-scheme == ColorScheme.dark` (probed: reads live,
+  updates with the OS, settable to force — the missing
+  `Palette.dark-mode`/forced-scheme story from UXB-0, now correct).
+  Type ramp completed (display 20 / subtitle **18** / headline 16 /
+  title 14 / label 12 + `weight-bold` + `font-mono`); spacing scale
+  completed 4/8/12/16/24/32 (space-md/lg renumbered — verified still
+  unused, zero look change).
+- Scheme-aware semantics: dark ternary branch keeps today's exact
+  values (gray/red/orange/green — look preserved); light branch
+  tuned for contrast (`#616161`/`#b3261e`/`#b36b00`/`#146c2e`).
+  Chip roles (snack-bg/err-light/on-dark) stay fixed because the chip
+  carries its own background.
+- Sweep: 21 files, all hardcoded `color:`/`font-size:`/`font-weight:`
+  /`monospace`/hex → Theme tokens (incl. the 4 ternary sites and
+  `border-color`); every touched file imports Theme. ⚠ glyph prefixes
+  removed from toast/confirm/typed-confirm/server-note — the danger
+  role carries the signal now (app.slint convention comment updated).
+- Guardrail now hard: allowlist emptied to 0 entries,
+  `ALLOWLIST_CEILING = 0` — any hardcoded style outside theme.slint
+  fails the suite.
+- Verification: 25/26 .slint files compile standalone (theme.slint is
+  global-only, verified via shim), suite **407 green**, ruff clean;
+  shots `docs/shots/20261001-135532-rm1-light.png` (system-follow
+  light) + `20261001-135546-rm1-dark.png` (`SLINT_STYLE=material-dark`
+  forced) — both render correctly; app relaunched in normal mode.
+
 ## Open items (not started)
 
 - Owner live pass of `docs/slint-v2-checklist.md`, then tag `v3.0.0`
