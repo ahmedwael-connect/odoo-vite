@@ -153,6 +153,8 @@ export interface AppApi {
   suggest_port(start?: number): Async<number>
   preferences(): Async<Dict>
   save_preferences(mode: string): Async<Result>
+  theme(): Async<string>
+  save_theme(theme: string): Async<Result>
   pick_file(title?: string, mode?: string, pattern?: string): Async<Answer & { path?: string }>
   pick_dir(title?: string): Async<Answer & { path?: string }>
   version(): Async<string>
@@ -237,7 +239,7 @@ export interface ConfigApi {
 }
 
 export interface LogsApi {
-  tail(instance_id: string, n?: number): Async<Answer & { lines: string[] }>
+  tail(instance_id: string, n?: number): Async<Answer & { lines: string[]; initial?: boolean; rotated?: boolean }>
   search(instance_id: string, pattern: string, level?: string | null): Async<Answer>
   doctor(instance_id: string): Async<Answer>
   slow_refresh(instance_id: string): Async<Answer>

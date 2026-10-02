@@ -4,35 +4,112 @@
  * semantic color classes, no ad-hoc values).
  */
 
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
+import { OverflowMenu, type MenuItem } from './widgets'
 
 // ------------------------------------------------------------------ buttons
 
 interface BtnProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   primary?: boolean
   danger?: boolean
+  ghost?: boolean
+  size?: 'sm' | 'md'
+  /** Square icon-only variant (pair with aria-label). */
+  icon?: boolean
+  /** Shows an inline spinner and blocks the button (aria-busy). */
+  loading?: boolean
 }
 
-export function Button({ primary, danger, className = '', ...rest }: BtnProps) {
-  const variant = primary ? 'btn primary' : danger ? 'btn danger' : 'btn'
-  return <button type="button" className={`${variant} ${className}`.trim()} {...rest} />
+export function Button({
+  primary,
+  danger,
+  ghost,
+  size = 'md',
+  icon,
+  loading,
+  className = '',
+  disabled,
+  children,
+  ...rest
+}: BtnProps) {
+  const variant = primary ? 'btn primary' : danger ? 'btn danger' : ghost ? 'btn ghost' : 'btn'
+  const cls = [variant, size === 'sm' ? 'sm' : '', icon ? 'icon' : '', className]
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <button
+      type="button"
+      className={cls}
+      aria-busy={loading || undefined}
+      disabled={disabled || loading}
+      {...rest}
+    >
+      {loading && <span className="spinner" aria-hidden />}
+      {children}
+    </button>
+  )
 }
 
 export function ActionButton({
   primary,
   danger,
+  ghost,
+  size,
+  loading,
   className = '',
   ...rest
 }: BtnProps) {
-  return <Button primary={primary} danger={danger} className={`btn action ${className}`.trim()} {...rest} />
+  return (
+    <Button
+      primary={primary}
+      danger={danger}
+      ghost={ghost}
+      size={size}
+      loading={loading}
+      className={`btn action ${className}`.trim()}
+      {...rest}
+    />
+  )
 }
 
 // ------------------------------------------------------------------- layout
 
-export function Card({ title, children, className = '' }: { title?: string; children: ReactNode; className?: string }) {
+/**
+ * Card with optional header actions (docs/patterns.md action IA): the card's
+ * primary action sits right-aligned in the header, secondaries live in the
+ * header overflow menu. Content stays in the body.
+ */
+export function Card({
+  title,
+  children,
+  className = '',
+  actions,
+  menu,
+}: {
+  title?: string
+  children?: ReactNode
+  className?: string
+  /** Header buttons; the primary one first. */
+  actions?: ReactNode
+  /** Header overflow menu entries (secondary actions). */
+  menu?: MenuItem[]
+}) {
+  const head = title || actions || menu
   return (
     <section className={`ov-card ${className}`.trim()}>
-      {title && <h3 className="heading">{title}</h3>}
+      {head && (
+        <div className="card-head">
+          {title && <h3 className="heading">{title}</h3>}
+          {(actions || menu) && (
+            <div className="card-actions">
+              {actions}
+              {menu && menu.length > 0 && (
+                <OverflowMenu items={menu} label={`${title ?? 'Card'} actions`} />
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {children}
     </section>
   )
@@ -68,8 +145,15 @@ export function Spinner({ label }: { label?: string }) {
 // -------------------------------------------------------------- status pill
 
 export function StatusPill({ status }: { status: string }) {
+  const s = (status || 'unknown').toLowerCase()
   const cls =
-    status === 'running' ? 'status-running' : status === 'error' ? 'status-error' : 'status-stopped'
+    s === 'running'
+      ? 'status-running'
+      : s === 'error' || s === 'failed'
+        ? 'status-error'
+        : s === 'draft' || s === 'installing' || s === 'updating' || s === 'uninstalling'
+          ? 'status-draft'
+          : 'status-stopped'
   return <span className={`pill ${cls}`}>{status || 'unknown'}</span>
 }
 
@@ -116,15 +200,18 @@ export function LineList({
   mono,
   maxHeight,
   className = '',
+  innerRef,
 }: {
   lines: string[]
   mono?: boolean
   maxHeight?: number
   className?: string
+  innerRef?: Ref<HTMLDivElement>
 }) {
   if (lines.length === 0) return null
   return (
     <div
+      ref={innerRef}
       className={`linelist ${mono ? 'monospace' : ''} ${className}`.trim()}
       style={maxHeight ? { maxHeight } : undefined}
     >

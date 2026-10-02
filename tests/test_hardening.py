@@ -40,6 +40,18 @@ def test_settings_crud_and_validation(tmp_path, monkeypatch):
     assert get_setting("other", None, db) == "1"
 
 
+def test_theme_setting_roundtrip(tmp_path):
+    from odoo_vite.core.settings import get_theme, set_theme
+
+    db = str(tmp_path / "theme.db")
+    assert get_theme(db) == "system"
+    assert set_theme("light", db).ok
+    assert get_theme(db) == "light"
+    bad = set_theme("neon", db)
+    assert not bad.ok
+    assert get_theme(db) == "light"  # unchanged on invalid
+
+
 def test_ensure_role_scripts_per_mode():
     from odoo_vite.core import db_manager
 

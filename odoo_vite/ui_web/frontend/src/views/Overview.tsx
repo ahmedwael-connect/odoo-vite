@@ -6,7 +6,8 @@
 import { useEffect, useState } from 'react'
 import { getApi } from '../bridge'
 import { Modal, useConfirm, useProgressRun, useTypedConfirm } from '../components/dialog'
-import { ActionButton, Card, ElidePath, EmptyState, StatusPill } from '../components/ui'
+import { ActionButton, Card, ElidePath, StatusPill } from '../components/ui'
+import { Banner, OverflowMenu } from '../components/widgets'
 import { route } from '../events'
 import { useApp } from '../store'
 import type { InstanceRow } from '../types'
@@ -34,17 +35,14 @@ function CloneDialog({
       width={440}
       footer={
         <>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn primary"
+          <ActionButton onClick={onClose}>Cancel</ActionButton>
+          <ActionButton
+            primary
             disabled={!ok}
             onClick={() => onConfirm(name.trim(), Number(port) || defaultPort)}
           >
             Clone
-          </button>
+          </ActionButton>
         </>
       }
     >
@@ -214,6 +212,14 @@ export default function Overview() {
       <div className="view-title-row">
         <h1 className="title">{current.name}</h1>
         {currentId && <StatusPill status={status} />}
+        <OverflowMenu
+          label="Instance actions"
+          items={[
+            { label: 'Remove…', onClick: () => void onRemove(), danger: true, disabled: busy },
+            { label: 'Clone…', onClick: () => void onClone(), disabled: running || busy },
+            { label: 'Export…', onClick: () => void onExport(), disabled: busy },
+          ]}
+        />
       </div>
 
       <Card title="Server">
@@ -239,11 +245,9 @@ export default function Overview() {
       </Card>
 
       {venvSt && !venvSt.python_ok && (
-        <Card title="Virtualenv">
-          <p className="warn">
-            venv/bin/python is missing — dependencies are not installed. Rebuild the venv to fix it.
-          </p>
-          <div className="btn-row">
+        <Card
+          title="Virtualenv"
+          actions={
             <ActionButton
               disabled={running || busy}
               onClick={() => void onRebuildVenv()}
@@ -251,11 +255,15 @@ export default function Overview() {
             >
               Rebuild venv…
             </ActionButton>
-          </div>
+          }
+        >
+          <Banner kind="warn">
+            venv/bin/python is missing — dependencies are not installed. Rebuild the venv to fix it.
+          </Banner>
         </Card>
       )}
 
-      <EmptyState text={ent.text} warn={ent.warn} />
+      {ent.text && <Banner kind={ent.warn ? 'warn' : 'info'}>{ent.text}</Banner>}
 
       <div className="btn-row">
         <ActionButton primary disabled={running || busy} onClick={() => void onStart()}>
@@ -267,13 +275,6 @@ export default function Overview() {
         <ActionButton disabled={!running || busy} onClick={() => void act(() => api.lifecycle.restart(current.id))}>
           Restart
         </ActionButton>
-        <ActionButton disabled={busy} onClick={() => void onRemove()} title="Remove the instance (databases are kept)">
-          Remove
-        </ActionButton>
-        <ActionButton disabled={running || busy} onClick={() => void onClone()}>
-          Clone
-        </ActionButton>
-        <ActionButton disabled={busy} onClick={() => void onExport()}>Export…</ActionButton>
       </div>
     </div>
   )

@@ -61,6 +61,11 @@ const mock: ApiTree = {
       ok: true,
       message: `mock: preferences saved (${mode})`,
     }),
+    theme: async (): Promise<string> => 'system',
+    save_theme: async (theme: string): Promise<Result> => ({
+      ok: true,
+      message: `mock: theme saved (${theme})`,
+    }),
     pick_file: async (): Promise<Answer & { path?: string }> => ({
       ok: false,
       message: 'mock: no file dialog in browser dev',
@@ -113,7 +118,15 @@ const mock: ApiTree = {
       message: 'mock: no venv rebuild in browser dev',
     }),
   } as unknown as ApiTree['config'],
-  logs: {} as ApiTree['logs'],
+  logs: {
+    // initial:true every tick = idempotent replace (no mock append path)
+    tail: async (): Promise<Answer & { lines: string[]; initial?: boolean; rotated?: boolean }> => ({
+      ok: true,
+      message: 'ok',
+      lines: ['mock log line — browser dev', 'another mock line'],
+      initial: true,
+    }),
+  } as unknown as ApiTree['logs'],
   devtools: {} as ApiTree['devtools'],
   wizards: {
     install_requirements: async (): Promise<Result> => ({

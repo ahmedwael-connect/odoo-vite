@@ -1,12 +1,14 @@
 /**
  * Logs — 1s tail poll (only while this tab is mounted = visible),
- * regex search, doctor findings, slow queries, profiler flame graph.
- * Port of logs.slint + bridge _on_log_action/_tail_tick.
+ * regex search (live: pattern/level changes re-run debounced), level
+ * filter on the streaming tail, doctor findings, slow queries,
+ * profiler flame graph. Port of logs.slint + bridge _on_log_action/_tail_tick.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { getApi } from '../bridge'
 import { ActionButton, Card, DimText, EmptyState, LineList, Select, TextInput } from '../components/ui'
+import { Banner } from '../components/widgets'
 import { onEvent } from '../events'
 import { useApp } from '../store'
 import type { Dict } from '../types'
@@ -15,6 +17,10 @@ const LOG_LEVELS = ['All levels', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL
 const PROFILE_DURATIONS = ['5s', '10s', '30s']
 const LINE_CAP = 2000
 const TAIL_CAP = 2000
+// mirrors core/log_search.LINE_RE (ts + pid + level prefix) — used by the
+// tail level filter; continuation lines (tracebacks etc.) inherit the level
+// of the last parsed line so tracebacks stay visible under ERROR/CRITICAL.
+const LEVEL_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d+)?\s+\d+\s+([A-Z]+)\s/
 
 export default function Logs() {
   const { current, currentId, setBusy } = useApp()
@@ -33,42 +39,62 @@ export default function Logs() {
   const [profileIdx, setProfileIdx] = useState(1)
   const [profileSvg, setProfileSvg] = useState('')
   const [busyOps, setBusyOps] = useState(0)
+  const [opError, setOpError] = useState('')
+  const [tailLevelIdx, setTailLevelIdx] = useState(0)
 
   const followRef = useRef(follow)
   followRef.current = follow
   const linesRef = useRef<string[]>([])
   linesRef.current = lines
+  const tailRef = useRef<HTMLDivElement>(null)
+  // live-search runner: assigned after doSearch below (post early-return),
+  // invoked by the debounced criteria effect above it
+  const searchRunnerRef = useRef<() => void>(() => {})
 
   const hasInstance = Boolean(current && currentId)
   const busy = busyOps > 0
 
   const api = getApi()
 
+  // tail level filter (client-side; display only — merge/caps unaffected)
+  const filteredLines = useMemo(() => {
+    if (tailLevelIdx === 0) return lines
+    const want = LOG_LEVELS[tailLevelIdx]
+    const out: string[] = []
+    let inherited: string | null = null
+    for (const l of lines) {
+      const m = LEVEL_RE.exec(l)
+      if (m) inherited = m[1]
+      if (inherited === want) out.push(l)
+    }
+    return out
+  }, [lines, tailLevelIdx])
+
   // ------------------------------------------------------------- tail poll
+  // Backend contract (ui_web/api.py LogsApi.tail): first poll per log path
+  // returns {initial:true} + the window; later polls only the new bytes;
+  // rotation returns {rotated:true} + a fresh window. Clear is view-only —
+  // the follower offset is untouched, so cleared stays cleared.
   useEffect(() => {
     if (!currentId) return
     setLines([])
     setNote('')
+    setOpError('')
 
-    const merge = (tail: string[]) => {
+    const merge = (res: { lines: string[]; initial?: boolean; rotated?: boolean }) => {
+      const refill = res.initial === true || res.rotated === true
+      if (refill) {
+        // initial window / rotation fill renders even while paused — paused
+        // means "don't grow with new lines", not "show nothing"
+        setLines(res.lines.map((l) => l.slice(0, LINE_CAP)))
+        if (res.rotated) setNote('Log rotated/truncated — restarted from top')
+        return
+      }
+      if (!followRef.current) return // paused: follower already consumed the bytes
+      const incoming = res.lines.map((l) => l.slice(0, LINE_CAP))
+      if (incoming.length === 0) return
       const prev = linesRef.current
-      const capped = tail.map((l) => l.slice(0, LINE_CAP))
-      if (!followRef.current) return
-      if (prev.length === 0) {
-        setLines(capped)
-        return
-      }
-      const last = prev[prev.length - 1]
-      const idx = capped.lastIndexOf(last)
-      if (idx === -1) {
-        // rotated/truncated — restart from what's on disk now
-        setLines(capped)
-        setNote('Log rotated/truncated — restarted from top')
-        return
-      }
-      const added = capped.slice(idx + 1)
-      if (added.length === 0) return
-      const next = [...prev, ...added]
+      const next = prev.length === 0 ? incoming : [...prev, ...incoming]
       setLines(next.length > TAIL_CAP ? next.slice(next.length - TAIL_CAP) : next)
     }
 
@@ -78,14 +104,16 @@ export default function Logs() {
       try {
         const res = await api.logs.tail(currentId, 500)
         if (stopped) return
-        if (!res.ok) {
+        if (!res.ok || !Array.isArray(res.lines)) {
           setNote(res.message)
           return
         }
         setNote((prevNote) =>
-          prevNote.startsWith('Log rotated') ? prevNote : `Tailing ${current?.log_path ?? 'log'} (last ${res.lines.length} lines shown)`,
+          prevNote.startsWith('Log rotated')
+            ? prevNote
+            : `Tailing ${current?.log_path ?? 'log'}`,
         )
-        merge(res.lines)
+        merge(res)
       } catch {
         /* transient poll failure — next tick retries */
       }
@@ -97,6 +125,30 @@ export default function Logs() {
       window.clearInterval(timer)
     }
   }, [currentId, api, current?.log_path])
+
+  // stick to bottom while following: the tail pane (.tail-lines) is its own
+  // scroll container (style.css), so this is the pane, not the page.
+  // Deps use filteredLines: a hidden (filtered-out) append doesn't move the
+  // view, so it must not yank the scroll either.
+  useEffect(() => {
+    if (!follow) return
+    const el = tailRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [filteredLines, follow])
+
+  // live search: pattern/level changes re-run automatically (debounced) so
+  // the filters visibly do something without pressing Search; empty pattern
+  // clears stale results instead of erroring
+  useEffect(() => {
+    if (!currentId) return
+    if (!search.trim()) {
+      setSearchLines([])
+      setSearchStatus('')
+      return
+    }
+    const t = window.setTimeout(() => searchRunnerRef.current(), 400)
+    return () => window.clearTimeout(t)
+  }, [search, levelIdx, currentId])
 
   // ----------------------------------------------------------------- events
   useEffect(() => {
@@ -137,36 +189,48 @@ export default function Logs() {
     return <p className="empty-state dim-label">Select an instance</p>
   }
 
-  const run = async (fn: () => Promise<unknown>) => {
+  // every op failure surfaces visibly (the old void-run pattern swallowed
+  // rejections into unhandled-promise silence — "clicked, nothing happened")
+  const run = async (fn: () => Promise<unknown>, label: string) => {
     setBusyOps((n) => n + 1)
     setBusy(true)
+    setOpError('')
     try {
       await fn()
+    } catch (err) {
+      setOpError(`${label} failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusyOps((n) => Math.max(0, n - 1))
       setBusy(false)
     }
   }
 
-  const doSearch = () =>
+  const doSearch = () => {
+    if (!search.trim()) {
+      setSearchLines([])
+      setSearchStatus('Type a regex pattern to search')
+      return
+    }
     void run(async () => {
       const level = LOG_LEVELS[levelIdx]
       const res = await api.logs.search(currentId!, search, level === 'All levels' ? null : level)
       if (!res.ok) setSearchStatus(res.message)
-    })
+    }, 'Search')
+  }
+  searchRunnerRef.current = doSearch
 
   const doDoctor = () =>
     void run(async () => {
       const res = await api.logs.doctor(currentId!)
       if (!res.ok) setDoctorLines([res.message])
       setDoctorVisible(true)
-    })
+    }, 'Doctor')
 
   const doSlow = () =>
     void run(async () => {
       const res = await api.logs.slow_refresh(currentId!)
       if (!res.ok) setSlowStatus(res.message)
-    })
+    }, 'Slow queries')
 
   const doProfile = () => {
     const text = PROFILE_DURATIONS[profileIdx]
@@ -177,8 +241,10 @@ export default function Logs() {
         setProfileSvg('')
         setSearchStatus(res.message)
       }
-    })
+    }, 'Profile')
   }
+
+  const disabledTitle = !hasInstance ? 'Select an instance first' : busy ? 'working…' : ''
 
   return (
     <div className="view logs-view">
@@ -191,7 +257,19 @@ export default function Logs() {
         <ActionButton disabled={!hasInstance} onClick={() => setLines([])}>
           Clear view
         </ActionButton>
-        <ActionButton disabled={!hasInstance || busy} onClick={doDoctor}>
+        <Select
+          value={String(tailLevelIdx)}
+          onChange={(e) => setTailLevelIdx(Number(e.target.value))}
+          title="Filter the streaming tail by log level (display only)"
+          aria-label="Tail level filter"
+        >
+          {LOG_LEVELS.map((lvl, i) => (
+            <option key={lvl} value={i}>
+              {lvl}
+            </option>
+          ))}
+        </Select>
+        <ActionButton disabled={!hasInstance || busy} title={disabledTitle || 'Scan the log for known failure signatures'} onClick={doDoctor}>
           Run Doctor
         </ActionButton>
         <Select value={String(profileIdx)} onChange={(e) => setProfileIdx(Number(e.target.value))}>
@@ -203,7 +281,7 @@ export default function Logs() {
         </Select>
         <ActionButton
           disabled={!hasInstance || busy}
-          title="Record a py-spy flame graph of the running process"
+          title={disabledTitle || 'Record a py-spy flame graph of the running process'}
           onClick={doProfile}
         >
           Profile
@@ -211,8 +289,9 @@ export default function Logs() {
         {busy && <span className="busy-dot">working…</span>}
       </div>
 
-      {hasInstance && !follow && <p className="warn">⏸ not following — toggle Follow to resume</p>}
+      {hasInstance && !follow && <Banner kind="warn">Not following — toggle Follow to resume</Banner>}
       {note && <p className="dim-label">{note}</p>}
+      {opError && <Banner kind="error">{opError}</Banner>}
 
       <Card title="Search (full file)">
         <div className="btn-row">
@@ -231,7 +310,11 @@ export default function Logs() {
               </option>
             ))}
           </Select>
-          <ActionButton disabled={!hasInstance || busy} onClick={doSearch}>
+          <ActionButton
+            disabled={!hasInstance || busy}
+            title={disabledTitle || 'Search the full log file (re-runs as you type)'}
+            onClick={doSearch}
+          >
             Search
           </ActionButton>
         </div>
@@ -240,18 +323,29 @@ export default function Logs() {
         {doctorVisible && <LineList lines={doctorLines} mono maxHeight={170} />}
       </Card>
 
+      {tailLevelIdx > 0 && lines.length > 0 && (
+        <DimText>
+          filter: {LOG_LEVELS[tailLevelIdx]} — {filteredLines.length} of {lines.length} lines
+        </DimText>
+      )}
+
       <div className="tail-wrap">
-        <LineList lines={lines} mono className="tail-lines" />
+        <LineList lines={filteredLines} mono className="tail-lines" innerRef={tailRef} />
         {lines.length === 0 && <EmptyState text="No log lines yet." />}
+        {lines.length > 0 && filteredLines.length === 0 && (
+          <EmptyState text="No lines match the level filter." />
+        )}
       </div>
 
-      <Card title="Slow queries (pg_stat_statements)">
-        <div className="split-row">
-          <DimText>{slowStatus}</DimText>
+      <Card
+        title="Slow queries (pg_stat_statements)"
+        actions={
           <ActionButton disabled={!hasInstance || busy} onClick={doSlow}>
             Refresh
           </ActionButton>
-        </div>
+        }
+      >
+        <DimText>{slowStatus}</DimText>
         <LineList lines={slowLines} mono maxHeight={150} />
       </Card>
 

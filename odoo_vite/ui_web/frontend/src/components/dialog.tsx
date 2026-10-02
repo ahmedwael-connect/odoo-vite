@@ -11,6 +11,7 @@ import { getApi } from '../bridge'
 import { onEvent } from '../events'
 import { useApp } from '../store'
 import { ActionButton, Button, LineList, TextInput } from './ui'
+import { Icon } from './icons'
 
 export interface ModalProps {
   title: string
@@ -20,29 +21,105 @@ export interface ModalProps {
   width?: number
 }
 
+// Mount-order registry: only the topmost modal reacts to Escape or traps
+// Tab. Ids are stable per Modal instance; effects push/pop in DOM order.
+let modalSeq = 0
+const modalStack: number[] = []
+
+const FOCUSABLE =
+  'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+
 export function Modal({ title, children, footer, onClose, width }: ModalProps) {
-  // Esc closes (RM-6 / audit UX-6): every dialog path offers an explicit
-  // onClose, so Escape maps to the same cancel/close affordance.
+  const idRef = useRef<number>(0)
+  if (idRef.current === 0) idRef.current = ++modalSeq
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const id = idRef.current
+    modalStack.push(id)
+    return () => {
+      const i = modalStack.lastIndexOf(id)
+      if (i !== -1) modalStack.splice(i, 1)
+    }
+  }, [])
+
+  const isTop = () => modalStack[modalStack.length - 1] === idRef.current
+
+  // focus: remember opener, focus the dialog (autofocus wins), restore back
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    const root = rootRef.current
+    const raf = window.requestAnimationFrame(() => {
+      if (!root) return
+      const target =
+        root.querySelector<HTMLElement>('[data-autofocus], [autofocus]') ?? root
+      target.focus({ preventScroll: true })
+    })
+    return () => {
+      window.cancelAnimationFrame(raf)
+      opener?.focus?.({ preventScroll: true })
+    }
+  }, [])
+
+  // Esc (capture): top modal only; an open menu inside it eats Esc first
   useEffect(() => {
     if (!onClose) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
+      if (e.key !== 'Escape' || !isTop()) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('.menu-wrap')) return
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [onClose])
 
+  // Tab: cycle within the top modal
+  const onTab = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab' || !isTop()) return
+    const root = rootRef.current
+    if (!root) return
+    const nodes = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)]
+    if (nodes.length === 0) {
+      e.preventDefault()
+      return
+    }
+    const first = nodes[0]
+    const last = nodes[nodes.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey) {
+      if (active === first || active === root || !root.contains(active)) {
+        e.preventDefault()
+        last.focus()
+      }
+    } else if (active === last || !root.contains(active)) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className="modal" style={width ? { width } : undefined} role="dialog" aria-label={title}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}
+    >
+      <div
+        ref={rootRef}
+        className="modal"
+        style={width ? { width } : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onKeyDown={onTab}
+      >
         <header className="modal-head">
           <h2 className="title">{title}</h2>
           {onClose && (
             <button type="button" className="modal-x" onClick={onClose} aria-label="Close">
-              ×
+              <Icon name="x" size={14} />
             </button>
           )}
         </header>
@@ -120,35 +197,44 @@ function ConfirmView({
   )
 }
 
-/** Promise-based light confirm via the store's dialog host. */
+/** Promise-based light confirm — pushes above whatever dialog is open. */
 export function useConfirm() {
-  const { setDialog } = useApp()
+  const { pushDialog, popDialog } = useApp()
   return useCallback(
     (opts: ConfirmOpts) =>
       new Promise<boolean>((resolve) => {
-        setDialog(
-          <ConfirmView opts={opts} onResult={(ok) => { setDialog(null); resolve(ok) }} />,
+        pushDialog(
+          <ConfirmView
+            opts={opts}
+            onResult={(ok) => {
+              popDialog()
+              resolve(ok)
+            }}
+          />,
         )
       }),
-    [setDialog],
+    [pushDialog, popDialog],
   )
 }
 
 /** Promise-based type-to-confirm (destructive tier). */
 export function useTypedConfirm() {
-  const { setDialog } = useApp()
+  const { pushDialog, popDialog } = useApp()
   return useCallback(
     (opts: TypedConfirmOpts) =>
       new Promise<boolean>((resolve) => {
-        setDialog(
+        pushDialog(
           <ConfirmView
             typed
             opts={opts}
-            onResult={(ok) => { setDialog(null); resolve(ok) }}
+            onResult={(ok) => {
+              popDialog()
+              resolve(ok)
+            }}
           />,
         )
       }),
-    [setDialog],
+    [pushDialog, popDialog],
   )
 }
 
@@ -201,21 +287,21 @@ function BackupConfirmView({
 
 /** Promise-based confirm with a default-on backup checkbox (v2 §21). */
 export function useConfirmBackup() {
-  const { setDialog } = useApp()
+  const { pushDialog, popDialog } = useApp()
   return useCallback(
     (opts: ConfirmBackupOpts) =>
       new Promise<{ ok: boolean; checked: boolean }>((resolve) => {
-        setDialog(
+        pushDialog(
           <BackupConfirmView
             opts={opts}
             onResult={(r) => {
-              setDialog(null)
+              popDialog()
               resolve(r)
             }}
           />,
         )
       }),
-    [setDialog],
+    [pushDialog, popDialog],
   )
 }
 
@@ -306,18 +392,18 @@ export function ProgressDialog({
  * `fn` receives the op_id and should pass it to the facade method.
  */
 export function useProgressRun() {
-  const { setDialog } = useApp()
+  const { pushDialog, popDialog } = useApp()
   const seq = useRef(0)
   return useCallback(
     async (title: string, fn: (opId: string) => Promise<{ ok: boolean; message: string }>) => {
       seq.current += 1
       const opId = `op-${Date.now()}-${seq.current}`
-      setDialog(
+      pushDialog(
         <ProgressDialog
           opId={opId}
           title={title}
           onClose={() => {
-            setDialog(null)
+            popDialog()
           }}
         />,
       )
@@ -327,6 +413,7 @@ export function useProgressRun() {
         return { ok: false, message: err instanceof Error ? err.message : String(err) }
       }
     },
-    [setDialog],
+    [pushDialog, popDialog],
   )
 }
+

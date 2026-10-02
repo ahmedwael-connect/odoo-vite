@@ -14,9 +14,11 @@ from odoo_vite.core.result import Result
 
 DEFAULTS = {
     "provisioning_mode": "developer",
+    "theme": "system",
 }
 
 VALID_MODES = ("developer", "managed")
+VALID_THEMES = ("dark", "light", "system")
 
 
 def get_setting(key: str, default: str | None = None, db_path=None) -> str | None:
@@ -62,3 +64,17 @@ def get_provisioning_mode(db_path=None) -> str:
 
 def set_provisioning_mode(mode: str, db_path=None) -> Result:
     return set_setting("provisioning_mode", mode, db_path)
+
+
+def get_theme(db_path=None) -> str:
+    """UI theme choice: dark | light | system (browser storage under
+    WebKitGTK is ephemeral, so the settings table is the source of truth)."""
+    theme = get_setting("theme", "system", db_path) or "system"
+    return theme if theme in VALID_THEMES else "system"
+
+
+def set_theme(theme: str, db_path=None) -> Result:
+    if theme not in VALID_THEMES:
+        return Result.failure(
+            f"Invalid theme '{theme}' (expected one of {VALID_THEMES})")
+    return set_setting("theme", theme, db_path)

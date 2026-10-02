@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from odoo_vite.core.instance import Instance
-from odoo_vite.core.registry import create_instance
+from odoo_vite.core.registry import create_instance, update_instance
 from odoo_vite.core.result import Result
 from odoo_vite.ui_web import Api, ListTransport, PushChannel, create_api
 from odoo_vite.ui_web.serialize import to_payload
@@ -35,6 +35,20 @@ def _register(inst: Instance) -> str:
     res = create_instance(inst)
     assert res.ok, res.message
     return inst.id
+
+
+# ------------------------------------------------------------------------- theme
+
+
+def test_theme_api_roundtrip(env):
+    api, _events = env
+    assert api.app.theme() == "system"
+    res = api.app.save_theme("light")
+    assert res["ok"] is True, res.get("message")
+    assert api.app.theme() == "light"
+    bad = api.app.save_theme("neon")
+    assert bad["ok"] is False
+    assert api.app.theme() == "light"  # unchanged on invalid
 
 
 # ------------------------------------------------------------------ serialize
@@ -274,10 +288,67 @@ def test_logs_tail_reads_last_lines(env, tmp_path):
     res = api.logs.tail(iid, n=2)
     assert res["ok"] is True
     assert res["lines"] == ["two", "three"]
+    assert res["initial"] is True
+    assert res["rotated"] is False
 
     missing = api.logs.tail("nope")
     assert missing["ok"] is False
     assert missing["lines"] == []
+
+
+def test_logs_tail_incremental_rotation_and_reanchor(env, tmp_path):
+    api, _events = env
+    log = tmp_path / "odoo.log"
+    log.write_text("one\ntwo\n")
+    iid = _register(Instance(name="tailer2", log_path=str(log)))
+
+    first = api.logs.tail(iid)
+    assert first["ok"] is True
+    assert first["initial"] is True
+    assert first["lines"] == ["one", "two"]
+
+    # idle poll: no new bytes -> empty append (frontend leaves view alone)
+    assert api.logs.tail(iid) == {
+        "ok": True, "lines": [], "initial": False, "rotated": False,
+    }
+
+    with log.open("a") as fh:
+        fh.write("three\n")
+    append = api.logs.tail(iid)
+    assert append == {"ok": True, "lines": ["three"], "initial": False,
+                      "rotated": False}
+    # already-seen bytes are never re-emitted
+    assert api.logs.tail(iid)["lines"] == []
+
+    # (a) in-place truncation: file smaller than the known offset
+    log.write_text("tiny\n")
+    trunc = api.logs.tail(iid)
+    assert trunc["rotated"] is True
+    assert trunc["lines"] == ["tiny"]
+    with log.open("a") as fh:
+        fh.write("after-tiny\n")
+    assert api.logs.tail(iid)["lines"] == ["after-tiny"]
+
+    # (b) inode rotation: fresh file already larger than the old offset —
+    #     size checks alone would seek into the middle and emit garbage.
+    log.rename(tmp_path / "odoo.log.1")
+    log.write_text("".join(f"line-{i}\n" for i in range(50)))
+    rot = api.logs.tail(iid)
+    assert rot["initial"] is False
+    assert rot["rotated"] is True
+    assert len(rot["lines"]) == 50
+    assert rot["lines"][-1] == "line-49"
+    with log.open("a") as fh:
+        fh.write("post-rotation\n")
+    assert api.logs.tail(iid)["lines"] == ["post-rotation"]
+
+    # log_path change on the same instance re-anchors (fresh initial fill)
+    other = tmp_path / "other.log"
+    other.write_text("alpha\nbeta\n")
+    assert update_instance(iid, log_path=str(other)).ok
+    re = api.logs.tail(iid)
+    assert re["initial"] is True
+    assert re["lines"] == ["alpha", "beta"]
 
 
 # --------------------------------------------------------------------- audit
@@ -368,8 +439,21 @@ def test_config_addons_state_and_heuristic(env, tmp_path):
     good = tmp_path / "addons"
     (good / "base").mkdir(parents=True)
     (good / "base" / "__manifest__.py").write_text("{}")
+    (good / "website").mkdir()
+    (good / "website" / "__manifest__.py").write_text("{}")
     assert api.config.looks_like_addons(str(good)) is True
     assert api.config.looks_like_addons(str(tmp_path / "empty")) is False
+
+    # enrichment: every entry carries exists + modules for the manager UI
+    conf = tmp_path / "odoo.conf"
+    conf.write_text(f"[options]\naddons_path = {good},{tmp_path / 'gone'}\n")
+    iid2 = _register(Instance(name="addons2", conf_path=str(conf)))
+    rows = api.config.addons_state(iid2)
+    assert [r["path"] for r in rows] == [str(good), str(tmp_path / "gone")]
+    assert rows[0] == {"path": str(good), "enabled": True,
+                       "exists": True, "modules": 2}
+    assert rows[1] == {"path": str(tmp_path / "gone"), "enabled": True,
+                       "exists": False, "modules": 0}
 
 
 def test_devtools_shell_lifecycle(env, monkeypatch):

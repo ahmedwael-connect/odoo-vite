@@ -22,7 +22,12 @@ export interface Toast {
   id: number
   text: string
   level: string
+  /** wall-clock ms after which the toast auto-dismisses */
+  until: number
 }
+
+const TOAST_MS = 5000
+const TOAST_MAX = 3
 
 interface AppStore {
   statuses: StatusRow[]
@@ -31,12 +36,18 @@ interface AppStore {
   current: InstanceRow | null
   select: (id: string) => void
   refresh: () => void
-  toast: Toast | null
-  hideToast: () => void
+  toasts: Toast[]
+  hideToast: (id?: number) => void
   busy: boolean
   setBusy: (busy: boolean) => void
-  dialog: ReactNode | null
+  /** modal stack — rendered in order, last entry is topmost */
+  dialogs: ReactNode[]
+  /** replace the whole stack with one dialog (or clear with null) */
   setDialog: (node: ReactNode | null) => void
+  /** push above the current stack (nested confirms / progress) */
+  pushDialog: (node: ReactNode) => void
+  /** pop the topmost dialog */
+  popDialog: () => void
   error: string
 }
 
@@ -52,9 +63,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<StatusRow[]>([])
   const [instances, setInstances] = useState<InstanceRow[]>([])
   const [currentId, setCurrentId] = useState<string | null>(null)
-  const [toast, setToast] = useState<Toast | null>(null)
+  const [toasts, setToasts] = useState<Toast[]>([])
   const [busy, setBusy] = useState(false)
-  const [dialog, setDialog] = useState<ReactNode | null>(null)
+  const [dialogs, setDialogs] = useState<ReactNode[]>([])
   const [error, setError] = useState('')
   const toastSeq = useRef(0)
 
@@ -69,7 +80,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadInstances = useCallback(async () => {
     try {
-      setInstances(await getApi().app.instances())
+      const list = await getApi().app.instances()
+      setInstances(list)
+      // auto-select on boot: with currentId null every view button is
+      // silently disabled (the "pressed Search, nothing happened" footgun);
+      // also recover if the selected instance was removed
+      setCurrentId((prev) =>
+        prev && list.some((i) => i.id === prev) ? prev : (list[0]?.id ?? null),
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -87,7 +105,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const offRefresh = onEvent('refresh', () => refresh())
     const offMessage = onEvent('message', (payload) => {
       toastSeq.current += 1
-      setToast({ id: toastSeq.current, text: payload.text, level: payload.level })
+      const text = String(payload.text)
+      const level = String(payload.level ?? 'info')
+      setToasts((prev) => {
+        const until = Date.now() + TOAST_MS
+        // dedupe: an identical visible toast refreshes instead of stacking
+        const filtered = prev.filter((t) => !(t.text === text && t.level === level))
+        return [...filtered, { id: toastSeq.current, text, level, until }].slice(-TOAST_MAX)
+      })
     })
     return () => {
       window.clearInterval(timer)
@@ -96,12 +121,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh, loadStatuses])
 
-  // auto-hide toasts after 5s (Slint toast timer)
+  // per-toast auto-dismiss (each keeps its own deadline across pushes)
   useEffect(() => {
-    if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), 5000)
-    return () => window.clearTimeout(timer)
-  }, [toast])
+    if (!toasts.length) return
+    const now = Date.now()
+    const timers = toasts.map((t) =>
+      window.setTimeout(
+        () => setToasts((prev) => prev.filter((x) => x.id !== t.id)),
+        Math.max(0, t.until - now),
+      ),
+    )
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [toasts])
 
   const select = useCallback(
     (id: string) => {
@@ -110,7 +141,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  const hideToast = useCallback(() => setToast(null), [])
+  const hideToast = useCallback((id?: number) => {
+    setToasts((prev) => (id === undefined ? [] : prev.filter((t) => t.id !== id)))
+  }, [])
+
+  const setDialog = useCallback((node: ReactNode | null) => {
+    setDialogs(node ? [node] : [])
+  }, [])
+  const pushDialog = useCallback((node: ReactNode) => {
+    setDialogs((prev) => [...prev, node])
+  }, [])
+  const popDialog = useCallback(() => {
+    setDialogs((prev) => prev.slice(0, -1))
+  }, [])
 
   const current = instances.find((i) => i.id === currentId) ?? null
 
@@ -121,12 +164,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     current,
     select,
     refresh,
-    toast,
+    toasts,
     hideToast,
     busy,
     setBusy,
-    dialog,
+    dialogs,
     setDialog,
+    pushDialog,
+    popDialog,
     error,
   }
 

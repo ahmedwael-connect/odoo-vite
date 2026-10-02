@@ -124,6 +124,19 @@ def test_derive_and_migrate():
     assert addon_paths.derive_addons_path([]) == ""
 
 
+def test_count_addon_modules(tmp_path):
+    root = tmp_path / "addons"
+    (root / "m1").mkdir(parents=True)
+    (root / "m1" / "__manifest__.py").write_text("{}")
+    (root / "m2").mkdir()
+    (root / "m2" / "__manifest__.py").write_text("{}")
+    (root / "not_a_module").mkdir()
+    (root / "loose.py").write_text("")
+    assert addon_paths.count_addon_modules(str(root)) == 2
+    assert addon_paths.count_addon_modules(str(tmp_path / "gone")) == 0
+    assert addon_paths.count_addon_modules(str(root / "m1")) == 0
+
+
 def test_apply_writes_conf_then_registry(tmp_path, db):
     base = tmp_path / "i"
     (base / "custom_addons").mkdir(parents=True)

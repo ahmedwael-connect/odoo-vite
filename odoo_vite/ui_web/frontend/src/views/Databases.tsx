@@ -10,15 +10,16 @@ import {
   useConfirm,
   useTypedConfirm,
 } from '../components/dialog'
+import { Icon } from '../components/icons'
 import {
   ActionButton,
   Card,
   EmptyState,
-  ErrorText,
   SectionHeader,
   Select,
   TextInput,
 } from '../components/ui'
+import { Banner } from '../components/widgets'
 import { onEvent, route } from '../events'
 import { useApp } from '../store'
 import type { DbState, Dict, DiscoverEntry, ScheduleRow } from '../types'
@@ -620,8 +621,6 @@ export default function Databases() {
     return asc ? d : -d
   })
 
-  const schedSelRow = schedules.find((s) => s.id === schedSel)
-
   const header = (col: SortCol, label: string) => (
     <th
       key={col}
@@ -629,15 +628,28 @@ export default function Databases() {
       className="sortable"
     >
       {label}
-      {sort.col === col ? (sort.asc ? ' ▲' : ' ▼') : ''}
+      {sort.col === col &&
+        (sort.asc ? <Icon name="chevron-up" size={10} /> : <Icon name="chevron-down" size={10} />)}
     </th>
   )
 
   return (
     <div className="view">
-      <ErrorText text={serverNote.replace('⚠ ', '')} />
+      {serverNote && <Banner kind="error">{serverNote.replace('⚠ ', '')}</Banner>}
 
-      <Card title="Switch database">
+      <Card
+        title="Switch database"
+        actions={
+          <>
+            <ActionButton disabled={busy} onClick={() => void onAction('set-primary')}>
+              Set as Primary
+            </ActionButton>
+            <ActionButton primary disabled={busy} onClick={() => void onAction('switch')}>
+              Switch Now
+            </ActionButton>
+          </>
+        }
+      >
         <div className="btn-row">
           <Select value={picked} onChange={(e) => setPicked(e.target.value)}>
             <option value="">— pick a database —</option>
@@ -668,7 +680,31 @@ export default function Databases() {
         </div>
       </Card>
 
-      <Card title="Tracked databases">
+      <Card
+        title="Tracked databases"
+        menu={[
+          { label: 'Discover databases…', disabled: busy, onClick: () => void onAction('discover') },
+          { label: 'Refresh states', disabled: busy, onClick: () => void onAction('refresh-states') },
+          { label: 'Validate config', disabled: busy, onClick: () => void onAction('validate') },
+          { label: 'Init database', disabled: busy, onClick: () => void onAction('init-db') },
+          {
+            label: 'Backup as…',
+            disabled: busy,
+            onClick: () => void onAction('backup-db'),
+          },
+          {
+            label: 'Restore from…',
+            disabled: busy,
+            onClick: () => void onAction('restore-db'),
+          },
+          {
+            label: 'Drop database…',
+            danger: true,
+            disabled: busy,
+            onClick: () => void onAction('drop-db'),
+          },
+        ]}
+      >
         <table className="table">
           <thead>
             <tr>
@@ -700,51 +736,28 @@ export default function Databases() {
           </tbody>
         </table>
         {names.length === 0 && <EmptyState text="No databases tracked yet." />}
-
-        <SectionHeader text="Inspect" />
-        <div className="btn-row">
-          <ActionButton disabled={busy} onClick={() => void onAction('discover')}>
-            Discover
-          </ActionButton>
-          <ActionButton disabled={busy} onClick={() => void onAction('refresh-states')}>
-            Refresh states
-          </ActionButton>
-          <ActionButton disabled={busy} onClick={() => void onAction('validate')}>
-            Validate
-          </ActionButton>
-        </div>
-
-        <SectionHeader text="Danger zone" />
-        <div className="btn-row">
-          <ActionButton disabled={busy} onClick={() => void onAction('init-db')}>
-            Init
-          </ActionButton>
-          <ActionButton
-            danger
-            disabled={busy}
-            title="Permanently deletes the database — never merged"
-            onClick={() => void onAction('drop-db')}
-          >
-            Drop
-          </ActionButton>
-        </div>
-
-        <SectionHeader text="Transfer" />
-        <div className="btn-row">
-          <ActionButton disabled={busy} onClick={() => void onAction('backup-db')}>
-            Backup
-          </ActionButton>
-          <ActionButton
-            disabled={busy}
-            title="Drops and recreates the target database"
-            onClick={() => void onAction('restore-db')}
-          >
-            Restore
-          </ActionButton>
-        </div>
       </Card>
 
-      <Card title="Backup schedules">
+      <Card
+        title="Backup schedules"
+        actions={
+          <ActionButton primary disabled={busy} onClick={() => void onSchedAction('add')}>
+            Add
+          </ActionButton>
+        }
+        menu={[
+          { label: 'Edit…', disabled: busy || !schedSel, onClick: () => void onSchedAction('edit') },
+          { label: 'Run now', disabled: busy || !schedSel, onClick: () => void onSchedAction('run') },
+          { label: 'Enable/Disable', disabled: busy || !schedSel, onClick: () => void onSchedAction('toggle') },
+          { label: 'Backup files…', disabled: busy, onClick: () => void onSchedAction('files') },
+          {
+            label: 'Delete schedule…',
+            danger: true,
+            disabled: busy || !schedSel,
+            onClick: () => void onSchedAction('delete'),
+          },
+        ]}
+      >
         <div className="sel-list" style={{ maxHeight: 200 }}>
           {schedules.map((s) => (
             <div
@@ -762,28 +775,6 @@ export default function Databases() {
             </div>
           ))}
           {schedules.length === 0 && <EmptyState text="No schedules yet — press Add." />}
-        </div>
-        <div className="btn-row">
-          <ActionButton disabled={busy} onClick={() => void onSchedAction('add')}>
-            Add
-          </ActionButton>
-          <ActionButton disabled={busy} onClick={() => void onSchedAction('edit')}>
-            Edit
-          </ActionButton>
-          <ActionButton danger disabled={busy} onClick={() => void onSchedAction('delete')}>
-            Delete
-          </ActionButton>
-        </div>
-        <div className="btn-row">
-          <ActionButton disabled={busy} onClick={() => void onSchedAction('run')}>
-            Run Now
-          </ActionButton>
-          <ActionButton disabled={busy || !schedSelRow} onClick={() => void onSchedAction('toggle')}>
-            Toggle
-          </ActionButton>
-          <ActionButton disabled={busy} onClick={() => void onSchedAction('files')}>
-            Files
-          </ActionButton>
         </div>
       </Card>
     </div>

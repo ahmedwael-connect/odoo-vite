@@ -49,6 +49,18 @@ def looks_like_addons_folder(path: str) -> bool:
         return False
 
 
+def count_addon_modules(path: str) -> int:
+    """Same manifest test as the heuristic, as a count (manager display)."""
+    try:
+        root = Path(path).expanduser()
+        if not root.is_dir():
+            return 0
+        return sum(1 for sub in root.iterdir()
+                   if sub.is_dir() and (sub / "__manifest__.py").is_file())
+    except OSError:
+        return 0
+
+
 def get_addons_state(instance) -> list[dict]:  # type: ignore[no-untyped-def]
     """Stored list, or lazy one-time migration from the conf string."""
     stored = list(instance.addons_state or [])

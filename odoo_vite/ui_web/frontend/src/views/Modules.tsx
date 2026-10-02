@@ -415,7 +415,40 @@ export default function Modules() {
 
   return (
     <div className="view">
-      <Card title="Modules">
+      <Card
+        title="Modules"
+        actions={
+          <>
+            <ActionButton
+              primary
+              disabled={busy || checked.size === 0}
+              onClick={() => void onAction('install')}
+            >
+              Install Checked
+            </ActionButton>
+            <ActionButton disabled={busy || checked.size === 0} onClick={() => void onAction('update')}>
+              Update Checked
+            </ActionButton>
+            <ActionButton
+              disabled={busy}
+              title="git pull + pip install + module update (stays stopped)"
+              onClick={() => void onAction('update-code')}
+            >
+              Update Code…
+            </ActionButton>
+          </>
+        }
+        menu={[
+          {
+            label: 'Uninstall selected…',
+            danger: true,
+            disabled: busy || !selected,
+            onClick: () => void onAction('uninstall'),
+          },
+          { label: 'Dependencies…', disabled: busy || !selected, onClick: () => void onAction('deps') },
+          { label: 'New Module…', disabled: busy, onClick: () => void onAction('scaffold') },
+        ]}
+      >
         <p className="dim-label">{modDb}</p>
         <div className="btn-row">
           <TextInput
@@ -480,42 +513,6 @@ export default function Modules() {
           {checked.size > 0 && checkedVisible === 0 ? ' (checked hidden by filter)' : ''}
         </div>
       </Card>
-
-      <div className="btn-row">
-        <ActionButton
-          primary
-          disabled={busy || checked.size === 0}
-          onClick={() => void onAction('install')}
-        >
-          Install Checked
-        </ActionButton>
-        <ActionButton disabled={busy || checked.size === 0} onClick={() => void onAction('update')}>
-          Update Checked
-        </ActionButton>
-        <ActionButton
-          danger
-          disabled={busy || !selected}
-          title="Uninstall the selected module"
-          onClick={() => void onAction('uninstall')}
-        >
-          Uninstall
-        </ActionButton>
-      </div>
-      <div className="btn-row">
-        <ActionButton
-          disabled={busy}
-          title="git pull + pip install + module update (stays stopped)"
-          onClick={() => void onAction('update-code')}
-        >
-          Update Code…
-        </ActionButton>
-        <ActionButton disabled={busy || !selected} onClick={() => void onAction('deps')}>
-          Dependencies…
-        </ActionButton>
-        <ActionButton disabled={busy} onClick={() => void onAction('scaffold')}>
-          New Module…
-        </ActionButton>
-      </div>
     </div>
   )
 }

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getApi } from '../bridge'
 import { Modal, useConfirm } from '../components/dialog'
+import { Icon } from '../components/icons'
 import {
   ActionButton,
   Card,
@@ -15,14 +16,19 @@ import {
   EmptyState,
   ErrorText,
   LineList,
-  SectionHeader,
   Select,
   SpinInput,
   TextInput,
 } from '../components/ui'
+import { Banner } from '../components/widgets'
 import { onEvent } from '../events'
 import { useApp } from '../store'
 import type { ConfView, Dict } from '../types'
+
+interface Notice {
+  text: string
+  kind: 'info' | 'error'
+}
 
 const COMMON_KEYS = ['db_host', 'db_port', 'db_user', 'xmlrpc_port', 'logfile']
 const CONF_LOG_LEVELS = ['info', 'debug', 'debug_sql', 'warning', 'error', 'critical']
@@ -30,19 +36,32 @@ const CONF_LOG_LEVELS = ['info', 'debug', 'debug_sql', 'warning', 'error', 'crit
 interface AddonsEntry extends Dict {
   path: string
   enabled: boolean
-  builtin?: boolean
+  exists?: boolean
+  modules?: number
+}
+
+/** Client mirror of core/addon_paths.derive_addons_path (enabled only, order kept). */
+function derivePreview(entries: AddonsEntry[]): string {
+  return entries
+    .filter((e) => e.enabled && e.path)
+    .map((e) => e.path)
+    .join(',')
 }
 
 function AddonsDialog({
   instanceId,
+  running,
   onClose,
 }: {
   instanceId: string
+  running: boolean
   onClose: () => void
 }) {
   const api = getApi()
   const [entries, setEntries] = useState<AddonsEntry[]>([])
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [pending, setPending] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -57,27 +76,69 @@ function AddonsDialog({
     void load()
   }, [load])
 
-  const add = async () => {
-    const res = await api.app.pick_dir('Add addons folder')
-    if (!res.ok || !res.path) return
-    const looks = await api.config.looks_like_addons(res.path)
-    if (!looks) {
-      setError(`${res.path} does not look like an addons folder (no module subfolders).`)
-      return
-    }
-    if (entries.some((e) => e.path === res.path)) {
+  const append = (path: string) => {
+    if (entries.some((e) => e.path === path)) {
       setError('Already in the list.')
       return
     }
     setError('')
-    setEntries([...entries, { path: res.path, enabled: true }])
+    setNotice('')
+    setEntries((prev) => [...prev, { path, enabled: true }])
+  }
+
+  const add = async () => {
+    const res = await api.app.pick_dir('Add addons folder')
+    if (!res.ok || !res.path) return
+    if (entries.some((e) => e.path === res.path)) {
+      setError('Already in the list.')
+      setPending('')
+      return
+    }
+    const looks = await api.config.looks_like_addons(res.path)
+    if (!looks) {
+      // Sprint 7 T7.4: warn, don't block — user can still add it.
+      setPending(res.path)
+      setError('')
+      return
+    }
+    setPending('')
+    append(res.path)
+  }
+
+  const addAnyway = () => {
+    const path = pending
+    setPending('')
+    append(path)
+  }
+
+  const move = (i: number, dir: -1 | 1) => {
+    setNotice('')
+    setEntries((prev) => {
+      const j = i + dir
+      if (j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  }
+
+  const remove = (i: number) => {
+    setNotice('')
+    setEntries((prev) => prev.filter((_, j) => j !== i))
   }
 
   const apply = async () => {
+    setError('')
     const res = await api.config.apply_addons(instanceId, entries)
-    if (res.ok) onClose()
-    else setError(res.message)
+    if (res.ok) {
+      setNotice(res.message) // backend already appends "(takes effect on next restart)"
+      await load() // re-enrich exists/modules against the disk
+    } else {
+      setError(res.message)
+    }
   }
+
+  const preview = derivePreview(entries)
 
   return (
     <Modal
@@ -93,54 +154,109 @@ function AddonsDialog({
         </>
       }
     >
+      {running && (
+        <Banner kind="warn">Instance is running — changes take effect on next restart.</Banner>
+      )}
       <div className="addons-list">
         {entries.map((e, i) => (
           <div key={`${e.path}-${i}`} className="addons-row">
-            <label className="checkbox" title={e.builtin ? 'Builtin (read-only)' : 'Include in addons_path'}>
+            <label className="checkbox" title="Include in addons_path">
               <input
                 type="checkbox"
                 checked={e.enabled}
-                disabled={e.builtin}
-                onChange={(ev) =>
+                onChange={(ev) => {
+                  setNotice('')
                   setEntries((prev) =>
                     prev.map((row, j) => (j === i ? { ...row, enabled: ev.target.checked } : row)),
                   )
-                }
+                }}
               />
               <span />
             </label>
             <span className="mono elide" title={e.path}>
               {e.path}
             </span>
-            {!e.builtin && (
-              <ActionButton
-                onClick={() => setEntries((prev) => prev.filter((_, j) => j !== i))}
-                title="Remove from list"
-              >
-                ×
-              </ActionButton>
+            {e.exists === false ? (
+              <span className="gap-missing" title="Folder not found on disk">
+                missing
+              </span>
+            ) : (
+              <span className="dim-label" title="Module folders found">
+                {e.modules ?? 0} modules
+              </span>
             )}
+            <button
+              type="button"
+              className="btn icon"
+              disabled={i === 0}
+              onClick={() => move(i, -1)}
+              title="Move up"
+              aria-label={`Move up ${e.path}`}
+            >
+              <Icon name="chevron-up" size={12} />
+            </button>
+            <button
+              type="button"
+              className="btn icon"
+              disabled={i === entries.length - 1}
+              onClick={() => move(i, 1)}
+              title="Move down"
+              aria-label={`Move down ${e.path}`}
+            >
+              <Icon name="chevron-down" size={12} />
+            </button>
+            <button
+              type="button"
+              className="btn icon"
+              onClick={() => remove(i)}
+              title="Remove from list"
+              aria-label={`Remove ${e.path}`}
+            >
+              <Icon name="x" size={12} />
+            </button>
           </div>
         ))}
         {entries.length === 0 && <EmptyState text="No addon paths loaded." />}
       </div>
+      <DimText>
+        <span className="mono">derived addons_path: </span>
+        <span className="mono" title={preview}>
+          {preview || '(empty)'}
+        </span>
+      </DimText>
+      {pending && (
+        <Banner kind="warn">
+          {pending} does not look like an addons folder (no module subfolders) — add it anyway?
+        </Banner>
+      )}
       <div className="btn-row">
         <ActionButton onClick={() => void add()}>Add folder…</ActionButton>
+        {pending && (
+          <ActionButton primary onClick={addAnyway}>
+            Add anyway
+          </ActionButton>
+        )}
+        {pending && (
+          <ActionButton onClick={() => setPending('')}>
+            Dismiss
+          </ActionButton>
+        )}
       </div>
       <ErrorText text={error} />
+      {notice && <Banner kind="ok">{notice}</Banner>}
     </Modal>
   )
 }
 
 export default function Configuration() {
-  const { current, currentId, setDialog, setBusy, busy } = useApp()
+  const { current, currentId, statuses, setDialog, setBusy, busy } = useApp()
   const confirm = useConfirm()
 
   const [view, setView] = useState<ConfView>({})
   const [common, setCommon] = useState<Dict>({})
   const [rawKey, setRawKey] = useState('')
   const [rawValue, setRawValue] = useState('')
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [meta, setMeta] = useState({ description: '', workers: 0, logLevel: 'info', python: '' })
   const [metaErr, setMetaErr] = useState('')
   const [loadErr, setLoadErr] = useState('')
@@ -186,6 +302,7 @@ export default function Configuration() {
 
   const api = getApi()
   const hasBackup = Boolean(view.backup_path)
+  const running = statuses.find((s) => s.id === currentId)?.status === 'running'
 
   const saveCommon = async () => {
     const changes: Dict = {}
@@ -194,13 +311,13 @@ export default function Configuration() {
       if (next !== (view.common?.[key] ?? '')) changes[key] = next
     }
     if (Object.keys(changes).length === 0) {
-      setNotice('No changes to save.')
+      setNotice({ text: 'No changes to save.', kind: 'info' })
       return
     }
     setBusy(true)
     try {
       const res = await api.config.save(currentId, changes)
-      setNotice(res.ok ? '' : res.message)
+      setNotice(res.ok ? null : { text: res.message, kind: 'error' })
       if (res.ok) await load(currentId)
     } finally {
       setBusy(false)
@@ -211,7 +328,7 @@ export default function Configuration() {
     if (busy) return
     const key = rawKey.trim()
     if (!key) {
-      setNotice('Enter a key name first.')
+      setNotice({ text: 'Enter a key name first.', kind: 'info' })
       return
     }
     setBusy(true)
@@ -219,7 +336,7 @@ export default function Configuration() {
       const res = await api.config.save(currentId, { [key]: rawValue === '' ? null : rawValue })
       setRawKey('')
       setRawValue('')
-      setNotice(res.ok ? '' : res.message)
+      setNotice(res.ok ? null : { text: res.message, kind: 'error' })
       if (res.ok) await load(currentId)
     } finally {
       setBusy(false)
@@ -230,7 +347,7 @@ export default function Configuration() {
     setBusy(true)
     try {
       const res = await api.config.restore(currentId)
-      setNotice(res.ok ? '' : res.message)
+      setNotice(res.ok ? null : { text: res.message, kind: 'error' })
       if (res.ok) await load(currentId)
     } finally {
       setBusy(false)
@@ -248,7 +365,7 @@ export default function Configuration() {
     setBusy(true)
     try {
       const res = await api.config.regenerate(currentId)
-      setNotice(res.ok ? '' : res.message)
+      setNotice(res.ok ? null : { text: res.message, kind: 'error' })
       if (res.ok) await load(currentId)
     } finally {
       setBusy(false)
@@ -271,7 +388,7 @@ export default function Configuration() {
     setBusy(true)
     try {
       const res = await api.config.meta_save(currentId, payload)
-      setNotice(res.ok ? '' : res.message)
+      setNotice(res.ok ? null : { text: res.message, kind: 'error' })
       if (res.ok) await load(currentId)
     } finally {
       setBusy(false)
@@ -298,7 +415,19 @@ export default function Configuration() {
         )}
       </Card>
 
-      <Card title="Edit common keys">
+      <Card
+        title="Edit common keys"
+        actions={
+          <>
+            <ActionButton primary disabled={busy} onClick={() => void saveCommon()}>
+              Save changes
+            </ActionButton>
+            <ActionButton disabled={busy || !hasBackup} onClick={() => void restore()}>
+              Restore last backup
+            </ActionButton>
+          </>
+        }
+      >
         <div className="grid2">
           {COMMON_KEYS.map((key) => (
             <label key={key} className="field">
@@ -317,7 +446,13 @@ export default function Configuration() {
           </span>
           <ActionButton
             onClick={() =>
-              setDialog(<AddonsDialog instanceId={currentId} onClose={() => setDialog(null)} />)
+              setDialog(
+                <AddonsDialog
+                  instanceId={currentId}
+                  running={running}
+                  onClose={() => setDialog(null)}
+                />,
+              )
             }
           >
             Manage…
@@ -338,15 +473,7 @@ export default function Configuration() {
             Set
           </ActionButton>
         </div>
-        {notice && <EmptyState text={notice} warn />}
-        <div className="btn-row">
-          <ActionButton primary disabled={busy} onClick={() => void saveCommon()}>
-            Save changes
-          </ActionButton>
-          <ActionButton disabled={busy || !hasBackup} onClick={() => void restore()}>
-            Restore last backup
-          </ActionButton>
-        </div>
+        {notice && <Banner kind={notice.kind}>{notice.text}</Banner>}
         {view.backup_path ? (
           <DimText>
             Backup: <ElidePath path={view.backup_path} />
@@ -356,17 +483,27 @@ export default function Configuration() {
         )}
       </Card>
 
-      <Card title="Advanced">
-        <ActionButton
-          title="Rebuilds options from registry — manual edits lost"
-          disabled={busy}
-          onClick={() => void regenerate()}
-        >
-          Regenerate from registry…
-        </ActionButton>
-      </Card>
+      <Card
+        title="Advanced"
+        actions={
+          <ActionButton
+            title="Rebuilds options from registry — manual edits lost"
+            disabled={busy}
+            onClick={() => void regenerate()}
+          >
+            Regenerate from registry…
+          </ActionButton>
+        }
+      />
 
-      <Card title="Metadata">
+      <Card
+        title="Metadata"
+        actions={
+          <ActionButton primary disabled={busy} onClick={() => void saveMeta()}>
+            Save metadata
+          </ActionButton>
+        }
+      >
         <label className="field">
           <span className="field-label">Description (registry only, for organization)</span>
           <TextInput
@@ -412,10 +549,6 @@ export default function Configuration() {
           <ActionButton onClick={() => void browsePython()}>Browse…</ActionButton>
         </div>
         <ErrorText text={metaErr} />
-        <SectionHeader text="" />
-        <ActionButton primary disabled={busy} onClick={() => void saveMeta()}>
-          Save metadata
-        </ActionButton>
       </Card>
     </div>
   )

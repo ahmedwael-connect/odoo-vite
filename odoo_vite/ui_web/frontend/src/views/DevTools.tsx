@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getApi } from '../bridge'
 import { Modal, useConfirm, useTypedConfirm, useProgressRun } from '../components/dialog'
+import { Icon } from '../components/icons'
 import { SelectionList, type SelRow } from '../components/selection'
 import {
   ActionButton,
@@ -615,7 +616,14 @@ export default function DevTools() {
 
   return (
     <div className="view devtools-view">
-      <Card title="RPC connection">
+      <Card
+        title="RPC connection"
+        actions={
+          <ActionButton primary disabled={devBusy} onClick={rpcConnect}>
+            Connect
+          </ActionButton>
+        }
+      >
         <div className="btn-row">
           <TextInput
             placeholder="Odoo user (default admin)"
@@ -632,14 +640,18 @@ export default function DevTools() {
             <span />
             Remember
           </label>
-          <ActionButton primary disabled={devBusy} onClick={rpcConnect}>
-            Connect
-          </ActionButton>
         </div>
         <DimText>{rpcStatus}</DimText>
       </Card>
 
-      <Card title="Model Inspector">
+      <Card
+        title="Model Inspector"
+        actions={
+          <ActionButton disabled={devBusy} onClick={reloadModels}>
+            Reload models
+          </ActionButton>
+        }
+      >
         <SelectionList
           rows={modelRows}
           selectedId={modelSelected}
@@ -649,16 +661,31 @@ export default function DevTools() {
           counts={`${models.length} model(s)`}
           emptyState={<EmptyState text={modelsEmpty} />}
         />
-        <div className="btn-row">
-          <ActionButton disabled={devBusy} onClick={reloadModels}>
-            Reload models
-          </ActionButton>
-        </div>
         <DimText>{metaLine}</DimText>
         <MetaDetails meta={meta} />
       </Card>
 
-      <Card title="Record Browser">
+      <Card
+        title="Record Browser"
+        actions={
+          <>
+            <ActionButton disabled={devBusy} onClick={recNew}>
+              New…
+            </ActionButton>
+            <ActionButton disabled={devBusy || !recSelected} onClick={recEdit}>
+              Edit…
+            </ActionButton>
+          </>
+        }
+        menu={[
+          {
+            label: 'Delete record…',
+            danger: true,
+            disabled: devBusy || !recSelected,
+            onClick: recDelete,
+          },
+        ]}
+      >
         <div className="btn-row">
           <TextInput
             placeholder="field (empty = all)"
@@ -694,27 +721,13 @@ export default function DevTools() {
         />
         <div className="split-row">
           <ActionButton disabled={devBusy} onClick={() => recPageMove(-1)}>
-            ◀ Prev
+            <Icon name="chevron-left" size={12} />
+            Prev
           </ActionButton>
           <DimText>{recPage}</DimText>
           <ActionButton disabled={devBusy} onClick={() => recPageMove(1)}>
-            Next ▶
-          </ActionButton>
-        </div>
-        <div className="btn-row">
-          <ActionButton disabled={devBusy} onClick={recNew}>
-            New…
-          </ActionButton>
-          <ActionButton disabled={devBusy || !recSelected} onClick={recEdit}>
-            Edit…
-          </ActionButton>
-          <ActionButton
-            danger
-            disabled={devBusy || !recSelected}
-            title="Permanently deletes the record — no undo"
-            onClick={recDelete}
-          >
-            Delete…
+            Next
+            <Icon name="chevron-right" size={12} />
           </ActionButton>
         </div>
         {recSelectedRecord && (
@@ -724,29 +737,21 @@ export default function DevTools() {
         )}
       </Card>
 
-      <Card title="Cron Jobs">
-        <div className="btn-row">
+      <Card
+        title="Cron Jobs"
+        actions={
           <ActionButton disabled={devBusy} onClick={cronRefresh}>
             Refresh
           </ActionButton>
-        </div>
+        }
+      >
         <LineList lines={crons} maxHeight={150} />
         {!crons.length && <EmptyState text={cronEmpty} />}
       </Card>
 
-      <Card title="Launch & editors">
-        <div className="btn-row">
-          <ActionButton
-            disabled={devBusy}
-            onClick={() =>
-              void runDev(async () => {
-                const res = await api.devtools.launch_json(iid)
-                if (!res.ok) err(res.message)
-              })
-            }
-          >
-            Generate launch.json
-          </ActionButton>
+      <Card
+        title="Launch & editors"
+        actions={
           <ActionButton
             disabled={devBusy}
             onClick={() =>
@@ -758,30 +763,43 @@ export default function DevTools() {
           >
             Open in VS Code
           </ActionButton>
-          <ActionButton
-            disabled={devBusy}
-            onClick={() =>
+        }
+        menu={[
+          {
+            label: 'Open in Cursor',
+            disabled: devBusy,
+            onClick: () =>
               void runDev(async () => {
                 const res = await api.devtools.open_editor(iid, 'cursor')
                 if (!res.ok) err(res.message)
-              })
-            }
-          >
-            Open in Cursor
-          </ActionButton>
-        </div>
-      </Card>
+              }),
+          },
+          {
+            label: 'Generate launch.json',
+            disabled: devBusy,
+            onClick: () =>
+              void runDev(async () => {
+                const res = await api.devtools.launch_json(iid)
+                if (!res.ok) err(res.message)
+              }),
+          },
+        ]}
+      />
 
-      <Card title="Odoo Shell (PTY REPL)">
-        <div className="btn-row">
-          <ActionButton primary disabled={shellRunning || devBusy} onClick={shellStart}>
-            Start shell
-          </ActionButton>
-          <ActionButton disabled={!shellRunning || devBusy} onClick={shellStop}>
-            Stop
-          </ActionButton>
-          <DimText>{shellStatus}</DimText>
-        </div>
+      <Card
+        title="Odoo Shell (PTY REPL)"
+        actions={
+          <>
+            <ActionButton primary disabled={shellRunning || devBusy} onClick={shellStart}>
+              Start shell
+            </ActionButton>
+            <ActionButton disabled={!shellRunning || devBusy} onClick={shellStop}>
+              Stop
+            </ActionButton>
+          </>
+        }
+      >
+        <DimText>{shellStatus}</DimText>
         <div className="shell-out">
           <LineList lines={shellLines} mono maxHeight={280} />
         </div>
@@ -800,20 +818,34 @@ export default function DevTools() {
         </div>
       </Card>
 
-      <Card title="Dev Mode Watch">
-        <div className="btn-row">
+      <Card
+        title="Dev Mode Watch"
+        actions={
           <ActionButton disabled={devBusy} onClick={watchToggle}>
             {watchOn ? 'Stop watch' : 'Start watch'}
           </ActionButton>
-          <DimText>{watchMsg}</DimText>
-        </div>
+        }
+      >
+        <DimText>{watchMsg}</DimText>
         <DimText>
           Watches custom_addons + community/enterprise roots for .py/.xml/.js/.css/.csv/.po changes
           — one automatic restart 0.8s after edits settle.
         </DimText>
       </Card>
 
-      <Card title="Module tests">
+      <Card
+        title="Module tests"
+        actions={
+          <ActionButton
+            primary
+            disabled={devBusy || busy}
+            title="Never runs on the primary database"
+            onClick={testRun}
+          >
+            Run tests
+          </ActionButton>
+        }
+      >
         <div className="btn-row">
           <TextInput
             placeholder="module name"
@@ -825,14 +857,6 @@ export default function DevTools() {
             value={testDb}
             onChange={(e) => setTestDb(e.target.value)}
           />
-          <ActionButton
-            primary
-            disabled={devBusy || busy}
-            title="Never runs on the primary database"
-            onClick={testRun}
-          >
-            Run tests
-          </ActionButton>
         </div>
       </Card>
 

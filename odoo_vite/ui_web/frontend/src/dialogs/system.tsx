@@ -9,6 +9,7 @@ import { Modal } from '../components/dialog'
 import { ActionButton, DimText, EmptyState, LineList, SectionHeader, Select, TextInput } from '../components/ui'
 import { route } from '../events'
 import { useApp } from '../store'
+import { getTheme, setTheme, type ThemeChoice } from '../theme'
 import type { AuditEvent, Dict } from '../types'
 
 const MODE_LABELS = ['Developer (default)', 'Managed (least privilege)']
@@ -18,9 +19,17 @@ const MODE_NOTES = [
 ]
 const MODES = ['developer', 'managed']
 
+const THEME_LABELS: Record<ThemeChoice, string> = {
+  system: 'System (follow OS)',
+  dark: 'Dark',
+  light: 'Light',
+}
+const THEMES: ThemeChoice[] = ['system', 'dark', 'light']
+
 export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   const api = getApi()
   const [modeIdx, setModeIdx] = useState(0)
+  const [theme, setThemeChoice] = useState<ThemeChoice>(() => getTheme())
   const [keyring, setKeyring] = useState('')
   const [dbPath, setDbPath] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -61,6 +70,22 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         </>
       }
     >
+      <SectionHeader text="Appearance" />
+      <Select
+        aria-label="Theme"
+        value={theme}
+        onChange={(e) => {
+          const next = e.target.value as ThemeChoice
+          setThemeChoice(next)
+          setTheme(next) // instant preview + persist
+        }}
+      >
+        {THEMES.map((t) => (
+          <option key={t} value={t}>
+            {THEME_LABELS[t]}
+          </option>
+        ))}
+      </Select>
       <SectionHeader text="Provisioning mode (applies to new instances)" />
       <Select value={String(modeIdx)} onChange={(e) => setModeIdx(Number(e.target.value))}>
         {MODE_LABELS.map((l, i) => (

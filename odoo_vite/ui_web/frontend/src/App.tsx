@@ -4,15 +4,18 @@
  * Port of ui_slint/app.slint + bridge refresh/select/show_toast.
  */
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { getApi, useBridgeReady } from './bridge'
 import { useConfirm, useProgressRun } from './components/dialog'
+import { Icon } from './components/icons'
+import { CommandPalette, type Command } from './components/palette'
 import { SelectionList, type SelRow } from './components/selection'
 import { ActionButton, SectionHeader, Spinner, StatusPill } from './components/ui'
 import { route, useProgress } from './events'
 import { AboutDialog, EventLogDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
 import { AdoptWizard, CreateWizard } from './dialogs/wizards'
 import { useApp } from './store'
+import { getTheme, initTheme, resolveTheme, setTheme } from './theme'
 import Configuration from './views/Configuration'
 import Databases from './views/Databases'
 import DevTools from './views/DevTools'
@@ -41,11 +44,11 @@ export default function App() {
     current,
     select,
     refresh,
-    toast,
+    toasts,
     hideToast,
     busy,
     setBusy,
-    dialog,
+    dialogs,
     setDialog,
   } = useApp()
   const ops = useProgress()
@@ -55,6 +58,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('overview')
   const [bulkMode, setBulkMode] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   const activeOps = ops.filter((o) => !o.done).length
 
@@ -62,24 +66,31 @@ export default function App() {
     document.title = current ? `Odoo Vite — ${current.name}` : 'Odoo Vite'
   }, [current])
 
+  // saved theme (dark/light/system) on <html data-theme>; follows OS live
+  useEffect(() => initTheme(), [])
+
   // App shortcuts (RM-6): Ctrl+N New, Ctrl+O Adopt, F5/Ctrl+R Refresh,
-  // Ctrl+F focus the instance filter. Nothing fires while a dialog is
-  // open except Refresh — Esc owns dialog dismissal.
+  // Ctrl+F focus the instance filter, Ctrl+K command palette. Nothing
+  // fires while a dialog is open except Refresh — Esc owns dismissal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
       const mod = e.ctrlKey || e.metaKey
       const key = e.key.toLowerCase()
+      const dialogOpen = dialogs.length > 0
       if (key === 'f5' || (mod && key === 'r')) {
         e.preventDefault()
-        if (!busy && !dialog) void refresh()
+        if (!busy && !dialogOpen) void refresh()
         return
       }
       if (!mod) return
-      if (key === 'n' && !dialog) {
+      if (key === 'k') {
+        e.preventDefault()
+        if (!dialogOpen) setPaletteOpen((open) => !open)
+      } else if (key === 'n' && !dialogOpen) {
         e.preventDefault()
         setDialog(<CreateWizard onClose={() => setDialog(null)} />)
-      } else if (key === 'o' && !dialog) {
+      } else if (key === 'o' && !dialogOpen) {
         e.preventDefault()
         setDialog(<AdoptWizard onClose={() => setDialog(null)} />)
       } else if (key === 'f') {
@@ -91,7 +102,7 @@ export default function App() {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [busy, dialog, refresh, setDialog])
+  }, [busy, dialogs, refresh, setDialog])
 
   const rows: SelRow[] = statuses.map((s) => ({
     id: s.id,
@@ -151,6 +162,130 @@ export default function App() {
   }`
 
   const openDialog = (node: React.ReactNode) => setDialog(node)
+
+  // lifecycle helpers for palette/shortcuts (mirror Overview's act flow)
+  const lifecycleAct = async (
+    fn: () => Promise<{ ok: boolean; message: string; data?: unknown }>,
+  ) => {
+    setBusy(true)
+    try {
+      return await fn()
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) }
+    } finally {
+      setBusy(false)
+      void refresh()
+    }
+  }
+
+  const startCurrent = async () => {
+    if (busy || !currentId) return
+    const res = await lifecycleAct(() => api.lifecycle.start(currentId, null, false))
+    if (res.ok) return
+    const data = res.data as { needs_confirm?: boolean; preview?: { detail?: string } } | undefined
+    if (data?.needs_confirm) {
+      const ok = await confirm({
+        heading: 'Create database?',
+        body: `${data.preview?.detail ?? res.message}\n\nRuns odoo-bin -i base, then starts.`,
+        confirmLabel: 'Create + Start',
+      })
+      if (ok) await lifecycleAct(() => api.lifecycle.start(currentId, null, true))
+    } else {
+      route({ kind: 'message', payload: { text: res.message, level: 'error' } })
+    }
+  }
+
+  const stopCurrent = async () => {
+    if (busy || !currentId) return
+    const res = await lifecycleAct(() => api.lifecycle.stop(currentId))
+    if (!res.ok)
+      route({ kind: 'message', payload: { text: res.message, level: 'error' } })
+  }
+
+  const commands: Command[] = [
+    ...TABS.map((t) => ({
+      id: `go-${t.id}`,
+      label: `Go to ${t.label}`,
+      group: 'Navigate',
+      icon: 'chevron-right' as const,
+      run: () => setTab(t.id),
+    })),
+    {
+      id: 'new-instance',
+      label: 'New instance…',
+      group: 'Instance',
+      icon: 'plus' as const,
+      keywords: 'create wizard',
+      run: () => setDialog(<CreateWizard onClose={() => setDialog(null)} />),
+    },
+    {
+      id: 'adopt-instance',
+      label: 'Adopt instance…',
+      group: 'Instance',
+      icon: 'folder' as const,
+      keywords: 'import existing',
+      run: () => setDialog(<AdoptWizard onClose={() => setDialog(null)} />),
+    },
+    {
+      id: 'refresh',
+      label: 'Refresh statuses',
+      group: 'Instance',
+      icon: 'refresh' as const,
+      hint: 'F5',
+      run: () => void refresh(),
+    },
+    ...(currentId
+      ? [
+          {
+            id: 'start-current',
+            label: 'Start selected instance',
+            group: 'Instance',
+            icon: 'play' as const,
+            keywords: 'boot run',
+            run: () => void startCurrent(),
+          },
+          {
+            id: 'stop-current',
+            label: 'Stop selected instance',
+            group: 'Instance',
+            icon: 'stop' as const,
+            keywords: 'halt',
+            run: () => void stopCurrent(),
+          },
+        ]
+      : []),
+    {
+      id: 'preferences',
+      label: 'Preferences…',
+      group: 'System',
+      icon: 'eye' as const,
+      keywords: 'settings mode theme',
+      run: () => setDialog(<PreferencesDialog onClose={() => setDialog(null)} />),
+    },
+    {
+      id: 'event-log',
+      label: 'Event log…',
+      group: 'System',
+      icon: 'copy' as const,
+      keywords: 'audit debug',
+      run: () => setDialog(<EventLogDialog onClose={() => setDialog(null)} />),
+    },
+    {
+      id: 'about',
+      label: 'About Odoo Vite',
+      group: 'System',
+      icon: 'info' as const,
+      run: () => setDialog(<AboutDialog onClose={() => setDialog(null)} />),
+    },
+    {
+      id: 'theme',
+      label: 'Toggle light/dark theme',
+      group: 'View',
+      icon: 'eye' as const,
+      keywords: 'dark light appearance mode',
+      run: () => setTheme(resolveTheme(getTheme()) === 'dark' ? 'light' : 'dark'),
+    },
+  ]
 
   return (
     <div className="shell">
@@ -263,12 +398,26 @@ export default function App() {
         </nav>
 
         <main className="content">
-          {tab === 'overview' && <Overview />}
-          {tab === 'databases' && <Databases />}
-          {tab === 'modules' && <Modules />}
-          {tab === 'configuration' && <Configuration />}
-          {tab === 'logs' && <Logs />}
-          {tab === 'devtools' && <DevTools />}
+          {/* keep-mounted: hidden views hold their scroll/selection/state;
+              background polls stay live (docs/patterns.md) */}
+          <div className="view" hidden={tab !== 'overview'}>
+            <Overview />
+          </div>
+          <div className="view" hidden={tab !== 'databases'}>
+            <Databases />
+          </div>
+          <div className="view" hidden={tab !== 'modules'}>
+            <Modules />
+          </div>
+          <div className="view" hidden={tab !== 'configuration'}>
+            <Configuration />
+          </div>
+          <div className="view" hidden={tab !== 'logs'}>
+            <Logs />
+          </div>
+          <div className="view" hidden={tab !== 'devtools'}>
+            <DevTools />
+          </div>
         </main>
 
         <footer className="statusline">
@@ -281,17 +430,42 @@ export default function App() {
         </footer>
       </div>
 
-      {toast && (
-        <div
-          className={`snackbar toast-${toast.level}`}
-          role="status"
-          onClick={hideToast}
-        >
-          {toast.text}
+      {toasts.length > 0 && (
+        <div className="snack-stack">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={`snackbar toast-${t.level}`}
+              role={t.level === 'error' ? 'alert' : 'status'}
+              onClick={() => hideToast(t.id)}
+            >
+              <span className="toast-icon" aria-hidden="true">
+                <Icon name={t.level === 'info' ? 'info' : 'alert'} size={14} />
+              </span>
+              <span className="toast-text">{t.text}</span>
+              <button
+                type="button"
+                className="toast-x"
+                aria-label="Dismiss"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  hideToast(t.id)
+                }}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
-      {dialog}
+      {dialogs.map((d, i) => (
+        <Fragment key={i}>{d}</Fragment>
+      ))}
+
+      {paletteOpen && (
+        <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
+      )}
     </div>
   )
 }

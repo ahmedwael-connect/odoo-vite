@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import functools
+import os
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -33,7 +34,8 @@ from odoo_vite.core import addon_paths, audit, backup_scheduler, db_manager
 from odoo_vite.core import venv_manager
 from odoo_vite.core.enterprise import detect_enterprise
 from odoo_vite.core.instance import Instance
-from odoo_vite.core.log_tail import read_last_n
+from odoo_vite.core.settings import get_theme, set_theme
+from odoo_vite.core.log_tail import LogFollower, read_last_n
 from odoo_vite.core.odoo_shell import OdooShell
 from odoo_vite.ops.configuration import ConfigOps, read_conf_view, validate_meta
 from odoo_vite.ops.databases import DatabaseOps, group_discover_entries
@@ -120,6 +122,14 @@ def _sink_message(push: PushChannel) -> Callable:
         push.emit("message", {"text": str(text), "level": str(level or "info")})
 
     return sink
+
+
+def _ino(path: str) -> int | None:
+    """Inode of path, or None if it can't be stat'ed (missing file)."""
+    try:
+        return os.stat(path).st_ino
+    except OSError:
+        return None
 
 
 def _sink_refresh(push: PushChannel) -> Callable:
@@ -233,6 +243,14 @@ class AppApi(Domain):
 
     def save_preferences(self, mode: str) -> Any:
         return save_preferences(mode)
+
+    def theme(self) -> str:
+        """Persisted UI theme (dark | light | system). Browser storage is
+        ephemeral under WebKitGTK — the settings table survives restarts."""
+        return get_theme()
+
+    def save_theme(self, theme: str) -> Any:
+        return set_theme(theme)
 
     def pick_file(self, title: str = "", mode: str = "open", pattern: str = "") -> dict:
         """Native file dialog; mode is 'open' | 'save'. Window bootstraps this."""
@@ -512,10 +530,23 @@ class ConfigApi(Domain):
         return validate_meta(meta)
 
     def addons_state(self, instance_id: str) -> list[dict]:
+        """Structured entries + display health (exists/modules per path)."""
         inst = registry.get_instance(instance_id)
         if inst is None:
             return []
-        return addon_paths.get_addons_state(inst)
+        rows = []
+        for entry in addon_paths.get_addons_state(inst):
+            path = str(entry.get("path", ""))
+            try:
+                exists = Path(path).expanduser().is_dir()
+            except OSError:
+                exists = False
+            rows.append({
+                **entry,
+                "exists": exists,
+                "modules": addon_paths.count_addon_modules(path) if exists else 0,
+            })
+        return rows
 
     def looks_like_addons(self, path: str) -> bool:
         return bool(addon_paths.looks_like_addons_folder(path))
@@ -553,6 +584,13 @@ class ConfigApi(Domain):
 class LogsApi(Domain):
     def __init__(self, push: PushChannel) -> None:
         self._push = push
+        # tail state: one seek-based follower per instance (the bridge's 1s
+        # poll owns it; LogFollower is not thread-safe — one lock guards all
+        # access because pywebview runs each js_api call on its own thread).
+        # iid -> (log_path, follower, inode) — inode catches logrotate
+        # replacements that size checks miss.
+        self._followers: dict[str, tuple[str, LogFollower, int | None]] = {}
+        self._tail_lock = threading.Lock()
         self._ops = LogOps(
             on_message=_sink_message(push),
             on_search=_sink(
@@ -570,13 +608,57 @@ class LogsApi(Domain):
         )
 
     def tail(self, instance_id: str, n: int = 500) -> dict:
-        """Sync tail of the instance log (the 1s poll replacement)."""
+        """Sync tail of the instance log (the 1s poll replacement).
+
+        Contract for the frontend merge:
+        - first poll per (instance, log_path): ``{"initial": True}`` with the
+          last ``n`` lines (follower synced to EOF so nothing is re-emitted);
+        - later polls: only the bytes appended since the previous poll;
+        - rotation/truncation: ``{"rotated": True}`` with a fresh ``n``-line
+          window from the new file;
+        - unreadable/missing file or unknown instance: ``ok=False`` (the view
+          keeps what it has; the message becomes the note).
+        """
         inst = registry.get_instance(instance_id)
         if inst is None:
+            self._followers.pop(instance_id, None)
             return {"ok": False, "message": "Instance not found", "lines": []}
         if not inst.log_path:
             return {"ok": False, "message": "No log file recorded", "lines": []}
-        return {"ok": True, "lines": read_last_n(inst.log_path, int(n))}
+        path = inst.log_path
+        with self._tail_lock:
+            entry = self._followers.get(instance_id)
+            if entry is None or entry[0] != path:
+                follower = LogFollower(path)
+                lines = read_last_n(path, int(n))
+                follower.sync_to_end()
+                self._followers[instance_id] = (path, follower, _ino(path))
+                return {"ok": True, "lines": lines, "initial": True,
+                        "rotated": False}
+            follower = entry[1]
+            # inode rotation (logrotate rename + fresh file): size checks in
+            # LogFollower miss it when the new file is already larger than
+            # the old offset, so catch the replacement here.
+            ino = _ino(path)
+            rotated = ino is not None and ino != entry[2]
+            if rotated:
+                polled = {"lines": [], "rotated": True, "missing": False}
+            else:
+                polled = follower.poll()
+            if polled.get("missing"):
+                return {"ok": False, "message": "Log file missing or unreadable",
+                        "lines": []}
+            if polled.get("rotated"):
+                # poll() may have re-read from byte 0 (capped at 256KB) —
+                # re-anchor the follower at the real EOF and show the tail.
+                lines = read_last_n(path, int(n))
+                follower.sync_to_end()
+                self._followers[instance_id] = (path, follower, _ino(path))
+                return {"ok": True, "lines": lines, "initial": False,
+                        "rotated": True}
+            self._followers[instance_id] = (path, follower, ino)
+            return {"ok": True, "lines": polled["lines"], "initial": False,
+                    "rotated": False}
 
     def search(self, instance_id: str, pattern: str, level=None) -> Any:
         return asyncio.run(self._ops.search(instance_id, pattern, level))
