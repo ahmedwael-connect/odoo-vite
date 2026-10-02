@@ -48,6 +48,7 @@ export interface EventPayloads {
   'dev-meta': Dict
   'dev-records': Dict
   'dev-crons': Dict
+  'dev-watch': Dict
   'wiz-branches': Dict
   'wiz-syscheck': Dict
 }
@@ -229,6 +230,8 @@ export interface ConfigApi {
   addons_state(instance_id: string): Async<Dict[]>
   looks_like_addons(path: string): Async<boolean>
   validate_meta(meta: Dict): Async<string | null>
+  venv_status(instance_id: string): Async<Dict>
+  rebuild_venv(instance_id: string, op_id?: string): Async<Result>
 }
 
 export interface LogsApi {
@@ -278,6 +281,7 @@ export interface WizardsApi {
   cancel(op_id: string): Async<Answer>
   load_branches(search?: string): Async<string[]>
   run_syscheck(version: string): Async<Dict[]>
+  install_requirements(missing: string[], op_id?: string): Async<Result>
   provision(draft: Dict, plaintext?: boolean, op_id?: string): Async<Result>
   discard_draft(instance_id: string): Async<Answer>
   adopt_run(name: string, conf: string, community: string, overrides: Dict): Async<Result>
@@ -309,6 +313,24 @@ export interface TransferApi {
   bundle_filename(name: string, stamp: string): Async<string>
 }
 
+export interface AuditEvent {
+  ts: string
+  instance_id: string
+  instance_name: string
+  action: string
+  detail?: string
+}
+
+export interface AuditApi {
+  tail(limit?: number): Async<AuditEvent[]>
+}
+
+export interface WatchApi {
+  start(instance_id: string): Async<Result>
+  stop(instance_id: string): Async<Result>
+  status(instance_id: string): Async<Dict>
+}
+
 /** Root object exposed to JS as `window.pywebview.api`. */
 export interface ApiTree {
   app: AppApi
@@ -320,4 +342,6 @@ export interface ApiTree {
   devtools: DevToolsApi
   wizards: WizardsApi
   transfer: TransferApi
+  audit: AuditApi
+  watch: WatchApi
 }

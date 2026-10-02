@@ -36,7 +36,11 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
   const [version, setVersion] = useState('')
 
   const [sysLines, setSysLines] = useState<string[]>([])
+  const [sysChecks, setSysChecks] = useState<Dict[]>([])
   const [sysStatus, setSysStatus] = useState('')
+  const [instOpId] = useState(() => `sysinst-${Date.now()}`)
+  const [instRunning, setInstRunning] = useState(false)
+  const [instLines, setInstLines] = useState<string[]>([])
 
   const [details, setDetails] = useState({
     name: '',
@@ -83,24 +87,73 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
   }, [])
 
   // ------------------------------------------------------------ syscheck
-  useEffect(() => {
-    if (page !== 1) return
+  const paintSyscheck = (checks: Dict[]) => {
+    setSysChecks(checks)
+    setSysLines(checks.map((c) => `${c.ok ? '✅' : '⚠'} ${c.name ?? '?'}: ${c.detail ?? ''}`))
+  }
+
+  const loadSyscheck = () => {
     setSysStatus(`Checking requirements for Odoo ${version}…`)
-    const off = onEvent('wiz-syscheck', (p) => {
-      const checks = (p.checks ?? []) as Dict[]
-      setSysLines(checks.map((c) => `${c.ok ? '✅' : '⚠'} ${c.name ?? '?'}: ${c.detail ?? ''}`))
-      setSysStatus(String(p.message ?? ''))
-    })
     void api.wizards.run_syscheck(version).then((checks) => {
       if (Array.isArray(checks)) {
-        setSysLines(
-          (checks as Dict[]).map((c) => `${c.ok ? '✅' : '⚠'} ${c.name ?? '?'}: ${c.detail ?? ''}`),
-        )
+        paintSyscheck(checks as Dict[])
+        setSysStatus('')
       }
     })
+  }
+
+  useEffect(() => {
+    if (page !== 1) return
+    const off = onEvent('wiz-syscheck', (p) => {
+      const checks = (p.checks ?? []) as Dict[]
+      paintSyscheck(checks)
+      setSysStatus(String(p.message ?? ''))
+    })
+    loadSyscheck()
     return off
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, version])
+
+  // ------------------------------------------------- install-missing stream
+  useEffect(() => {
+    if (!instRunning) return
+    const offLine = onEvent('progress-line', (p) => {
+      if (p.op_id !== instOpId) return
+      setInstLines((prev) => [...prev, String(p.line ?? '')].slice(-500))
+      setSysStatus(String(p.line ?? '').slice(-120))
+    })
+    const offDone = onEvent('progress-done', (p) => {
+      if (p.op_id !== instOpId) return
+      setInstRunning(false)
+      setSysStatus('')
+      loadSyscheck()
+    })
+    return () => {
+      offLine()
+      offDone()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instRunning, instOpId])
+
+  const installMissing = async () => {
+    const missing = sysChecks.filter((c) => c.requirement && !c.ok).map((c) => String(c.name))
+    if (missing.length === 0) return
+    setInstLines([])
+    setInstRunning(true)
+    try {
+      const res = await api.wizards.install_requirements(missing, instOpId)
+      route({
+        kind: 'message',
+        payload: { text: res.message, level: res.ok ? 'info' : 'error' },
+      })
+    } catch (err) {
+      route({ kind: 'message', payload: { text: String(err), level: 'error' } })
+    } finally {
+      setInstRunning(false)
+      setSysStatus('')
+      loadSyscheck()
+    }
+  }
 
   // --------------------------------------------------- provision streaming
   useEffect(() => {
@@ -258,6 +311,15 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
           <SectionHeader text={`System check — Odoo ${version}`} />
           <LineList lines={sysLines} maxHeight={320} />
           <DimText>{sysStatus}</DimText>
+          {!instRunning &&
+            sysChecks.some((c) => c.requirement && !c.ok) && (
+              <div className="btn-row">
+                <ActionButton onClick={() => void installMissing()} title="apt install the missing rows above">
+                  Install missing…
+                </ActionButton>
+              </div>
+            )}
+          {instRunning && <LineList lines={instLines} maxHeight={200} />}
           <DimText>Warnings never block — review and continue.</DimText>
         </>
       )}

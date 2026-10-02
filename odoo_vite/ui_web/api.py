@@ -24,17 +24,20 @@ import asyncio
 import dataclasses
 import functools
 import threading
+from pathlib import Path
 from typing import Any, Callable
 
 from odoo_vite.core import process_manager, provisioning, registry
 from odoo_vite.core import version as version_mod
-from odoo_vite.core import addon_paths, backup_scheduler, db_manager
+from odoo_vite.core import addon_paths, audit, backup_scheduler, db_manager
+from odoo_vite.core import venv_manager
 from odoo_vite.core.enterprise import detect_enterprise
 from odoo_vite.core.instance import Instance
 from odoo_vite.core.log_tail import read_last_n
 from odoo_vite.core.odoo_shell import OdooShell
 from odoo_vite.ops.configuration import ConfigOps, read_conf_view, validate_meta
 from odoo_vite.ops.databases import DatabaseOps, group_discover_entries
+from odoo_vite.ops.devwatch import DevWatchOps
 from odoo_vite.ops.devtools import (
     DevToolsOps,
     diff_record_values,
@@ -462,8 +465,9 @@ class ModulesApi(Domain):
 
 
 class ConfigApi(Domain):
-    def __init__(self, push: PushChannel) -> None:
+    def __init__(self, push: PushChannel, cancels: CancelRegistry) -> None:
         self._push = push
+        self._cancels = cancels
         self._ops = ConfigOps(
             on_message=_sink_message(push), on_refresh=_sink_refresh(push)
         )
@@ -500,6 +504,32 @@ class ConfigApi(Domain):
 
     def looks_like_addons(self, path: str) -> bool:
         return bool(addon_paths.looks_like_addons_folder(path))
+
+    def venv_status(self, instance_id: str) -> dict:
+        """Is the instance's venv python present? (Overview U5.2 warning.)"""
+        inst = registry.get_instance(instance_id)
+        if inst is None:
+            return {"venv_path": "", "python_ok": False,
+                    "error": "Instance not found"}
+        venv = Path(inst.venv_path).expanduser() if inst.venv_path else None
+        python = venv / "bin" / "python" if venv else None
+        return {
+            "venv_path": str(inst.venv_path or ""),
+            "python_ok": bool(python and python.exists()),
+        }
+
+    def rebuild_venv(self, instance_id: str, op_id: str = "") -> Any:
+        """Fresh venv + requirements + verify (U5.2; streams, cancelable)."""
+
+        async def _rebuild(iid, progress_cb=None, cancel=None, db_path=None):
+            return await asyncio.to_thread(
+                venv_manager.rebuild_venv, iid,
+                progress_cb=progress_cb, cancel=cancel, db_path=db_path,
+            )
+
+        return _progress_call(
+            self._push, self._cancels, _rebuild, op_id, instance_id,
+        )
 
 
 # ------------------------------------------------------------------------ Logs
@@ -685,6 +715,26 @@ class WizardsApi(Domain):
     def run_syscheck(self, version: str) -> Any:
         return asyncio.run(self._ops.run_syscheck(version))
 
+    def install_requirements(self, missing: list, op_id: str = "") -> Any:
+        """pkexec/apt install of missing syscheck rows (streams, S3 parity).
+
+        Runs blocking on this worker thread; every output line pushes as
+        progress-line and progress-done fires in ``finally`` so the
+        browser's busy flag can never stick.
+        """
+        from odoo_vite.core import system_check
+
+        def on_line(line) -> None:
+            self._push.emit("progress-line",
+                            {"op_id": op_id, "line": str(line)})
+
+        try:
+            return system_check.install_requirements(
+                [str(m) for m in (missing or [])], on_line=on_line)
+        finally:
+            if op_id:
+                self._push.emit("progress-done", {"op_id": op_id})
+
     def provision(self, draft: dict, plaintext: bool = False, op_id: str = "") -> Any:
         inst = _instance_from_dict(draft)
         return _progress_call(
@@ -786,6 +836,55 @@ class TransferApi(Domain):
         return bundle_filename(name, stamp)
 
 
+# ------------------------------------------------------------------------ Audit
+
+
+class AuditApi(Domain):
+    """App-level audit event log (Sprint 8 ticket B.6 event dock).
+
+    Reads ``~/.local/share/odoo-vite/audit.log`` — the JSONL stream
+    core writes for lifecycle events (start/stop/db_create/…).
+    """
+
+    def tail(self, limit: int = 200) -> list[dict]:
+        try:
+            n = int(limit)
+        except (TypeError, ValueError):
+            n = 200
+        return audit.read_events(max(1, min(n, 2000)))
+
+
+# ------------------------------------------------------------------------ Watch
+
+
+class WatchApi(Domain):
+    """Dev Mode Watch (Sprint 11 ticket 11.2): toggle + status.
+
+    The watcher runs in-process (watchdog inotify); events push as
+    ``dev-watch``. Restart is injected so ops stays free of facade
+    concerns — the same LifecycleOps sinks keep toasts/refresh flowing.
+    """
+
+    def __init__(self, push: PushChannel, restart_cb: Callable) -> None:
+        self._ops = DevWatchOps(
+            on_event=lambda payload: push.emit("dev-watch", payload),
+            restart_cb=restart_cb,
+        )
+
+    def start(self, instance_id: str) -> Any:
+        return self._ops.start(instance_id)
+
+    def stop(self, instance_id: str) -> Any:
+        return self._ops.stop(instance_id)
+
+    def status(self, instance_id: str) -> dict:
+        return self._ops.status(instance_id)
+
+    def stop_all(self) -> None:
+        """App-exit hygiene: never leave observer threads behind."""
+        self._ops.stop_all()
+
+
 # ------------------------------------------------------------------------- Api
 
 
@@ -806,11 +905,16 @@ class Api:
         self.lifecycle = LifecycleApi(push)
         self.databases = DatabasesApi(push)
         self.modules = ModulesApi(push, cancels)
-        self.config = ConfigApi(push)
+        self.config = ConfigApi(push, cancels)
         self.logs = LogsApi(push)
         self.devtools = DevToolsApi(push)
         self.wizards = WizardsApi(push, cancels)
         self.transfer = TransferApi(push)
+        self.audit = AuditApi()
+        life = LifecycleOps(
+            on_message=_sink_message(push), on_refresh=_sink_refresh(push)
+        )
+        self.watch = WatchApi(push, life.restart)
 
 
 def create_api(

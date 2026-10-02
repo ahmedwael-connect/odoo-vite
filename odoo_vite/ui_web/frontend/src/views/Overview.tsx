@@ -5,9 +5,9 @@
 
 import { useEffect, useState } from 'react'
 import { getApi } from '../bridge'
-import { useConfirm, useTypedConfirm } from '../components/dialog'
+import { Modal, useConfirm, useProgressRun, useTypedConfirm } from '../components/dialog'
 import { ActionButton, Card, ElidePath, EmptyState, StatusPill } from '../components/ui'
-import { Modal } from '../components/dialog'
+import { route } from '../events'
 import { useApp } from '../store'
 import type { InstanceRow } from '../types'
 
@@ -64,7 +64,9 @@ export default function Overview() {
   const { current, currentId, statuses, setDialog, refresh, setBusy, busy } = useApp()
   const confirm = useConfirm()
   const typedConfirm = useTypedConfirm()
+  const runProgress = useProgressRun()
   const [ent, setEnt] = useState<{ text: string; warn: boolean }>({ text: '', warn: false })
+  const [venvSt, setVenvSt] = useState<{ venv_path: string; python_ok: boolean } | null>(null)
 
   const status = statuses.find((s) => s.id === currentId)?.status ?? ''
   const running = status === 'running'
@@ -78,6 +80,12 @@ export default function Overview() {
         if (!alive) return
         const state = String((res.data as { state?: string } | undefined)?.state ?? '')
         setEnt({ text: res.message, warn: state === 'invalid' })
+      })
+      .catch(() => undefined)
+    void getApi()
+      .config.venv_status(currentId)
+      .then((st) => {
+        if (alive) setVenvSt(st as { venv_path: string; python_ok: boolean })
       })
       .catch(() => undefined)
     return () => {
@@ -168,6 +176,39 @@ export default function Overview() {
     await act(() => api.transfer.export_bundle(current.id, picked.path!))
   }
 
+  const onRebuildVenv = async () => {
+    if (running || busy) return
+    const venvPath = venvSt?.venv_path || `${current.path}/venv`
+    const ok = await confirm({
+      heading: 'Rebuild virtualenv?',
+      body:
+        `Deletes and recreates:\n${venvPath}\n\n` +
+        'Runs:\npython -m venv venv && venv/bin/pip install -r requirements.txt\n' +
+        'Needs network; takes minutes. Stop the instance first.',
+      confirmLabel: 'Rebuild venv',
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const res = await runProgress('Rebuilding venv', (opId) =>
+        getApi().config.rebuild_venv(current.id, opId),
+      )
+      route({
+        kind: 'message',
+        payload: { text: res.message, level: res.ok ? 'info' : 'error' },
+      })
+      setVenvSt(
+        (await getApi().config.venv_status(current.id)) as {
+          venv_path: string
+          python_ok: boolean
+        },
+      )
+    } finally {
+      setBusy(false)
+      refresh()
+    }
+  }
+
   return (
     <div className="view">
       <div className="view-title-row">
@@ -196,6 +237,23 @@ export default function Overview() {
           <dd>{current.db_user ?? 'odoo'}</dd>
         </dl>
       </Card>
+
+      {venvSt && !venvSt.python_ok && (
+        <Card title="Virtualenv">
+          <p className="warn">
+            venv/bin/python is missing — dependencies are not installed. Rebuild the venv to fix it.
+          </p>
+          <div className="btn-row">
+            <ActionButton
+              disabled={running || busy}
+              onClick={() => void onRebuildVenv()}
+              title="Delete the venv and reinstall requirements"
+            >
+              Rebuild venv…
+            </ActionButton>
+          </div>
+        </Card>
+      )}
 
       <EmptyState text={ent.text} warn={ent.warn} />
 

@@ -11,8 +11,9 @@ exactly like the Qt flows object:
   Qt _shell_poll_tick parity) — only the record-test runner's progress
   plumbing is shared, via ModuleOps.run_tests + the bridge progress
   helper from PSS-5a.
-- Dev Mode Watch is out of scope (Slint has no QFileSystemWatcher;
-  needs a file-watch design of its own — noted in the plan).
+- Dev Mode Watch lives in its own ops module (``ops/devwatch.py``):
+  watchdog inotify + the core debounce controller, sessions per
+  instance, restart injected by the facade.
 
 Divergences from Qt (documented choice):
 - recall_credentials returns a (user, password) TUPLE; Qt called

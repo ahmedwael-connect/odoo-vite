@@ -23,6 +23,7 @@ from odoo_vite.ops.wizards import (  # noqa: E402
     parse_field_lines,
     refresh_draft,
     suggest_db_name,
+    syscheck_rows,
     validate_details,
     validate_locate,
     validate_scaffold,
@@ -127,14 +128,63 @@ def test_syscheck_stubbed(monkeypatch):
     from odoo_vite.core import system_check
     from odoo_vite.core.result import Result
 
-    checks = [{"name": "python", "ok": True, "detail": "3.12"}]
+    report = {
+        "all_ok": False,
+        "missing": ["wkhtmltopdf"],
+        "details": {
+            "git": {"label": "git", "present": True,
+                    "apt_packages": ["git"], "hint": ""},
+            "wkhtmltopdf": {"label": "wkhtmltopdf", "present": False,
+                            "apt_packages": ["wkhtmltopdf"],
+                            "hint": "install wkhtmltopdf"},
+        },
+        "python_version": "3.12", "python_version_ok": True,
+        "min_python": "3.10",
+        "node_version": "20.1.0", "node_ok": True,
+        "pg_version": "16", "pg_ok": True,
+    }
     monkeypatch.setattr(
         system_check, "check_requirements",
-        lambda _v: Result(ok=True, message="all good",
-                          data={"checks": checks}))
+        lambda _v: Result(ok=True, message="check done", data=report))
     ops, _, sinks = _ops()
-    assert asyncio.run(ops.run_syscheck("17.0")) == checks
-    assert sinks["syscheck"] == [(checks, "all good")]
+    rows = asyncio.run(ops.run_syscheck("17.0"))
+    assert sinks["syscheck"] == [(rows, "check done")]
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["git"]["ok"] is True
+    assert by_name["git"]["requirement"] is True
+    assert by_name["wkhtmltopdf"]["ok"] is False
+    assert by_name["wkhtmltopdf"]["requirement"] is True
+    assert "install wkhtmltopdf" in by_name["wkhtmltopdf"]["detail"]
+    assert by_name["python version"]["ok"] is True
+    assert by_name["node version"]["ok"] is True
+    assert by_name["postgresql version"]["ok"] is True
+
+
+def test_syscheck_failed_check_returns_empty_rows(monkeypatch):
+    from odoo_vite.core import system_check
+    from odoo_vite.core.result import Result
+
+    monkeypatch.setattr(
+        system_check, "check_requirements",
+        lambda _v: Result.failure("no python"))
+    ops, _, sinks = _ops()
+    assert asyncio.run(ops.run_syscheck("")) == []
+    assert sinks["syscheck"] == [([], "no python")]
+
+
+def test_syscheck_rows_shapes_real_report():
+    rows = syscheck_rows({
+        "details": {},
+        "python_version": "3.11.9",
+        "python_version_ok": False,
+        "min_python": "3.10",
+    })
+    assert len(rows) == 1  # no node/pg keys → python row only
+    assert rows[0] == {"name": "python version", "ok": False,
+                       "detail": "3.11.9 (min 3.10)"}
+    assert syscheck_rows({}) == [
+        {"name": "python version", "ok": True, "detail": "? (min ?)"},
+    ]
 
 
 def test_provision_discard_passthrough(monkeypatch, tmp_path):

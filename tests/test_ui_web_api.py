@@ -280,6 +280,64 @@ def test_logs_tail_reads_last_lines(env, tmp_path):
     assert missing["lines"] == []
 
 
+# --------------------------------------------------------------------- audit
+
+
+def test_audit_tail_returns_events(env):
+    from odoo_vite.core import audit as audit_mod
+
+    api, _events = env
+    audit_mod.log_event("id-1", "Demo", "start", "pid=1")
+    audit_mod.log_event("id-1", "Demo", "stop", "graceful")
+
+    rows = api.audit.tail()
+    assert [r["action"] for r in rows] == ["start", "stop"]
+    assert rows[0]["detail"] == "pid=1"
+    assert len(api.audit.tail(limit=1)) == 1
+    # non-numeric limit falls back to the default instead of raising
+    assert len(api.audit.tail(limit="bogus")) == 2
+
+
+def test_audit_tail_missing_file_is_empty(env):
+    api, _events = env
+    assert api.audit.tail() == []
+
+
+# -------------------------------------------------------------------- watch
+
+
+def test_watch_lifecycle(env, tmp_path):
+    api, _events = env
+    assert api.watch.start("missing")["ok"] is False
+
+    base = tmp_path / "winst"
+    (base / "custom_addons").mkdir(parents=True)
+    (base / "community").mkdir(parents=True)
+    inst = Instance(
+        name="watchy", version="17.0", path=str(base),
+        venv_path=str(base / "venv"),
+        custom_addons_path=str(base / "custom_addons"),
+        community_path=str(base / "community"),
+        conf_path=str(base / "odoo.conf"), log_path=str(base / "odoo.log"),
+        port=8099, db_user="odoo", db_password="odoo",
+        primary_db="w_db", status="stopped", db_created=True,
+    )
+    iid = _register(inst)
+    started = api.watch.start(iid)
+    assert started["ok"] is True, started
+    try:
+        status = api.watch.status(iid)
+        assert status["watching"] is True
+        assert str(base / "custom_addons") in status["roots"]
+        assert api.watch.start(iid)["ok"] is False  # double-start refused
+        stopped = api.watch.stop(iid)
+        assert stopped["ok"] is True, stopped
+        assert api.watch.status(iid)["watching"] is False
+        assert api.watch.stop(iid)["ok"] is False
+    finally:
+        api.watch.stop(iid)  # idempotent cleanup — harmless if already stopped
+
+
 def test_app_instance_and_enterprise(env):
     api, _events = env
     iid = _register(Instance(name="ent", version="17.0"))
@@ -397,3 +455,96 @@ def test_state_categories_batches_one_round_trip(env):
         "web": "Installable",
         "sale": "Upgradeable",
     }
+
+
+def test_install_requirements_streams_progress(env, monkeypatch):
+    from odoo_vite.core import system_check
+
+    seen = {}
+
+    def fake_install(missing, on_line=None, dry_run=False):
+        seen["missing"] = list(missing)
+        on_line("Get:1 git/stable amd64")
+        on_line("Setting up git")
+        return Result.success(message="installed git")
+
+    monkeypatch.setattr(system_check, "install_requirements", fake_install)
+    api, events = env
+    res = api.wizards.install_requirements(["git"], "op-inst-1")
+    assert res["ok"] is True
+    assert res["message"] == "installed git"
+    assert seen["missing"] == ["git"]
+    lines = [e for e in events.events if e["kind"] == "progress-line"]
+    assert [e["payload"]["line"] for e in lines] == [
+        "Get:1 git/stable amd64", "Setting up git"]
+    assert all(e["payload"]["op_id"] == "op-inst-1" for e in lines)
+    done = events.last("progress-done")
+    assert done is not None and done["payload"]["op_id"] == "op-inst-1"
+
+
+def test_install_requirements_emits_done_on_crash(env, monkeypatch):
+    from odoo_vite.core import system_check
+
+    def boom(missing, on_line=None, dry_run=False):
+        raise RuntimeError("pkexec died")
+
+    monkeypatch.setattr(system_check, "install_requirements", boom)
+    api, events = env
+    res = api.wizards.install_requirements(["git"], "op-inst-2")
+    assert res["ok"] is False  # _safe swallows, message kept
+    done = events.last("progress-done")
+    assert done is not None and done["payload"]["op_id"] == "op-inst-2"
+
+
+def _venv_instance(tmp_path, name="venvy"):
+    base = tmp_path / name
+    (base / "custom_addons").mkdir(parents=True)
+    (base / "community").mkdir(parents=True)
+    venv = base / "venv"
+    return Instance(
+        name=name, version="17.0", path=str(base),
+        venv_path=str(venv),
+        custom_addons_path=str(base / "custom_addons"),
+        community_path=str(base / "community"),
+        conf_path=str(base / "odoo.conf"), log_path=str(base / "odoo.log"),
+        port=8098, db_user="odoo", db_password="odoo",
+        primary_db="venv_db", status="stopped", db_created=True,
+    ), venv
+
+
+def test_venv_status_reports_python_state(env, tmp_path):
+    api, _events = env
+    inst, venv = _venv_instance(tmp_path)
+    iid = _register(inst)
+    st = api.config.venv_status(iid)
+    assert st["python_ok"] is False
+    assert st["venv_path"] == str(venv)
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").touch()
+    assert api.config.venv_status(iid)["python_ok"] is True
+    assert api.config.venv_status("nope")["python_ok"] is False
+
+
+def test_rebuild_venv_streams_progress(env, tmp_path, monkeypatch):
+    from odoo_vite.core import venv_manager
+
+    def fake_rebuild(instance_id, progress_cb=None, cancel=None,
+                     db_path=None):
+        progress_cb("removing old venv")
+        progress_cb("pip install -r requirements.txt")
+        return Result.success(
+            message="venv rebuilt", data={"instance_id": instance_id})
+
+    monkeypatch.setattr(venv_manager, "rebuild_venv", fake_rebuild)
+    api, events = env
+    inst, _venv = _venv_instance(tmp_path, "reby")
+    iid = _register(inst)
+    res = api.config.rebuild_venv(iid, "op-v1")
+    assert res["ok"] is True, res
+    assert res["message"] == "venv rebuilt"
+    lines = [e for e in events.events if e["kind"] == "progress-line"]
+    assert [e["payload"]["line"] for e in lines] == [
+        "removing old venv", "pip install -r requirements.txt"]
+    assert all(e["payload"]["op_id"] == "op-v1" for e in lines)
+    done = events.last("progress-done")
+    assert done is not None and done["payload"]["op_id"] == "op-v1"

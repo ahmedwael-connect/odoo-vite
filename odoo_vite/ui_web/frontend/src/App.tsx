@@ -9,7 +9,7 @@ import { useBridgeReady } from './bridge'
 import { SelectionList, type SelRow } from './components/selection'
 import { ActionButton, SectionHeader, Spinner, StatusPill } from './components/ui'
 import { useProgress } from './events'
-import { AboutDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
+import { AboutDialog, EventLogDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
 import { AdoptWizard, CreateWizard } from './dialogs/wizards'
 import { useApp } from './store'
 import Configuration from './views/Configuration'
@@ -55,6 +55,37 @@ export default function App() {
     document.title = current ? `Odoo Vite — ${current.name}` : 'Odoo Vite'
   }, [current])
 
+  // App shortcuts (RM-6): Ctrl+N New, Ctrl+O Adopt, F5/Ctrl+R Refresh,
+  // Ctrl+F focus the instance filter. Nothing fires while a dialog is
+  // open except Refresh — Esc owns dialog dismissal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      const mod = e.ctrlKey || e.metaKey
+      const key = e.key.toLowerCase()
+      if (key === 'f5' || (mod && key === 'r')) {
+        e.preventDefault()
+        if (!busy && !dialog) void refresh()
+        return
+      }
+      if (!mod) return
+      if (key === 'n' && !dialog) {
+        e.preventDefault()
+        setDialog(<CreateWizard onClose={() => setDialog(null)} />)
+      } else if (key === 'o' && !dialog) {
+        e.preventDefault()
+        setDialog(<AdoptWizard onClose={() => setDialog(null)} />)
+      } else if (key === 'f') {
+        e.preventDefault()
+        document
+          .querySelector<HTMLInputElement>('.sidebar .sel-list-wrap input')
+          ?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [busy, dialog, refresh, setDialog])
+
   const rows: SelRow[] = statuses.map((s) => ({
     id: s.id,
     title: s.name,
@@ -94,6 +125,12 @@ export default function App() {
             Import…
           </ActionButton>
         </div>
+        <ActionButton
+          title="Live audit events (start/stop/… across all instances)"
+          onClick={() => openDialog(<EventLogDialog onClose={() => setDialog(null)} />)}
+        >
+          Event log
+        </ActionButton>
         <ActionButton onClick={() => openDialog(<AboutDialog onClose={() => setDialog(null)} />)}>
           About
         </ActionButton>

@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getApi } from '../bridge'
-import { Modal, useConfirm, useProgressRun } from '../components/dialog'
+import { Modal, useConfirm, useConfirmBackup, useProgressRun } from '../components/dialog'
 import {
   ActionButton,
   Card,
@@ -178,6 +178,7 @@ function ScaffoldDialog({
 export default function Modules() {
   const { current, currentId, setDialog, setBusy } = useApp()
   const confirm = useConfirm()
+  const confirmBackup = useConfirmBackup()
   const runProgress = useProgressRun()
 
   const [modules, setModules] = useState<ModuleRow[]>([])
@@ -343,15 +344,36 @@ export default function Modules() {
         if (current.status === 'running') return routeErr('Stop the instance first')
         const auto = current.auto_update_modules ?? []
         if (auto.length === 0) return routeErr('No auto-update modules configured')
-        const ok = await confirm({
+        if (!primary) return routeErr('This instance has no primary database')
+        const { ok, checked: doBackup } = await confirmBackup({
           heading: 'Update code for checked modules?',
           body:
-            `git pull community, pip install, then -u ${auto.join(', ')}; instance stays stopped; ` +
-            'no automatic backup here.',
+            `git pull community, pip install, then -u ${auto.join(', ')}; instance stays stopped.\n` +
+            `A backup of "${primary}" runs first unless you uncheck it.`,
           confirmLabel: 'Update code',
           destructive: true,
+          checkboxLabel: `Back up "${primary}" before updating`,
         })
-        if (ok) await runOp('Update code', auto, 'update-code')
+        if (!ok) return
+        if (doBackup) {
+          setLocalBusy(true)
+          setBusy(true)
+          try {
+            const iso = new Date().toISOString()
+            const stamp = `${iso.slice(0, 10).replace(/-/g, '')}-${iso.slice(11, 19).replace(/:/g, '')}`
+            const dest = `${current.path}/pre-update-${primary}-${stamp}.dump`
+            const res = await api.databases.backup_db(currentId, primary, dest)
+            if (!res.ok) {
+              routeErr(`Backup failed — update aborted: ${res.message}`)
+              return
+            }
+            route({ kind: 'message', payload: { text: `Backup saved: ${dest}`, level: 'info' } })
+          } finally {
+            setLocalBusy(false)
+            setBusy(false)
+          }
+        }
+        await runOp('Update code', auto, 'update-code')
         return
       }
       case 'deps': {

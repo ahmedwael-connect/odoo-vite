@@ -1,9 +1,10 @@
 """Dev-mode file watching, core half (Sprint 11, Ticket 11.2).
 
-Mechanism decision: QFileSystemWatcher in the UI layer (Qt-native, zero
-new dependencies, events arrive on the main thread — no threads). This
-module is the pure, testable half: WHICH paths matter + the debounce
-controller.
+Mechanism decision: the observer lives outside core — Qt used
+QFileSystemWatcher in its UI layer; the web app uses watchdog's
+inotify observer (ops/devwatch.py), per the spec's "real filesystem-
+watching mechanism, not polling". This module is the pure, testable
+half: WHICH paths matter + the debounce controller.
 
 Debounce: first event arms a quiet window (default 0.8s); every further
 event re-arms; exactly one restart fires after quiet. Same batching spirit
@@ -44,12 +45,18 @@ def should_watch(path: str) -> bool:
 
 def watch_roots(instance) -> list[str]:  # type: ignore[no-untyped-def]
     """Scope: custom_addons always; community/enterprise too (they change
-    less often, but a git pull there deserves the same restart)."""
-    roots = []
-    for raw in (instance.custom_addons_path,
-                instance.community_path,
-                instance.enterprise_path or ""):
-        if raw and Path(raw).is_dir():
+    less often, but a git pull there deserves the same restart).
+
+    custom_addons_path may be a comma-separated list (standard Odoo
+    conf form: ``addons_path = a/b, c/d``) — each entry is checked
+    separately; a whole unsplit string never matches ``is_dir()``.
+    """
+    roots: list[str] = []
+    raw_custom = str(instance.custom_addons_path or "")
+    candidates = [p.strip() for p in raw_custom.split(",") if p.strip()]
+    candidates += [instance.community_path or "", instance.enterprise_path or ""]
+    for raw in candidates:
+        if raw and Path(raw).is_dir() and raw not in roots:
             roots.append(raw)
     return roots
 

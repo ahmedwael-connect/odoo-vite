@@ -94,6 +94,11 @@ def run(dev: bool | None = None) -> int:
     push.set_transport(_transport(window))
 
     webview.start(http_server=not dev)
+    # Watch sessions hold observer threads — shut them down on the way out.
+    try:
+        api.watch.stop_all()
+    except Exception:
+        pass
     return 0
 
 

@@ -516,6 +516,19 @@ th.sortable:hover {
   color: var(--accent);
 }
 
+.meta-scroll {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  margin-bottom: var(--space-2);
+}
+
+.meta-details td {
+  font-size: 12px;
+  vertical-align: top;
+}
+
 /* ---------------------------------------------------------------- modals */
 
 .modal-overlay {

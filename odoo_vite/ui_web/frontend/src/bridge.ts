@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import { route } from './events'
-import type { Answer, ApiTree, Dict, InstanceRow, Result } from './types'
+import type { Answer, ApiTree, AuditEvent, Dict, InstanceRow, Result } from './types'
 
 export function isNative(): boolean {
   return typeof window.pywebview?.api === 'object'
@@ -98,11 +98,41 @@ const mock: ApiTree = {
     cancel: async (opId: string): Promise<Answer> =>
       opId.startsWith('mock') ? { ok: true, message: 'cancelling' } : { ok: false, message: `no running operation '${opId}'` },
   } as ApiTree['modules'],
-  config: {} as ApiTree['config'],
+  config: {
+    venv_status: async () => ({ venv_path: '/mock/venv', python_ok: true }),
+    rebuild_venv: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: no venv rebuild in browser dev',
+    }),
+  } as unknown as ApiTree['config'],
   logs: {} as ApiTree['logs'],
   devtools: {} as ApiTree['devtools'],
-  wizards: {} as ApiTree['wizards'],
+  wizards: {
+    install_requirements: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: no apt install in browser dev',
+    }),
+  } as unknown as ApiTree['wizards'],
   transfer: {} as ApiTree['transfer'],
+  audit: {
+    tail: async (): Promise<AuditEvent[]> => [
+      {
+        ts: new Date().toISOString(),
+        instance_id: 'mock-demo',
+        instance_name: 'Demo (mock)',
+        action: 'start',
+        detail: 'mock event — browser dev',
+      },
+    ],
+  },
+  watch: {
+    start: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: no file watcher in browser dev',
+    }),
+    stop: async (): Promise<Result> => ({ ok: false, message: 'mock: not watching' }),
+    status: async () => ({ watching: false, roots: [], changes: 0, fires: 0 }),
+  },
 }
 
 /** The API to call from the shell: native bridge when present, mock otherwise. */

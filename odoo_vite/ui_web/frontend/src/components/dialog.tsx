@@ -21,6 +21,20 @@ export interface ModalProps {
 }
 
 export function Modal({ title, children, footer, onClose, width }: ModalProps) {
+  // Esc closes (RM-6 / audit UX-6): every dialog path offers an explicit
+  // onClose, so Escape maps to the same cancel/close affordance.
+  useEffect(() => {
+    if (!onClose) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
       <div className="modal" style={width ? { width } : undefined} role="dialog" aria-label={title}>
@@ -128,9 +142,76 @@ export function useTypedConfirm() {
       new Promise<boolean>((resolve) => {
         setDialog(
           <ConfirmView
-            opts={opts}
             typed
+            opts={opts}
             onResult={(ok) => { setDialog(null); resolve(ok) }}
+          />,
+        )
+      }),
+    [setDialog],
+  )
+}
+
+// -------------------------------------------------------- confirm + checkbox
+
+export interface ConfirmBackupOpts extends ConfirmOpts {
+  /** Default-on checkbox text (v2 §21 backup-before-update). */
+  checkboxLabel?: string
+}
+
+function BackupConfirmView({
+  opts,
+  onResult,
+}: {
+  opts: ConfirmBackupOpts
+  onResult: (r: { ok: boolean; checked: boolean }) => void
+}) {
+  const [checked, setChecked] = useState(true)
+  return (
+    <Modal
+      title={opts.heading}
+      onClose={() => onResult({ ok: false, checked })}
+      width={520}
+      footer={
+        <>
+          <Button onClick={() => onResult({ ok: false, checked })}>Cancel</Button>
+          <ActionButton
+            primary={!opts.destructive}
+            danger={opts.destructive}
+            onClick={() => onResult({ ok: true, checked })}
+          >
+            {opts.confirmLabel ?? 'Confirm'}
+          </ActionButton>
+        </>
+      }
+    >
+      {opts.body?.split('\n').map((line, i) => (
+        <p key={i} className="confirm-body">
+          {line}
+        </p>
+      ))}
+      <label className="checkbox inline">
+        <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+        <span />
+        {opts.checkboxLabel ?? 'Back up database first'}
+      </label>
+    </Modal>
+  )
+}
+
+/** Promise-based confirm with a default-on backup checkbox (v2 §21). */
+export function useConfirmBackup() {
+  const { setDialog } = useApp()
+  return useCallback(
+    (opts: ConfirmBackupOpts) =>
+      new Promise<{ ok: boolean; checked: boolean }>((resolve) => {
+        setDialog(
+          <BackupConfirmView
+            opts={opts}
+            onResult={(r) => {
+              setDialog(null)
+              resolve(r)
+            }}
           />,
         )
       }),
@@ -196,6 +277,7 @@ export function ProgressDialog({
     <Modal
       title={state.title}
       width={560}
+      onClose={state.done ? onClose : undefined}
       footer={
         state.done ? (
           <ActionButton primary onClick={onClose}>

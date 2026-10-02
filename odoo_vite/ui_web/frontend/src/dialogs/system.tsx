@@ -6,10 +6,10 @@
 import { useEffect, useState } from 'react'
 import { getApi } from '../bridge'
 import { Modal } from '../components/dialog'
-import { ActionButton, DimText, EmptyState, SectionHeader, Select, TextInput } from '../components/ui'
+import { ActionButton, DimText, EmptyState, LineList, SectionHeader, Select, TextInput } from '../components/ui'
 import { route } from '../events'
 import { useApp } from '../store'
-import type { Dict } from '../types'
+import type { AuditEvent, Dict } from '../types'
 
 const MODE_LABELS = ['Developer (default)', 'Managed (least privilege)']
 const MODE_NOTES = [
@@ -201,6 +201,69 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         </label>
       </div>
       {error && <p className="error">{error}</p>}
+    </Modal>
+  )
+}
+
+/**
+ * Event log — live tail of the app audit stream (Sprint 8 ticket B.6;
+ * the Qt event dock, restored after the Slint drop). Polls
+ * `audit.tail` every 2s while open; newest last.
+ */
+const auditLine = (e: AuditEvent): string => {
+  let t = ''
+  try {
+    t = e.ts ? new Date(e.ts).toLocaleTimeString() : ''
+  } catch {
+    t = String(e.ts ?? '')
+  }
+  const who = e.instance_name || e.instance_id || '?'
+  return `${t}  ${(e.action || '?').padEnd(10)}  ${who}${e.detail ? ` — ${e.detail}` : ''}`
+}
+
+export function EventLogDialog({ onClose }: { onClose: () => void }) {
+  const api = getApi()
+  const [events, setEvents] = useState<AuditEvent[]>([])
+  const [status, setStatus] = useState('Loading…')
+
+  useEffect(() => {
+    let stopped = false
+    const tick = async () => {
+      try {
+        const rows = await api.audit.tail(300)
+        if (stopped) return
+        const list = Array.isArray(rows) ? rows : []
+        setEvents(list)
+        setStatus('')
+      } catch {
+        if (!stopped) setStatus('Cannot read the audit log.')
+      }
+    }
+    void tick()
+    const timer = window.setInterval(() => void tick(), 2000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [api])
+
+  return (
+    <Modal
+      title="Event log"
+      width={720}
+      onClose={onClose}
+      footer={
+        <ActionButton primary onClick={onClose}>
+          Close
+        </ActionButton>
+      }
+    >
+      {events.length === 0 ? (
+        <EmptyState text={status || 'No audit events yet.'} />
+      ) : (
+        <LineList lines={events.map(auditLine)} mono maxHeight={420} />
+      )}
+      <DimText>App audit stream — refreshes every 2s while open.</DimText>
     </Modal>
   )
 }

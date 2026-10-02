@@ -15,6 +15,9 @@ dependencies = [
     # uses the system PyGObject (README apt line: python3-gi,
     # gir1.2-gtk-3.0, gir1.2-webkit2-4.1) — no pip GUI build needed.
     "pywebview>=6.2",
+    # Dev Mode Watch (Sprint 11 ticket 11.2): inotify-backed file watching
+    # per spec ("real filesystem-watching mechanism, not polling").
+    "watchdog>=4.0",
 ]
 authors = [{ name = "Odoo Vite Team" }]
 

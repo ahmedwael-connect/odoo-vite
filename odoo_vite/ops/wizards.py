@@ -34,6 +34,49 @@ def normalize_branches(data) -> list[str]:
     return list(data or [])
 
 
+def syscheck_rows(report: dict) -> list[dict]:
+    """Shape check_requirements' report into UI rows.
+
+    Rows: {name, ok, detail, requirement?} — ``requirement: True`` marks
+    apt/npm-installable rows (the Install button acts only on those).
+    The core report carries no ``checks`` list (its missing/present/
+    details split); building display rows is this layer's job.
+    """
+    rows: list[dict] = []
+    details = report.get("details") or {}
+    for name, info in details.items():
+        ok = bool(info.get("present"))
+        label = str(info.get("label") or name)
+        hint = str(info.get("hint") or "")
+        rows.append({
+            "name": name,
+            "ok": ok,
+            "detail": label if ok else (hint or f"missing — {label}"),
+            "requirement": True,
+        })
+    python_ok = bool(report.get("python_version_ok", True))
+    rows.append({
+        "name": "python version",
+        "ok": python_ok,
+        "detail": f"{report.get('python_version', '?')} "
+                  f"(min {report.get('min_python', '?')})",
+    })
+    node_ok = report.get("node_ok")
+    if report.get("node_version") is not None or node_ok is not None:
+        rows.append({
+            "name": "node version",
+            "ok": node_ok is not False,
+            "detail": str(report.get("node_version") or "not installed"),
+        })
+    if report.get("pg_version") is not None or report.get("pg_ok") is not None:
+        rows.append({
+            "name": "postgresql version",
+            "ok": report.get("pg_ok") is not False,
+            "detail": str(report.get("pg_version") or "not detected"),
+        })
+    return rows
+
+
 def validate_details(values: dict) -> str | None:
     """Details-page gate (Qt validatePage parity). Returns the error text,
     or None when provisioning may start."""
@@ -109,7 +152,7 @@ class WizardOps:
     async def run_syscheck(self, version: str):
         res = await asyncio.to_thread(
             system_check.check_requirements, version or "")
-        checks = (res.data or {}).get("checks", []) if res.ok else []
+        checks = syscheck_rows(res.data or {}) if res.ok else []
         self._syscheck(checks, res.message)
         return checks
 

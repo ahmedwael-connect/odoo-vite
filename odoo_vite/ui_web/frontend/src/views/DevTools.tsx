@@ -15,6 +15,7 @@ import {
   EmptyState,
   LineList,
   PasswordInput,
+  SectionHeader,
   Select,
   TextInput,
 } from '../components/ui'
@@ -68,6 +69,111 @@ function RecordDialog({
   )
 }
 
+const yn = (v: unknown) => (v ? 'yes' : '—')
+const flags = (f: Dict) =>
+  [f.required && 'req', f.readonly && 'ro', f.store && 'store', f.compute && 'computed']
+    .filter(Boolean)
+    .join(' ')
+const groupName = (g: unknown) =>
+  Array.isArray(g) ? String(g[1] ?? g[0]) : g ? String(g) : 'everyone'
+
+/** Full model metadata: fields + constraints + access (v2 §44). */
+function MetaDetails({ meta }: { meta: Dict }) {
+  const fields = (meta.fields as Dict[] | undefined) ?? []
+  const constraints = (meta.constraints as Dict[] | undefined) ?? []
+  const access = (meta.access as Dict[] | undefined) ?? []
+  if (!fields.length && !constraints.length && !access.length) return null
+  return (
+    <div className="meta-details">
+      {fields.length > 0 && (
+        <>
+          <SectionHeader text={`Fields (${fields.length})`} />
+          <div className="meta-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Label</th>
+                  <th>Type</th>
+                  <th>Relation</th>
+                  <th>Flags</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fields.map((f) => (
+                  <tr key={String(f.name ?? '')}>
+                    <td className="mono">{String(f.name ?? '')}</td>
+                    <td>{String(f.field_description ?? '')}</td>
+                    <td>{String(f.ttype ?? '')}</td>
+                    <td className="mono">{String(f.relation ?? '')}</td>
+                    <td>{flags(f)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {constraints.length > 0 && (
+        <>
+          <SectionHeader text={`Constraints (${constraints.length})`} />
+          <div className="meta-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Definition</th>
+                </tr>
+              </thead>
+              <tbody>
+                {constraints.map((c, i) => (
+                  <tr key={`${String(c.name ?? i)}`}>
+                    <td className="mono">{String(c.name ?? '')}</td>
+                    <td>{String(c.type ?? '')}</td>
+                    <td>{String(c.definition ?? '')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {access.length > 0 && (
+        <>
+          <SectionHeader text={`Access rules (${access.length})`} />
+          <div className="meta-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Group</th>
+                  <th>Read</th>
+                  <th>Write</th>
+                  <th>Create</th>
+                  <th>Delete</th>
+                </tr>
+              </thead>
+              <tbody>
+                {access.map((a, i) => (
+                  <tr key={`${String(a.name ?? i)}`}>
+                    <td className="mono">{String(a.name ?? '')}</td>
+                    <td>{groupName(a.group_id)}</td>
+                    <td>{yn(a.perm_read)}</td>
+                    <td>{yn(a.perm_write)}</td>
+                    <td>{yn(a.perm_create)}</td>
+                    <td>{yn(a.perm_unlink)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function DevTools() {
   const { current, currentId, setDialog, setBusy, busy } = useApp()
   const confirm = useConfirm()
@@ -102,6 +208,8 @@ export default function DevTools() {
   const [shellStatus, setShellStatus] = useState('Shell not running.')
   const [shellLines, setShellLines] = useState<string[]>([])
   const [shellIn, setShellIn] = useState('')
+  const [watchOn, setWatchOn] = useState(false)
+  const [watchMsg, setWatchMsg] = useState('Idle — not watching.')
 
   const [testModule, setTestModule] = useState('')
   const [testDb, setTestDb] = useState('')
@@ -198,13 +306,35 @@ export default function DevTools() {
       setCronEmpty(list.length ? '' : 'No cron jobs found.')
       void Promise.all(list.map((c) => api.devtools.format_cron_line(c))).then(setCrons)
     })
+    const offWatch = onEvent('dev-watch', (p) => {
+      if (!mine(p)) return
+      const state = String(p.state ?? '')
+      setWatchMsg(String(p.message ?? state))
+      if (state === 'started') setWatchOn(true)
+      else if (state === 'stopped') setWatchOn(false)
+    })
     return () => {
       offRpc()
       offModels()
       offMeta()
       offRecords()
       offCrons()
+      offWatch()
     }
+  }, [currentId, api])
+
+  // ------------------------------------------------- watch state per instance
+  useEffect(() => {
+    if (!currentId) {
+      setWatchOn(false)
+      setWatchMsg('Idle — not watching.')
+      return
+    }
+    void api.watch.status(currentId).then((s) => {
+      const watching = Boolean(s && s.watching)
+      setWatchOn(watching)
+      if (!watching) setWatchMsg('Idle — not watching.')
+    })
   }, [currentId, api])
 
   // ------------------------------------------------------- shell polling
@@ -275,6 +405,16 @@ export default function DevTools() {
   }
 
   // ------------------------------------------------------------- records
+  const watchToggle = () =>
+    void runDev(async () => {
+      const res = watchOn ? await api.watch.stop(iid) : await api.watch.start(iid)
+      if (!res.ok) err(res.message)
+      else {
+        setWatchOn(!watchOn)
+        setWatchMsg(res.message)
+      }
+    })
+
   const recSearch = () =>
     void runDev(async () => {
       const res = await api.devtools.rec_search(iid, domField.trim(), OPERATORS[domOp], domValue)
@@ -515,6 +655,7 @@ export default function DevTools() {
           </ActionButton>
         </div>
         <DimText>{metaLine}</DimText>
+        <MetaDetails meta={meta} />
       </Card>
 
       <Card title="Record Browser">
@@ -659,10 +800,18 @@ export default function DevTools() {
         </div>
       </Card>
 
-      <DimText>
-        Dev Mode Watch arrives in a later sprint (needs a file-watch design — no watcher in the
-        web shell yet).
-      </DimText>
+      <Card title="Dev Mode Watch">
+        <div className="btn-row">
+          <ActionButton disabled={devBusy} onClick={watchToggle}>
+            {watchOn ? 'Stop watch' : 'Start watch'}
+          </ActionButton>
+          <DimText>{watchMsg}</DimText>
+        </div>
+        <DimText>
+          Watches custom_addons + community/enterprise roots for .py/.xml/.js/.css/.csv/.po changes
+          — one automatic restart 0.8s after edits settle.
+        </DimText>
+      </Card>
 
       <Card title="Module tests">
         <div className="btn-row">

@@ -290,6 +290,23 @@ def test_watch_roots(tmp_path):
     assert str(base / "custom_addons") in roots
     assert str(base / "community") in roots
     assert "/nonexistent-ent" not in roots
+    assert all(roots)  # never an empty-string root (Path("") == cwd)
+
+
+def test_watch_roots_comma_separated_custom_addons(tmp_path):
+    """conf-form ``addons_path = a, b`` must yield both roots (an unsplit
+    comma string is never a directory — the pre-web watcher missed these)."""
+    base = tmp_path / "i"
+    a = base / "addons_a"
+    b = base / "addons_b"
+    a.mkdir(parents=True)
+    b.mkdir(parents=True)
+    inst = _inst(path=str(base),
+                 custom_addons_path=f"{a},{b}",
+                 community_path="")
+    roots = devwatch.watch_roots(inst)
+    assert str(a) in roots
+    assert str(b) in roots
 
 
 # ------------------------------------------------------------------ run tests
