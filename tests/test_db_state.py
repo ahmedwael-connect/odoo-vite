@@ -192,7 +192,7 @@ def test_agreement_on_live_db(tmp_path, db, monkeypatch):
 def test_agreement_on_missing_db(tmp_path, db, monkeypatch):
     """Canned missing DB: Start needs confirm (no collision), Switch routes
     to creation, Remove skips the drop and still completes."""
-    from odoo_vite.core import process_manager, removal
+    from odoo_vite.core import db_manager, process_manager, removal
 
     _canned(monkeypatch, exists=False, initialized=False,
             odoo_version=None, size_bytes=None, owner=None)
@@ -206,6 +206,9 @@ def test_agreement_on_missing_db(tmp_path, db, monkeypatch):
     assert not res.ok and res.data.get("needs_confirm") is True
     assert "collision" not in (res.data or {})
 
+    # 3.1.0 B15: patch server_reachable like the sibling tests — without
+    # this the test only passed when a local Postgres happened to run.
+    monkeypatch.setattr(db_manager, "server_reachable", lambda: True)
     res = removal.remove_instance(inst.id, drop_db=True, db_path=db)
     assert res.ok and "nothing to drop" in res.message
     assert get_instance(inst.id, db) is None

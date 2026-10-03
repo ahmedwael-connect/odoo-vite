@@ -148,26 +148,50 @@ function ConfirmView({
   opts,
   typed,
   onResult,
+  onAbandon,
 }: {
   opts: ConfirmOpts
   typed?: boolean
   onResult: (ok: boolean) => void
+  /** 3.1.0 B14: settles the promise when the view unmounts without a
+   * result (setDialog replaced the stack mid-await — the old behaviour
+   * was an await that hung forever). Skipped on StrictMode's fake
+   * unmount: the remount clears the pending timer first. */
+  onAbandon?: () => void
 }) {
   const [text, setText] = useState('')
+  const settledRef = useRef(false)
+  const abandonTimer = useRef<number | null>(null)
+  useEffect(() => {
+    if (abandonTimer.current !== null) {
+      window.clearTimeout(abandonTimer.current)
+      abandonTimer.current = null
+    }
+    return () => {
+      abandonTimer.current = window.setTimeout(() => {
+        if (!settledRef.current) onAbandon?.()
+      }, 0)
+    }
+  }, [])
+  const settle = (ok: boolean) => {
+    if (settledRef.current) return
+    settledRef.current = true
+    onResult(ok)
+  }
   const gateOk = !typed || text.trim() === opts.expected
   return (
     <Modal
       title={opts.heading}
-      onClose={() => onResult(false)}
+      onClose={() => settle(false)}
       width={480}
       footer={
         <>
-          <Button onClick={() => onResult(false)}>Cancel</Button>
+          <Button onClick={() => settle(false)}>Cancel</Button>
           <ActionButton
             primary={!opts.destructive}
             danger={opts.destructive}
             disabled={!gateOk}
-            onClick={() => onResult(true)}
+            onClick={() => settle(true)}
           >
             {opts.confirmLabel ?? 'Confirm'}
           </ActionButton>
@@ -189,7 +213,7 @@ function ConfirmView({
             value={text}
             placeholder={opts.expected}
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && gateOk && onResult(true)}
+            onKeyDown={(e) => e.key === 'Enter' && gateOk && settle(true)}
           />
         </label>
       )}
@@ -210,6 +234,7 @@ export function useConfirm() {
               popDialog()
               resolve(ok)
             }}
+            onAbandon={() => resolve(false)}
           />,
         )
       }),
@@ -231,6 +256,7 @@ export function useTypedConfirm() {
               popDialog()
               resolve(ok)
             }}
+            onAbandon={() => resolve(false)}
           />,
         )
       }),
@@ -248,23 +274,44 @@ export interface ConfirmBackupOpts extends ConfirmOpts {
 function BackupConfirmView({
   opts,
   onResult,
+  onAbandon,
 }: {
   opts: ConfirmBackupOpts
   onResult: (r: { ok: boolean; checked: boolean }) => void
+  /** 3.1.0 B14 — see ConfirmView.onAbandon. */
+  onAbandon?: () => void
 }) {
   const [checked, setChecked] = useState(true)
+  const settledRef = useRef(false)
+  const abandonTimer = useRef<number | null>(null)
+  useEffect(() => {
+    if (abandonTimer.current !== null) {
+      window.clearTimeout(abandonTimer.current)
+      abandonTimer.current = null
+    }
+    return () => {
+      abandonTimer.current = window.setTimeout(() => {
+        if (!settledRef.current) onAbandon?.()
+      }, 0)
+    }
+  }, [])
+  const settle = (r: { ok: boolean; checked: boolean }) => {
+    if (settledRef.current) return
+    settledRef.current = true
+    onResult(r)
+  }
   return (
     <Modal
       title={opts.heading}
-      onClose={() => onResult({ ok: false, checked })}
+      onClose={() => settle({ ok: false, checked })}
       width={520}
       footer={
         <>
-          <Button onClick={() => onResult({ ok: false, checked })}>Cancel</Button>
+          <Button onClick={() => settle({ ok: false, checked })}>Cancel</Button>
           <ActionButton
             primary={!opts.destructive}
             danger={opts.destructive}
-            onClick={() => onResult({ ok: true, checked })}
+            onClick={() => settle({ ok: true, checked })}
           >
             {opts.confirmLabel ?? 'Confirm'}
           </ActionButton>
@@ -298,6 +345,7 @@ export function useConfirmBackup() {
               popDialog()
               resolve(r)
             }}
+            onAbandon={() => resolve({ ok: false, checked: true })}
           />,
         )
       }),

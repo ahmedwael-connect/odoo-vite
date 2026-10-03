@@ -273,6 +273,21 @@ body {
   background: var(--panel);
 }
 
+/* 3.1.0 C1: the status text opens the live operations feed. */
+.statusline-activity {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.statusline-activity:hover {
+  text-decoration: underline;
+}
+
 /* -------------------------------------------------------------- buttons */
 
 button {
@@ -620,6 +635,30 @@ textarea.mono {
   color: var(--muted);
 }
 
+/* 3.1.0 C2: health strip chips. */
+.chip.health-ok {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.chip.health-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.chip.health-error {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: var(--bad-bg);
+}
+
+.chip.health-unknown,
+.chip.health-info {
+  color: var(--muted);
+}
+
 /* ------------------------------------------------------------ selection */
 
 .sel-list-wrap {
@@ -661,6 +700,16 @@ textarea.mono {
   font-weight: 700;
   color: var(--muted);
   background: var(--panel);
+}
+
+/* 3.1.0 C1: expanded operations feed rows wrap onto full-width lines. */
+.sel-row.wrap {
+  flex-wrap: wrap;
+}
+
+.sel-expand {
+  flex-basis: 100%;
+  width: 100%;
 }
 
 .sel-title {

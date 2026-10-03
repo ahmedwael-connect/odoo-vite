@@ -140,9 +140,11 @@ class LifecycleOps:
 
     async def remove(self, instance_id: str, drop_db: bool = False,
                      drop_extra_dbs: list | None = None):
+        # 3.1.0 B1: pass by keyword — a 3rd positional would land in
+        # remove_instance's db_path slot and silently drop extra DBs.
         return await self._run(
             removal.remove_instance, instance_id, drop_db,
-            drop_extra_dbs or [])
+            drop_extra_dbs=drop_extra_dbs or [])
 
     async def clone(self, instance_id: str, new_name: str,
                     new_port: int | None = None):

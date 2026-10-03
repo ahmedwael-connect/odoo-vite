@@ -8,12 +8,15 @@ coroutines on the main thread.
 
 import asyncio
 
+import pytest
+
 
 
 from odoo_vite.core.result import Result  # noqa: E402
 from odoo_vite.ops.modules import (  # noqa: E402
     ModuleOps,
     preview_command,
+    preview_text,
     split_deps,
     state_category,
 )
@@ -73,6 +76,48 @@ def test_preview_command_shape(tmp_path, monkeypatch):
     assert cmd[-3:] == ["-i", "sale,purchase", "--stop-after-init"]
     assert cmd[0] == f"{tmp_path}/venv/bin/python"
     assert cmd[1] == f"{tmp_path}/odoo/odoo-bin"
+
+
+def _prev_inst(tmp_path, monkeypatch):
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "prev.db"))
+    inst = Instance(name="Prev", version="17.0", path=str(tmp_path),
+                    venv_path=str(tmp_path / "venv"),
+                    community_path=str(tmp_path / "odoo"),
+                    conf_path=str(tmp_path / "odoo.conf"),
+                    primary_db="main")
+    assert create_instance(inst).ok
+    return inst
+
+
+def test_preview_text_is_quoted_string(tmp_path, monkeypatch):
+    """3.1.0 B6: the facade declares str — preview must not return argv."""
+    inst = _prev_inst(tmp_path, monkeypatch)
+    text = preview_text(inst, "main", "install", ["sale", "purchase"])
+    assert isinstance(text, str)
+    assert text.endswith("-i sale,purchase --stop-after-init")
+    # semantic flags and raw odoo flags agree
+    assert preview_text(inst, "main", "update", ["sale"]) == \
+        preview_text(inst, "main", "-u", ["sale"])
+
+
+def test_preview_text_uninstall_previews_shell(tmp_path, monkeypatch):
+    """3.1.0 B6: uninstall runs odoo-bin shell, never a -u flag."""
+    inst = _prev_inst(tmp_path, monkeypatch)
+    text = preview_text(inst, "main", "uninstall", ["website"])
+    cmd_part = text.split("  #")[0]
+    assert " shell " in f" {cmd_part} "
+    assert "--stop-after-init" not in cmd_part
+    assert "button_immediate_uninstall()" in text
+    assert "'website'" in text
+
+
+def test_preview_text_rejects_unknown_flag(tmp_path, monkeypatch):
+    inst = _prev_inst(tmp_path, monkeypatch)
+    with pytest.raises(ValueError):
+        preview_text(inst, "main", "-x", ["sale"])
 
 
 def test_unknown_ids_fail_quietly():

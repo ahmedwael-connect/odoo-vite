@@ -34,6 +34,27 @@ _FILE_TYPES = {
 }
 
 
+def _file_types(pattern: str) -> tuple[str, ...]:
+    """3.1.0 B3: normalize frontend filter hints to pywebview's form.
+
+    Callers pass one of three shapes and all must survive production:
+      - a _FILE_TYPES key ("archives", "dumps", "all"),
+      - a full expression ("Postgres dumps (*.dump *.sql *.sql.gz)"),
+      - bare extension(s) ("tar.gz", "zip", "conf").
+    Before this fix only the key shape worked; everything else was
+    double-wrapped into a filter that matches nothing.
+    """
+    if not pattern:
+        return ()
+    if pattern in _FILE_TYPES:
+        return _FILE_TYPES[pattern]
+    if "(" in pattern and pattern.rstrip().endswith(")"):
+        return (pattern,)
+    exts = " ".join(p if p.startswith("*.") else f"*.{p}"
+                    for p in pattern.split())
+    return (f"Files ({exts})",)
+
+
 def _pick(window: webview.Window, mode: str, title: str, pattern: str) -> str | None:
     if mode == "folder":
         kind = webview.FileDialog.FOLDER
@@ -41,7 +62,7 @@ def _pick(window: webview.Window, mode: str, title: str, pattern: str) -> str | 
         kind = webview.FileDialog.SAVE
     else:
         kind = webview.FileDialog.OPEN
-    file_types = _FILE_TYPES.get(pattern, (f"Files ({pattern})",) if pattern else ())
+    file_types = _file_types(pattern)
     result = window.create_file_dialog(
         kind,
         allow_multiple=False,

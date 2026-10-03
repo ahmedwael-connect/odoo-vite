@@ -74,3 +74,51 @@ def test_track_many_reports_batch_failure(tmp_path, monkeypatch):
     # "ghost" matches no live role without PG — exercises the batch path.
     res = asyncio.run(ops.track_many(inst.id, ["ghost"]))
     assert isinstance(res.message, str) and messages
+
+
+def test_reconcile_timer_tracks_enabled_schedules(monkeypatch):
+    """3.1.0 B8: timer installs while a schedule is enabled, is removed
+    when the last one goes away, and stays untouched otherwise."""
+    from odoo_vite.core.result import Result
+    from odoo_vite.ops import databases as ops_mod
+
+    calls: list[str] = []
+    state = {"enabled": True, "installed": False, "timer_enabled": False}
+
+    class _S:
+        def __init__(self, enabled: bool) -> None:
+            self.enabled = enabled
+
+    monkeypatch.setattr(
+        ops_mod.backup_scheduler, "list_schedules",
+        lambda *a, **k: [_S(state["enabled"])])
+    monkeypatch.setattr(
+        ops_mod.backup_scheduler, "timer_status",
+        lambda: {"installed": state["installed"],
+                 "enabled": state["timer_enabled"]})
+    monkeypatch.setattr(
+        ops_mod.backup_scheduler, "install_timer",
+        lambda: calls.append("install") or Result.success(message="ok"))
+    monkeypatch.setattr(
+        ops_mod.backup_scheduler, "remove_timer",
+        lambda: calls.append("remove") or Result.success(message="ok"))
+
+    ops, _messages = _ops()
+
+    asyncio.run(ops._reconcile_timer())          # enabled, no timer -> install
+    assert calls == ["install"]
+
+    calls.clear()
+    state.update(installed=True, timer_enabled=True)
+    asyncio.run(ops._reconcile_timer())          # healthy -> untouched
+    assert calls == []
+
+    calls.clear()
+    state.update(enabled=False)
+    asyncio.run(ops._reconcile_timer())          # none enabled -> remove
+    assert calls == ["remove"]
+
+    calls.clear()
+    state.update(installed=False)
+    asyncio.run(ops._reconcile_timer())          # nothing to do
+    assert calls == []

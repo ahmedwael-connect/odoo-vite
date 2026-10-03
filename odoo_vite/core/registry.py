@@ -93,17 +93,32 @@ def get_db_path() -> Path:
 
 
 def _ensure_columns(conn: sqlite3.Connection) -> list[str]:
-    """Apply additive migrations. Returns names of columns added (or [])."""
+    """Apply additive migrations. Returns names of columns added (or []).
+
+    3.1.0 B7: the check-then-act used to run unlocked, so two pywebview
+    threads connecting during an upgrade both fired the same ALTER and
+    the loser died with `duplicate column name`. Pending migrations are
+    now re-checked under BEGIN IMMEDIATE (SQLite's write lock); the
+    common no-migration path stays lock-free.
+    """
     existing = {row[1] for row in conn.execute("PRAGMA table_info(instances)")}
-    added = []
-    for column, ddl in _MIGRATIONS:
-        if column not in existing:
-            conn.execute(ddl)
-            added.append(column)
-    conn.executescript(SETTINGS_SCHEMA)
-    if added:
+    if all(column in existing for column, _ddl in _MIGRATIONS):
+        return []
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(instances)")
+        }
+        added = []
+        for column, ddl in _MIGRATIONS:
+            if column not in existing:
+                conn.execute(ddl)
+                added.append(column)
         conn.commit()
-    return added
+        return added
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def _connect(db_path: Path | str | None = None) -> sqlite3.Connection:
@@ -112,6 +127,7 @@ def _connect(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    conn.executescript(SETTINGS_SCHEMA)
     _ensure_columns(conn)
     return conn
 

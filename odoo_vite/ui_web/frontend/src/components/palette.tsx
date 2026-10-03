@@ -4,7 +4,7 @@
  * on the input, click/mouse-move also work. Focus returns to the opener.
  */
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Icon, type IconName } from './icons'
 
 export interface Command {
@@ -53,7 +53,9 @@ export function CommandPalette({
       .map((c) => ({ c, s: score(query, c) }))
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s)
-    return scored.slice(0, 12).map((x) => x.c)
+    // 3.1.0 B12: the old cap of 12 hid commands forever — with an empty
+    // query every score ties, so anything past 12 was unreachable.
+    return scored.slice(0, 40).map((x) => x.c)
   }, [commands, query])
 
   useEffect(() => {
@@ -61,6 +63,19 @@ export function CommandPalette({
     inputRef.current?.focus()
     return () => openerRef.current?.focus?.()
   }, [])
+
+  // 3.1.0 B12: Escape must close the palette even when the input lost
+  // focus (clicking the overlay padding blurs it).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [onClose])
 
   useEffect(() => {
     setIdx(0)
@@ -71,7 +86,7 @@ export function CommandPalette({
     cmd.run()
   }
 
-  const onInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+  const onInputKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setIdx((i) => (results.length ? (i + 1) % results.length : 0))

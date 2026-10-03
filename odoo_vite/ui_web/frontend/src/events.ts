@@ -77,10 +77,29 @@ export function onEvent<K extends EventKind>(
   }
 }
 
+/** 3.1.0 B16: fire-and-forget facade calls (`void api.…`) used to reject
+ * with no handler — the classic "clicked, nothing happened". Every
+ * unhandled rejection now surfaces as an error toast; call sites that
+ * already have a `.catch()` preempt it. Console logging stays on. */
+function onUnhandledRejection(ev: PromiseRejectionEvent) {
+  const reason: unknown = ev.reason
+  const text =
+    reason instanceof Error
+      ? reason.message
+      : typeof reason === 'string'
+        ? reason
+        : reason
+          ? JSON.stringify(reason)
+          : 'unknown error'
+  route({ kind: 'message', payload: { text: `Operation failed: ${text}`, level: 'error' } })
+}
+
 /** Install the push target. Returns a cleanup that restores nothing (idempotent). */
 export function installPushTarget(): () => void {
   window.odooVite = { push: route }
+  window.addEventListener('unhandledrejection', onUnhandledRejection)
   return () => {
+    window.removeEventListener('unhandledrejection', onUnhandledRejection)
     delete window.odooVite
   }
 }
@@ -120,32 +139,74 @@ export function useRefreshEvent(fn: () => void) {
   useEvent('refresh', useCallback(() => fnRef.current(), []))
 }
 
-/** Active long-running operations, fed by progress-line/progress-done. */
+/** Long-running operations, fed by progress-line/progress-done (3.1.0 C1:
+ * startedAt/doneAt feed the live operations dialog). */
 export interface ProgressOp {
   op_id: string
   lines: string[]
   done: boolean
+  startedAt: number
+  doneAt?: number
+}
+
+const FINISHED_OP_CAP = 40
+
+function pruneFinished(ops: Record<string, ProgressOp>): Record<string, ProgressOp> {
+  const finished = Object.values(ops)
+    .filter((o) => o.done)
+    .sort((a, b) => (a.doneAt ?? a.startedAt) - (b.doneAt ?? b.startedAt))
+  const excess = finished.length - FINISHED_OP_CAP
+  if (excess <= 0) return ops
+  const drop = new Set(finished.slice(0, excess).map((o) => o.op_id))
+  const next: Record<string, ProgressOp> = {}
+  for (const [k, v] of Object.entries(ops)) if (!drop.has(k)) next[k] = v
+  return next
 }
 
 export function useProgress(): ProgressOp[] {
   const [ops, setOps] = useState<Record<string, ProgressOp>>({})
   useEvent(
     'progress-line',
-    (payload) =>
+    (payload) => {
+      if (!payload.op_id) return
       setOps((prev) => {
-        const op = prev[payload.op_id] ?? { op_id: payload.op_id, lines: [], done: false }
-        return { ...prev, [payload.op_id]: { ...op, lines: [...op.lines, payload.line].slice(-50) } }
-      }),
+        const op = prev[payload.op_id] ?? {
+          op_id: payload.op_id,
+          lines: [],
+          done: false,
+          startedAt: Date.now(),
+        }
+        return {
+          ...prev,
+          [payload.op_id]: {
+            ...op,
+            done: false,
+            doneAt: undefined,
+            lines: [...op.lines, payload.line].slice(-50),
+          },
+        }
+      })
+    },
     true,
   )
   useEvent(
     'progress-done',
-    (payload) =>
+    (payload) => {
+      if (!payload.op_id) return
       setOps((prev) => {
         const op = prev[payload.op_id]
-        if (!op) return { ...prev, [payload.op_id]: { op_id: payload.op_id, lines: [], done: true } }
-        return { ...prev, [payload.op_id]: { ...op, done: true } }
-      }),
+        const next = op
+          ? { ...op, done: true, doneAt: Date.now() }
+          : {
+              op_id: payload.op_id,
+              lines: [],
+              done: true,
+              startedAt: Date.now(),
+              doneAt: Date.now(),
+            }
+        return pruneFinished({ ...prev, [payload.op_id]: next })
+      })
+    },
     true,
   )
   return Object.values(ops)

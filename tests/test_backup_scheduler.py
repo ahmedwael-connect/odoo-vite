@@ -134,21 +134,52 @@ def test_list_backup_files_missing_root(tmp_path):
     assert bs.list_backup_files(root=tmp_path / "nope") == []
 
 
-def test_delete_backup_file_audited(tmp_path):
+def test_delete_backup_file_audited(tmp_path, monkeypatch):
     from odoo_vite.core import audit as _audit
 
     d = tmp_path / "b"
     d.mkdir()
+    monkeypatch.setenv("ODOO_VITE_BACKUPS_DIR", str(d))
     dump = d / "x.dump"
     dump.write_bytes(b"data")
     (d / "x.dump.meta.json").write_text("{}")
-    res = bs.delete_backup_file(dump)
+    res = bs.delete_backup_file(dump, db_path=tmp_path / "reg.db")
     assert res.ok, res.message
     assert not dump.exists()
     assert not (d / "x.dump.meta.json").exists()
     events = _audit.read_events(limit=5)
     assert any(e.get("action") == "backup-delete" for e in events)
-    assert not bs.delete_backup_file(d / "gone.dump").ok
+    assert not bs.delete_backup_file(d / "gone.dump",
+                                     db_path=tmp_path / "reg.db").ok
+
+
+def test_delete_backup_file_refuses_outside_root(tmp_path, monkeypatch):
+    """3.1.0 B4: arbitrary paths from the JS facade must be rejected."""
+    root = tmp_path / "bk"
+    root.mkdir()
+    monkeypatch.setenv("ODOO_VITE_BACKUPS_DIR", str(root))
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    victim = outside / "x.dump"
+    victim.write_bytes(b"x")
+    res = bs.delete_backup_file(victim, db_path=tmp_path / "reg.db")
+    assert not res.ok and "Refusing" in res.message
+    assert victim.exists()
+
+
+def test_delete_backup_file_allows_schedule_dest_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("ODOO_VITE_BACKUPS_DIR", str(tmp_path / "root"))
+    custom = tmp_path / "custom-dest"
+    custom.mkdir()
+    db = tmp_path / "reg.db"
+    made = bs.create_schedule("i1", ["prod"], "0 3 * * *",
+                              dest_dir=str(custom), db_path=db)
+    assert made.ok, made.message
+    dump = custom / "prod.dump"
+    dump.write_bytes(b"data")
+    res = bs.delete_backup_file(dump, db_path=db)
+    assert res.ok, res.message
+    assert not dump.exists()
 
 
 def test_update_schedule_preserves_history(tmp_path):

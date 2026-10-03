@@ -29,6 +29,7 @@ Divergences from Qt (documented choice):
 from __future__ import annotations
 
 import asyncio
+import shlex
 
 from odoo_vite.core import module_manager
 from odoo_vite.core.instance import effective_python
@@ -69,11 +70,38 @@ def state_category(mod: dict) -> str:
 def preview_command(inst, db_name: str, flag: str,
                     names: list[str]) -> list[str]:
     """Exact odoo-bin argv an op will run (Qt _confirm_command parity —
-    the bridge shows this in the confirm dialog before spawning)."""
+    update() actually executes this)."""
     return [effective_python(inst),
             f"{inst.community_path}/odoo-bin",
             "-c", inst.conf_path, "-d", db_name,
             flag, ",".join(names), "--stop-after-init"]
+
+
+_SEMANTIC_FLAGS = {"install": "-i", "-i": "-i", "update": "-u", "-u": "-u"}
+
+
+def preview_text(inst, db_name: str, flag: str, names: list[str]) -> str:
+    """3.1.0 B6: shell-quoted one-liner for the confirm dialog.
+
+    Accepts semantic flags ('install'/'update'/'uninstall') so the
+    frontend cannot re-introduce a wrong flag mapping, and previews
+    uninstall as the odoo-bin shell + button_immediate_uninstall run it
+    really performs (there is no odoo-bin uninstall flag).
+    """
+    if flag == "uninstall":
+        argv = [effective_python(inst),
+                f"{inst.community_path}/odoo-bin", "shell",
+                "-c", inst.conf_path, "-d", db_name]
+        mods = ", ".join(repr(n) for n in names)
+        return (" ".join(shlex.quote(a) for a in argv)
+                + "  # stdin: env['ir.module.module']"
+                + f".search([('name', 'in', [{mods}])])"
+                + ".button_immediate_uninstall()")
+    odoo_flag = _SEMANTIC_FLAGS.get(flag)
+    if odoo_flag is None:
+        raise ValueError(f"Unknown preview flag: {flag!r}")
+    argv = preview_command(inst, db_name, odoo_flag, names)
+    return " ".join(shlex.quote(a) for a in argv)
 
 
 def split_deps(edges: list, name: str) -> tuple[list[str], list[str]]:

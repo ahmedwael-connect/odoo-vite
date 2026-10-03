@@ -5,6 +5,7 @@
  */
 
 import { Fragment, useEffect, useState } from 'react'
+import { copyText } from './clipboard'
 import { getApi, useBridgeReady } from './bridge'
 import { useConfirm, useProgressRun } from './components/dialog'
 import { Icon } from './components/icons'
@@ -12,7 +13,7 @@ import { CommandPalette, type Command } from './components/palette'
 import { SelectionList, type SelRow } from './components/selection'
 import { ActionButton, SectionHeader, Spinner, StatusPill } from './components/ui'
 import { route, useProgress } from './events'
-import { AboutDialog, EventLogDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
+import { AboutDialog, ActivityDialog, EventLogDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
 import { IndexModuleDialog } from './dialogs/marketplace'
 import { AdoptWizard, CreateWizard } from './dialogs/wizards'
 import { useApp } from './store'
@@ -81,7 +82,10 @@ export default function App() {
 
   // App shortcuts (RM-6): Ctrl+N New, Ctrl+O Adopt, F5/Ctrl+R Refresh,
   // Ctrl+F focus the instance filter, Ctrl+K command palette. Nothing
-  // fires while a dialog is open except Refresh — Esc owns dismissal.
+  // fires while a dialog or the palette is open except Refresh — Esc owns
+  // dismissal (3.1.0 B11: Ctrl+F was missing the dialog guard, and the
+  // mod shortcuts ignored an open palette — Ctrl+N under the palette
+  // mounted a wizard that the next palette run then destroyed).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
@@ -97,14 +101,15 @@ export default function App() {
       if (key === 'k') {
         e.preventDefault()
         if (!dialogOpen) setPaletteOpen((open) => !open)
-      } else if (key === 'n' && !dialogOpen) {
+      } else if (key === 'n' && !dialogOpen && !paletteOpen) {
         e.preventDefault()
         setDialog(<CreateWizard onClose={() => setDialog(null)} />)
-      } else if (key === 'o' && !dialogOpen) {
+      } else if (key === 'o' && !dialogOpen && !paletteOpen) {
         e.preventDefault()
         setDialog(<AdoptWizard onClose={() => setDialog(null)} />)
       } else if (key === 'f') {
         e.preventDefault()
+        if (dialogOpen || paletteOpen) return
         document
           .querySelector<HTMLInputElement>('.sidebar .sel-list-wrap input')
           ?.focus()
@@ -112,7 +117,7 @@ export default function App() {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [busy, dialogs, refresh, setDialog])
+  }, [busy, dialogs, paletteOpen, refresh, setDialog])
 
   const rows: SelRow[] = statuses.map((s) => ({
     id: s.id,
@@ -300,6 +305,14 @@ export default function App() {
       run: () => setDialog(<EventLogDialog onClose={() => setDialog(null)} />),
     },
     {
+      id: 'activity',
+      label: 'Live operations…',
+      group: 'System',
+      icon: 'refresh' as const,
+      keywords: 'activity progress feed running ops',
+      run: () => setDialog(<ActivityDialog ops={ops} onClose={() => setDialog(null)} />),
+    },
+    {
       id: 'about',
       label: 'About Odoo Vite',
       group: 'System',
@@ -453,7 +466,14 @@ export default function App() {
         </main>
 
         <footer className="statusline">
-          <span className="dim-label">{statusLine}</span>
+          <button
+            type="button"
+            className="dim-label statusline-activity"
+            title="Live operations feed"
+            onClick={() => openDialog(<ActivityDialog ops={ops} onClose={() => setDialog(null)} />)}
+          >
+            {statusLine}
+          </button>
           {busy && <Spinner />}
           <span className="spacer" />
           <span className={`chip ${ready ? 'on' : 'off'}`}>
@@ -475,6 +495,18 @@ export default function App() {
                 <Icon name={t.level === 'info' ? 'info' : 'alert'} size={14} />
               </span>
               <span className="toast-text">{t.text}</span>
+              <button
+                type="button"
+                className="toast-x"
+                aria-label="Copy message"
+                title="Copy message"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void copyText(t.text)
+                }}
+              >
+                <Icon name="copy" size={12} />
+              </button>
               <button
                 type="button"
                 className="toast-x"

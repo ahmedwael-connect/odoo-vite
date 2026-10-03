@@ -4,7 +4,8 @@
  * bridge _on_conf_action.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { copyWithToast } from '../clipboard'
 import { getApi } from '../bridge'
 import { Modal, useConfirm } from '../components/dialog'
 import { Icon } from '../components/icons'
@@ -260,6 +261,18 @@ export default function Configuration() {
   const [meta, setMeta] = useState({ description: '', workers: 0, logLevel: 'info', python: '' })
   const [metaErr, setMetaErr] = useState('')
   const [loadErr, setLoadErr] = useState('')
+  // 3.1.0 B10: unsaved edits must survive the global refresh event.
+  const [dirty, setDirty] = useState(false)
+  const [refreshSkipped, setRefreshSkipped] = useState(false)
+  // 3.1.0 N2: filter + copy over the raw odoo.conf lines.
+  const [confQ, setConfQ] = useState('')
+  const confLines = (view.lines ?? []).filter(
+    (l) => !confQ.trim() || l.toLowerCase().includes(confQ.trim().toLowerCase()),
+  )
+  const dirtyRef = useRef(false)
+  useEffect(() => {
+    dirtyRef.current = dirty
+  }, [dirty])
 
   const load = useCallback(
     async (id: string) => {
@@ -282,6 +295,9 @@ export default function Configuration() {
         })
       } catch (err) {
         setLoadErr(err instanceof Error ? err.message : String(err))
+      } finally {
+        setDirty(false)
+        setRefreshSkipped(false)
       }
     },
     [],
@@ -291,7 +307,13 @@ export default function Configuration() {
     if (!currentId) return
     void load(currentId)
     const off = onEvent('refresh', () => {
-      if (currentId) void load(currentId)
+      if (!currentId) return
+      if (dirtyRef.current) {
+        // 3.1.0 B10: skip the auto-reload — it would discard edits.
+        setRefreshSkipped(true)
+        return
+      }
+      void load(currentId)
     })
     return off
   }, [currentId, load])
@@ -303,6 +325,16 @@ export default function Configuration() {
   const api = getApi()
   const hasBackup = Boolean(view.backup_path)
   const running = statuses.find((s) => s.id === currentId)?.status === 'running'
+
+  // Field edits mark the form dirty (B10) so the refresh event skips reload.
+  const editCommon = (fn: (prev: Dict) => Dict) => {
+    setDirty(true)
+    setCommon(fn)
+  }
+  const editMeta = (fn: (prev: typeof meta) => typeof meta) => {
+    setDirty(true)
+    setMeta(fn)
+  }
 
   const saveCommon = async () => {
     const changes: Dict = {}
@@ -397,11 +429,23 @@ export default function Configuration() {
 
   const browsePython = async () => {
     const res = await api.app.pick_file('Python interpreter', 'open')
-    if (res.ok && res.path) setMeta((m) => ({ ...m, python: res.path ?? '' }))
+    if (res.ok && res.path) editMeta((m) => ({ ...m, python: res.path ?? '' }))
   }
 
   return (
     <div className="view conf-view">
+      {refreshSkipped && dirty && (
+        <Banner
+          kind="warn"
+          action={
+            <ActionButton onClick={() => void load(currentId)}>
+              Reload file (discard edits)
+            </ActionButton>
+          }
+        >
+          A background refresh was skipped — you have unsaved configuration edits.
+        </Banner>
+      )}
       <Card title="Configuration (odoo.conf)">
         {loadErr ? (
           <ErrorText text={loadErr} />
@@ -410,7 +454,29 @@ export default function Configuration() {
             <DimText>
               <ElidePath path={view.conf_path ?? ''} />
             </DimText>
-            <LineList lines={view.lines ?? []} maxHeight={300} />
+            <div className="btn-row">
+              <TextInput
+                placeholder="Filter lines…"
+                value={confQ}
+                onChange={(e) => setConfQ(e.target.value)}
+                aria-label="Filter configuration lines"
+              />
+              <ActionButton
+                disabled={!confLines.length}
+                title="Copy the visible configuration lines"
+                onClick={() =>
+                  void copyWithToast(confLines.join('\n'), `${confLines.length} lines`)
+                }
+              >
+                Copy
+              </ActionButton>
+            </div>
+            {confQ.trim() && (
+              <DimText>
+                {confLines.length} of {(view.lines ?? []).length} lines match
+              </DimText>
+            )}
+            <LineList lines={confLines} maxHeight={300} />
           </>
         )}
       </Card>
@@ -434,7 +500,7 @@ export default function Configuration() {
               <span className="field-label mono">{key}</span>
               <TextInput
                 value={String(common[key] ?? '')}
-                onChange={(e) => setCommon((prev) => ({ ...prev, [key]: e.target.value }))}
+                onChange={(e) => editCommon((prev) => ({ ...prev, [key]: e.target.value }))}
               />
             </label>
           ))}
@@ -508,7 +574,7 @@ export default function Configuration() {
           <span className="field-label">Description (registry only, for organization)</span>
           <TextInput
             value={meta.description}
-            onChange={(e) => setMeta((m) => ({ ...m, description: e.target.value }))}
+            onChange={(e) => editMeta((m) => ({ ...m, description: e.target.value }))}
           />
         </label>
         <div className="grid2">
@@ -518,14 +584,14 @@ export default function Configuration() {
               min={0}
               max={64}
               value={meta.workers}
-              onChange={(e) => setMeta((m) => ({ ...m, workers: Number(e.target.value) }))}
+              onChange={(e) => editMeta((m) => ({ ...m, workers: Number(e.target.value) }))}
             />
           </label>
           <label className="field">
             <span className="field-label">Log level</span>
             <Select
               value={meta.logLevel}
-              onChange={(e) => setMeta((m) => ({ ...m, logLevel: e.target.value }))}
+              onChange={(e) => editMeta((m) => ({ ...m, logLevel: e.target.value }))}
             >
               {CONF_LOG_LEVELS.map((lvl) => (
                 <option key={lvl} value={lvl}>
@@ -544,7 +610,7 @@ export default function Configuration() {
           <TextInput
             placeholder="empty = venv's own python"
             value={meta.python}
-            onChange={(e) => setMeta((m) => ({ ...m, python: e.target.value }))}
+            onChange={(e) => editMeta((m) => ({ ...m, python: e.target.value }))}
           />
           <ActionButton onClick={() => void browsePython()}>Browse…</ActionButton>
         </div>

@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { copyWithToast } from '../clipboard'
 import { getApi } from '../bridge'
 import { ActionButton, Card, DimText, EmptyState, LineList, Select, TextInput } from '../components/ui'
 import { Banner } from '../components/widgets'
@@ -265,6 +266,15 @@ export default function Logs({ active = false }: { active?: boolean }) {
         </label>
         <ActionButton disabled={!hasInstance} onClick={() => setLines([])}>
           Clear view
+        </ActionButton>
+        <ActionButton
+          disabled={!filteredLines.length}
+          title="Copy the visible tail lines to the clipboard"
+          onClick={() =>
+            void copyWithToast(filteredLines.join('\n'), `${filteredLines.length} tail lines`)
+          }
+        >
+          Copy tail
         </ActionButton>
         <Select
           value={String(tailLevelIdx)}

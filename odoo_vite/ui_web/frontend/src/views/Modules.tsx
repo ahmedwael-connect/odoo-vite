@@ -281,7 +281,7 @@ export default function Modules() {
   }
 
   const previewFor = async (flag: 'install' | 'update' | 'uninstall', names: string[]) => {
-    const res = await api.modules.preview_command(currentId, primary, flag === 'install' ? '-i' : flag === 'update' ? '-u' : '-u', names)
+    const res = await api.modules.preview_command(currentId, primary, flag, names)
     return res
   }
 

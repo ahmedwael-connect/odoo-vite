@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import { route } from './events'
-import type { Answer, ApiTree, AuditEvent, Dict, InstanceRow, Result } from './types'
+import type { Answer, ApiTree, AuditEvent, Dict, HealthReport, InstanceRow, Result } from './types'
 
 export function isNative(): boolean {
   return typeof window.pywebview?.api === 'object'
@@ -77,6 +77,18 @@ const mock: ApiTree = {
     version: async () => 'dev (mock)',
     instance: async (id: string) => MOCK_INSTANCES.find((i) => i.id === id) ?? null,
     enterprise: async (): Promise<Result> => ({ ok: true, message: 'mock: no enterprise' }),
+    health: async (id: string): Promise<HealthReport> => ({
+      instance_id: id,
+      level: 'ok',
+      summary: 'mock: all 5 checks healthy',
+      checks: [
+        { name: 'process', state: 'info', detail: 'stopped' },
+        { name: 'venv', state: 'ok', detail: 'python installed' },
+        { name: 'postgres', state: 'ok', detail: 'reachable' },
+        { name: 'disk', state: 'ok', detail: 'mock: 10 GB free' },
+        { name: 'log', state: 'info', detail: 'no log file yet' },
+      ],
+    }),
   },
   lifecycle: {
     start: async (id: string): Promise<Result> => {

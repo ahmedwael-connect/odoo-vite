@@ -261,6 +261,22 @@ def test_app_instances_and_statuses_round_trip(env):
     json.dumps(statuses)
 
 
+def test_app_instances_never_expose_db_password(env):
+    """3.1.0 B2: secrets must never cross into the JS context."""
+    api, _events = env
+    iid = _register(Instance(name="Secret", port=8071,
+                             db_password="s3cret-pw"))
+
+    rows = api.app.instances()
+    assert "db_password" not in rows[0]
+    assert "s3cret-pw" not in json.dumps(rows)
+
+    single = api.app.instance(iid)
+    assert single is not None
+    assert "db_password" not in single
+    assert "s3cret-pw" not in json.dumps(single)
+
+
 def test_app_pick_file_wiring():
     unwired, _push = create_api(None)
     assert unwired.app.pick_file()["ok"] is False
@@ -687,3 +703,27 @@ def test_lifecycle_start_many_failure_is_error_message(env, monkeypatch):
     assert msg["payload"]["level"] == "error"
     done = events.last("progress-done")
     assert done is not None and done["payload"]["op_id"] == "op-bulk2"
+
+
+def test_devtools_detect_editors_facade(env):
+    """3.1.0 N2: PATH probe exposed through the facade (UI gates editor buttons)."""
+
+    api, _events = env
+    found = api.devtools.detect_editors()
+    assert isinstance(found, dict)
+    assert set(found) <= {"code", "cursor"}
+
+
+def test_health_facade(env):
+    """3.1.0 C2: health report exposed through the facade for the strip."""
+
+    api, _events = env
+    rep = api.app.health("no-such-id")
+    assert rep["level"] == "error" and rep["checks"]
+
+    inst = Instance(name="h1", version="17.0")
+    iid = _register(inst)
+    rep = api.app.health(iid)
+    assert rep["instance_id"] == iid
+    assert {c["name"] for c in rep["checks"]} == {
+        "process", "venv", "postgres", "disk", "log"}

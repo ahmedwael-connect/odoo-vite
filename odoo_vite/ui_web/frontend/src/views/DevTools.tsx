@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { copyWithToast } from '../clipboard'
 import { getApi } from '../bridge'
 import { Modal, useConfirm, useTypedConfirm, useProgressRun } from '../components/dialog'
 import { Icon } from '../components/icons'
@@ -204,6 +205,9 @@ export default function DevTools() {
 
   const [crons, setCrons] = useState<string[]>([])
   const [cronEmpty, setCronEmpty] = useState('No cron jobs loaded — press Refresh.')
+  const [cronQ, setCronQ] = useState('')
+  // 3.1.0 N2: PATH probe result for VS Code / Cursor (null until first read).
+  const [editors, setEditors] = useState<Dict | null>(null)
 
   const [shellRunning, setShellRunning] = useState(false)
   const [shellStatus, setShellStatus] = useState('Shell not running.')
@@ -337,6 +341,20 @@ export default function DevTools() {
       if (!watching) setWatchMsg('Idle — not watching.')
     })
   }, [currentId, api])
+
+  // 3.1.0 N2: one PATH probe per mount — gates the editor buttons below.
+  useEffect(() => {
+    let stopped = false
+    void api.devtools
+      .detect_editors()
+      .then((found) => {
+        if (!stopped && found) setEditors(found as Dict)
+      })
+      .catch(() => undefined)
+    return () => {
+      stopped = true
+    }
+  }, [api])
 
   // ------------------------------------------------------- shell polling
   useEffect(() => {
@@ -740,20 +758,41 @@ export default function DevTools() {
       <Card
         title="Cron Jobs"
         actions={
-          <ActionButton disabled={devBusy} onClick={cronRefresh}>
-            Refresh
-          </ActionButton>
+          <>
+            <TextInput
+              placeholder="Filter crons…"
+              value={cronQ}
+              onChange={(e) => setCronQ(e.target.value)}
+              aria-label="Filter cron jobs"
+            />
+            <ActionButton disabled={devBusy} onClick={cronRefresh}>
+              Refresh
+            </ActionButton>
+          </>
         }
       >
-        <LineList lines={crons} maxHeight={150} />
+        <LineList
+          lines={
+            cronQ.trim()
+              ? crons.filter((c) => c.toLowerCase().includes(cronQ.trim().toLowerCase()))
+              : crons
+          }
+          maxHeight={150}
+        />
         {!crons.length && <EmptyState text={cronEmpty} />}
+        {Boolean(crons.length) &&
+          cronQ.trim() &&
+          !crons.some((c) => c.toLowerCase().includes(cronQ.trim().toLowerCase())) && (
+            <EmptyState text="No cron jobs match the filter." />
+          )}
       </Card>
 
       <Card
         title="Launch & editors"
         actions={
           <ActionButton
-            disabled={devBusy}
+            disabled={devBusy || Boolean(editors && !editors.code)}
+            title={editors && !editors.code ? 'VS Code was not found on PATH' : undefined}
             onClick={() =>
               void runDev(async () => {
                 const res = await api.devtools.open_editor(iid, 'code')
@@ -766,8 +805,8 @@ export default function DevTools() {
         }
         menu={[
           {
-            label: 'Open in Cursor',
-            disabled: devBusy,
+            label: editors && !editors.cursor ? 'Open in Cursor (not on PATH)' : 'Open in Cursor',
+            disabled: devBusy || Boolean(editors && !editors.cursor),
             onClick: () =>
               void runDev(async () => {
                 const res = await api.devtools.open_editor(iid, 'cursor')
@@ -795,6 +834,15 @@ export default function DevTools() {
             </ActionButton>
             <ActionButton disabled={!shellRunning || devBusy} onClick={shellStop}>
               Stop
+            </ActionButton>
+            <ActionButton
+              disabled={!shellLines.length}
+              title="Copy the shell output to the clipboard"
+              onClick={() =>
+                void copyWithToast(shellLines.join('\n'), `${shellLines.length} shell lines`)
+              }
+            >
+              Copy output
             </ActionButton>
           </>
         }

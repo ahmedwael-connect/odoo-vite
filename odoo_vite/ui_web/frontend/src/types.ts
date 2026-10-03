@@ -30,7 +30,11 @@ export interface EventPayloads {
   'progress-done': { op_id: string }
   'db-states': { instance_id: string; states: Dict }
   'db-report': { instance_id: string; report: Dict }
-  'db-schedules': { instance_id: string; schedules: Dict[]; total: number }
+  'db-schedules': {
+    instance_id: string
+    schedules: Dict[]
+    status: { active: boolean; detail?: string }
+  }
   'discover-ready': { instance_id: string; entries: Dict[] }
   'modules-ready': {
     instance_id: string
@@ -103,6 +107,8 @@ export interface ScheduleRow {
   cron: string
   enabled: boolean
   databases: string[]
+  retention_n?: number
+  retention_days?: number
   last_run?: string | null
   last_status?: string | null
 }
@@ -145,10 +151,24 @@ export interface ModelEntry {
 
 type Async<T> = Promise<T>
 
+export interface HealthCheck {
+  name: string
+  state: 'ok' | 'warn' | 'error' | 'unknown' | 'info' | string
+  detail: string
+}
+
+export interface HealthReport {
+  instance_id: string
+  level: string
+  summary: string
+  checks: HealthCheck[]
+}
+
 export interface AppApi {
   instances(): Async<InstanceRow[]>
   instance(instance_id: string): Async<InstanceRow | null>
   enterprise(instance_id: string): Async<Result>
+  health(instance_id: string): Async<HealthReport>
   statuses(): Async<StatusRow[]>
   suggest_port(start?: number): Async<number>
   preferences(): Async<Dict>
@@ -189,6 +209,7 @@ export interface DatabasesApi {
   track_many(instance_id: string, db_names: string[]): Async<Answer>
   set_primary(instance_id: string, db_name: string): Async<Answer>
   refresh_schedules(instance_id: string): Async<Answer>
+  timer_repair(): Async<Result>
   run_schedule_now(schedule_id: string): Async<Result>
   switch_db(instance_id: string, db_name: string, confirm?: boolean): Async<Result>
   sched_create(instance_id: string, payload: Dict): Async<Result>
@@ -380,6 +401,7 @@ export interface DevToolsApi {
   cron_refresh(instance_id: string): Async<Answer>
   launch_json(instance_id: string): Async<Answer>
   open_editor(instance_id: string, editor: string): Async<Answer>
+  detect_editors(): Async<Dict>
   diff_record(current: Dict, updated: Dict): Async<Dict>
   shell_start(instance_id: string, db_name?: string): Async<Result>
   shell_stop(): Async<Result>

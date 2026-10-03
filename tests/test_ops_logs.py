@@ -137,6 +137,38 @@ def test_profile_guards(tmp_path, monkeypatch):
     assert any("running" in m for m, _k in messages)
 
 
+def test_profile_installs_py_spy_on_demand(tmp_path, monkeypatch):
+    """3.1.0 N2: a missing py-spy triggers ensure_py_spy instead of failing."""
+    from odoo_vite.core import profiler
+    from odoo_vite.core.result import Result
+
+    inst = _db_instance(tmp_path, monkeypatch)
+    monkeypatch.setattr("odoo_vite.ops.logs._alive_pid", lambda _i: 4242)
+    monkeypatch.setattr(profiler, "py_spy_path", lambda: None)
+    ensured = []
+
+    def _ensure(progress_cb=None):
+        ensured.append(True)
+        if progress_cb:
+            progress_cb("Collecting py-spy…")
+        return Result.success(message="py-spy installed")
+
+    monkeypatch.setattr(profiler, "ensure_py_spy", _ensure)
+    monkeypatch.setattr(
+        profiler, "profile_pid",
+        lambda _pid, duration=0, output_svg="", **_k:
+            Result.success(data={"svg": "<svg/>"},
+                           message="flame graph recorded"))
+
+    ops, messages, sinks = _ops()
+    res = asyncio.run(ops.profile(inst.id, 5))
+    assert res.ok, res.message
+    assert ensured == [True]
+    assert any("install" in m.lower() for m, _k in messages)
+    iid, ok, _msg, svg = sinks["profile"][0]
+    assert (iid, ok) == (inst.id, True) and svg == "<svg/>"
+
+
 def test_open_svg_external_reports_saved():
     import queue as queue_mod
 

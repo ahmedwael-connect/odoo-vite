@@ -6,11 +6,20 @@
 import { useEffect, useState } from 'react'
 import { getApi } from '../bridge'
 import { Modal, useConfirm, useProgressRun, useTypedConfirm } from '../components/dialog'
-import { ActionButton, Card, ElidePath, StatusPill } from '../components/ui'
+import { ActionButton, Card, DimText, ElidePath, StatusPill } from '../components/ui'
 import { Banner, OverflowMenu } from '../components/widgets'
 import { route } from '../events'
 import { useApp } from '../store'
-import type { InstanceRow } from '../types'
+import type { HealthReport, InstanceRow } from '../types'
+
+/** 3.1.0 C2: health level → existing StatusPill colours. */
+const HEALTH_PILL: Record<string, string> = {
+  error: 'error',
+  warn: 'draft',
+  ok: 'running',
+  unknown: 'stopped',
+  info: 'stopped',
+}
 
 function CloneDialog({
   source,
@@ -65,6 +74,7 @@ export default function Overview() {
   const runProgress = useProgressRun()
   const [ent, setEnt] = useState<{ text: string; warn: boolean }>({ text: '', warn: false })
   const [venvSt, setVenvSt] = useState<{ venv_path: string; python_ok: boolean } | null>(null)
+  const [health, setHealth] = useState<HealthReport | null>(null)
 
   const status = statuses.find((s) => s.id === currentId)?.status ?? ''
   const running = status === 'running'
@@ -89,7 +99,34 @@ export default function Overview() {
     return () => {
       alive = false
     }
-  }, [currentId, statuses])
+    // 3.1.0 B13: NOT `statuses` — it is a fresh array on every 2s poll, so
+    // the old dependency re-fired both RPCs continuously while idle.
+    // onRebuildVenv re-reads venv_status explicitly after a rebuild.
+  }, [currentId])
+
+  // 3.1.0 C2: health strip — mount + every 30s (independent of the 2s
+  // status poll; the probes include a pg_isready subprocess).
+  useEffect(() => {
+    if (!currentId) {
+      setHealth(null)
+      return
+    }
+    let alive = true
+    const tick = () => {
+      void getApi()
+        .app.health(currentId)
+        .then((report) => {
+          if (alive) setHealth(report)
+        })
+        .catch(() => undefined)
+    }
+    tick()
+    const timer = window.setInterval(tick, 30000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [currentId])
 
   if (!current) {
     return <p className="empty-state dim-label">Select an instance</p>
@@ -221,6 +258,22 @@ export default function Overview() {
           ]}
         />
       </div>
+
+      {health && (
+        <Card
+          title="Health"
+          actions={<StatusPill status={HEALTH_PILL[health.level] ?? 'stopped'} />}
+        >
+          <div className="btn-row">
+            {health.checks.map((c) => (
+              <span key={c.name} className={`chip health-${c.state}`} title={c.detail}>
+                {c.name}: {c.detail}
+              </span>
+            ))}
+          </div>
+          <DimText>{health.summary}</DimText>
+        </Card>
+      )}
 
       <Card title="Server">
         <dl className="kv">

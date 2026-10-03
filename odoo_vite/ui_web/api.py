@@ -30,7 +30,8 @@ from typing import Any, Callable
 
 from odoo_vite.core import process_manager, provisioning, registry
 from odoo_vite.core import version as version_mod
-from odoo_vite.core import addon_paths, audit, backup_scheduler, db_manager
+from odoo_vite.core import addon_paths, audit, backup_scheduler, db_manager, health
+from odoo_vite.core import devtools_export
 from odoo_vite.core import venv_manager
 from odoo_vite.core.enterprise import detect_enterprise
 from odoo_vite.core.instance import Instance
@@ -59,7 +60,7 @@ from odoo_vite.ops.logs import (
 from odoo_vite.ops.marketplace import MarketplaceOps
 from odoo_vite.ops.modules import (
     ModuleOps,
-    preview_command,
+    preview_text,
     split_deps,
     state_category,
 )
@@ -202,12 +203,21 @@ def _progress_call(
 
 
 _INSTANCE_FIELDS = {f.name for f in dataclasses.fields(Instance)}
+# 3.1.0 B2: never push secrets into the JS context. The frontend's
+# InstanceRow has no db_password field, and reads happen only inside ops
+# via registry.get_db_password — so serialize a public projection.
+_INSTANCE_PUBLIC = _INSTANCE_FIELDS - {"db_password"}
 
 
 def _instance_from_dict(payload: dict) -> Instance:
     if not isinstance(payload, dict):
         raise TypeError("draft must be an object")
     return Instance(**{k: v for k, v in payload.items() if k in _INSTANCE_FIELDS})
+
+
+def _instance_out(inst: Instance) -> dict:
+    return {k: v for k, v in dataclasses.asdict(inst).items()
+            if k in _INSTANCE_PUBLIC}
 
 
 # ------------------------------------------------------------------------ App
@@ -221,17 +231,21 @@ class AppApi(Domain):
         self._file_dialog = file_dialog
 
     def instances(self) -> list[dict]:
-        return [dataclasses.asdict(i) for i in registry.list_instances()]
+        return [_instance_out(i) for i in registry.list_instances()]
 
     def instance(self, instance_id: str) -> dict | None:
         inst = registry.get_instance(instance_id)
-        return dataclasses.asdict(inst) if inst is not None else None
+        return _instance_out(inst) if inst is not None else None
 
     def enterprise(self, instance_id: str) -> Any:
         inst = registry.get_instance(instance_id)
         if inst is None:
             return {"ok": False, "message": "Instance not found"}
         return detect_enterprise(inst)
+
+    def health(self, instance_id: str) -> dict:
+        """3.1.0 C2: cheap health probes for the Overview strip."""
+        return health.check_instance(instance_id).as_dict()
 
     def statuses(self) -> list[dict]:
         return process_manager.get_statuses()
@@ -330,7 +344,7 @@ class DatabasesApi(Domain):
             on_states=_sink(push, "db-states", ("instance_id", "states")),
             on_report=_sink(push, "db-report", ("instance_id", "report")),
             on_schedules=_sink(
-                push, "db-schedules", ("instance_id", "schedules", "total")
+                push, "db-schedules", ("instance_id", "schedules", "status")
             ),
             on_discover=_sink(push, "discover-ready", ("instance_id", "entries")),
         )
@@ -379,6 +393,10 @@ class DatabasesApi(Domain):
 
     def refresh_schedules(self, instance_id: str) -> Any:
         return asyncio.run(self._ops.refresh_schedules(instance_id))
+
+    def timer_repair(self) -> Any:
+        """3.1.0 B8: reinstall/enable the backup OS timer on demand."""
+        return asyncio.run(self._ops.timer_repair())
 
     def run_schedule_now(self, schedule_id: str) -> Any:
         return asyncio.run(self._ops.run_schedule_now(schedule_id))
@@ -488,7 +506,7 @@ class ModulesApi(Domain):
         inst = registry.get_instance(instance_id)
         if inst is None:
             raise ValueError(f"No instance with id '{instance_id}'")
-        return preview_command(inst, db_name, flag, names)
+        return preview_text(inst, db_name, flag, names)
 
     def split_deps(self, edges: list, name: str) -> list:
         depends, required_by = split_deps(edges, name)
@@ -844,6 +862,10 @@ class DevToolsApi(Domain):
 
     def open_editor(self, instance_id: str, editor: str) -> Any:
         return asyncio.run(self._ops.open_editor(instance_id, editor))
+
+    def detect_editors(self) -> dict:
+        """3.1.0 N2: PATH probe for VS Code / Cursor (UI greys out missing ones)."""
+        return devtools_export.detect_editors()
 
     # pure helpers
     def diff_record(self, current: dict, new: dict) -> dict:

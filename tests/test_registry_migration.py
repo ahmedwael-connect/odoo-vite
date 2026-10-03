@@ -1,6 +1,7 @@
 """Ticket 2.1 test: ensure_schema() migrates a Sprint 1 database + keyring helpers."""
 
 import sqlite3
+import threading
 
 from odoo_vite.core import provisioning
 from odoo_vite.core.instance import Instance
@@ -67,6 +68,42 @@ def test_ensure_schema_idempotent_and_fresh(tmp_path):
     assert inst.status == "draft"
     assert create_instance(inst, db).ok
     assert get_instance(inst.id, db).status == "draft"
+
+
+def test_concurrent_connects_apply_pending_migration_once(tmp_path,
+                                                          monkeypatch):
+    """3.1.0 B7: threads racing a pending ALTER must not die with
+    'duplicate column name' — the re-check runs under BEGIN IMMEDIATE."""
+    from odoo_vite.core import registry as reg
+
+    db = tmp_path / "race.db"
+    assert init_db(db).ok
+    monkeypatch.setattr(
+        reg, "_MIGRATIONS",
+        list(reg._MIGRATIONS) + [
+            ("race_col",
+             "ALTER TABLE instances ADD COLUMN race_col TEXT DEFAULT ''"),
+        ],
+    )
+    errors: list[Exception] = []
+
+    def worker() -> None:
+        try:
+            reg._connect(db).close()
+        except Exception as exc:  # noqa: BLE001 — collected for the assert
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+
+    conn = sqlite3.connect(str(db))
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(instances)")}
+    conn.close()
+    assert "race_col" in cols
 
 
 def test_password_roundtrip():

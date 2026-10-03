@@ -268,6 +268,31 @@ class DatabaseOps:
     async def run_schedule_now(self, schedule_id: str):
         return await self._run(backup_scheduler.run_schedule, schedule_id)
 
+    async def _reconcile_timer(self) -> None:
+        """3.1.0 B8: the single static timer tracks the schedule set —
+        install when any schedule is enabled, remove when none is. Failures
+        are silent here; refresh_schedules() publishes timer_status() to
+        the UI, which shows a repairable warning banner."""
+
+        def _work() -> None:
+            try:
+                scheds = backup_scheduler.list_schedules()
+                wanted = any(s.enabled for s in scheds)
+                info = backup_scheduler.timer_status()
+                if wanted and not (info.get("installed")
+                                   and info.get("enabled")):
+                    backup_scheduler.install_timer()
+                elif not wanted and info.get("installed"):
+                    backup_scheduler.remove_timer()
+            except Exception:
+                pass
+
+        await asyncio.to_thread(_work)
+
+    async def timer_repair(self):
+        """3.1.0 B8: explicit user-driven reinstall from the schedules card."""
+        return await self._run(backup_scheduler.install_timer)
+
     async def switch_db(self, instance_id: str, db_name: str,
                         confirm_cb=None):
         return await self._run(
@@ -281,7 +306,7 @@ class DatabaseOps:
             retention_n=payload.get("retention_n", 7),
             retention_days=payload.get("retention_days", 0))
         if res.ok:
-            await self._run(backup_scheduler.install_timer)
+            await self._reconcile_timer()
         return res
 
     async def sched_update(self, schedule_id: str, payload: dict):
@@ -293,12 +318,17 @@ class DatabaseOps:
             retention_days=payload.get("retention_days"))
 
     async def sched_delete(self, schedule_id: str):
-        return await self._run(
-            backup_scheduler.delete_schedule, schedule_id)
+        res = await self._run(backup_scheduler.delete_schedule, schedule_id)
+        if res.ok:
+            await self._reconcile_timer()
+        return res
 
     async def sched_toggle(self, schedule_id: str, enabled: bool):
-        return await self._run(
+        res = await self._run(
             backup_scheduler.set_enabled, schedule_id, enabled)
+        if res.ok:
+            await self._reconcile_timer()
+        return res
 
     async def file_delete(self, dump_path: str):
         return await self._run(

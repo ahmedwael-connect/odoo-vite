@@ -130,8 +130,8 @@ function ScheduleDialog({
     new Set(existing?.databases ?? dbNames.slice(0, 1)),
   )
   const [cron, setCron] = useState(existing?.cron ?? '0 3 * * *')
-  const [retN, setRetN] = useState(String(existing ? 7 : 7))
-  const [retDays, setRetDays] = useState(String(0))
+  const [retN, setRetN] = useState(String(existing?.retention_n ?? 7))
+  const [retDays, setRetDays] = useState(String(existing?.retention_days ?? 0))
 
   const ok = picked.size >= 1 && cron.trim().length > 0
 
@@ -265,6 +265,16 @@ export default function Databases() {
   const [states, setStates] = useState<Record<string, DbState>>({})
   const [schedules, setSchedules] = useState<ScheduleRow[]>([])
   const [schedSel, setSchedSel] = useState<string | null>(null)
+  const [schedQ, setSchedQ] = useState('')
+  // 3.1.0 N2: client-side filter over schedule rows.
+  const schedFiltered = schedQ.trim()
+    ? schedules.filter((s) =>
+        `${s.cron} ${(s.databases ?? []).join(' ')} ${s.last_run ?? ''} ${s.last_status ?? ''} ${s.enabled ? 'on' : 'off'}`
+          .toLowerCase()
+          .includes(schedQ.trim().toLowerCase()),
+      )
+    : schedules
+  const [timerStatus, setTimerStatus] = useState<{ active: boolean; detail?: string } | null>(null)
   const [serverNote, setServerNote] = useState('')
   const [picked, setPicked] = useState('')
   const [manual, setManual] = useState('')
@@ -300,6 +310,7 @@ export default function Databases() {
     setStates({})
     setSchedules([])
     setSchedSel(null)
+    setTimerStatus(null)
     setDbSel('')
     setPicked('')
     if (!currentId) return
@@ -310,6 +321,12 @@ export default function Databases() {
     const offSched = onEvent('db-schedules', (p) => {
       if (p.instance_id !== currentId) return
       setSchedules(p.schedules as unknown as ScheduleRow[])
+      const status = p.status as { active?: boolean; detail?: string } | undefined
+      setTimerStatus(
+        status && typeof status.active === 'boolean'
+          ? { active: status.active, detail: status.detail }
+          : null,
+      )
       setSchedSel(null)
     })
     const offReport = onEvent('db-report', (p) => {
@@ -434,6 +451,17 @@ export default function Databases() {
         }
         const res = await run(() => api.databases.track_many(currentId, [name]))
         if (res?.ok) setManual('')
+        return
+      }
+      case 'untrack': {
+        const db = requirePicked()
+        if (!db) return
+        const ok = await confirm({
+          heading: `Untrack "${db}"?`,
+          body: 'Removes the database from this instance\'s tracked list.\nThe database itself is not dropped.',
+          confirmLabel: 'Untrack',
+        })
+        if (ok) await run(() => api.databases.untrack(currentId, db))
         return
       }
       case 'discover':
@@ -564,15 +592,17 @@ export default function Databases() {
           onClose={() => setDialog(null)}
           onRestore={(path) => {
             setDialog(null)
+            const db = requirePicked()
+            if (!db) return
             void (async () => {
               const ok = await typedConfirm({
                 heading: 'Restore from file?',
-                body: `Drops and recreates "${picked}" from:\n${path}`,
-                expected: picked,
+                body: `Drops and recreates "${db}" from:\n${path}`,
+                expected: db,
                 confirmLabel: 'Restore (drop + recreate)',
                 destructive: true,
               })
-              if (ok) await run(() => api.databases.restore_db(currentId, path, picked))
+              if (ok) await run(() => api.databases.restore_db(currentId, path, db))
             })()
           }}
           onDelete={(path) => {
@@ -684,6 +714,7 @@ export default function Databases() {
         title="Tracked databases"
         menu={[
           { label: 'Discover databases…', disabled: busy, onClick: () => void onAction('discover') },
+          { label: 'Untrack…', disabled: busy || !picked, onClick: () => void onAction('untrack') },
           { label: 'Refresh states', disabled: busy, onClick: () => void onAction('refresh-states') },
           { label: 'Validate config', disabled: busy, onClick: () => void onAction('validate') },
           { label: 'Init database', disabled: busy, onClick: () => void onAction('init-db') },
@@ -758,8 +789,49 @@ export default function Databases() {
           },
         ]}
       >
+        {timerStatus && !timerStatus.active && schedules.some((s) => s.enabled) && (
+          <Banner
+            kind="warn"
+            action={
+              <ActionButton
+                disabled={busy}
+                onClick={() => {
+                  setLocalBusy(true)
+                  void getApi()
+                    .databases.timer_repair()
+                    .then((res) => {
+                      route({
+                        kind: 'message',
+                        payload: { text: res.message, level: res.ok ? 'info' : 'error' },
+                      })
+                      if (res.ok) return getApi().databases.refresh_schedules(currentId)
+                    })
+                    .finally(() => setLocalBusy(false))
+                }}
+              >
+                Repair timer
+              </ActionButton>
+            }
+          >
+            Scheduled backups won't run — the backup timer is not active
+            {timerStatus.detail ? ` (${timerStatus.detail})` : ''}.
+          </Banner>
+        )}
+        <div className="btn-row">
+          <TextInput
+            placeholder="Filter schedules…"
+            value={schedQ}
+            onChange={(e) => setSchedQ(e.target.value)}
+            aria-label="Filter backup schedules"
+          />
+          {schedQ.trim() && (
+            <span className="dim-label">
+              {schedFiltered.length} of {schedules.length}
+            </span>
+          )}
+        </div>
         <div className="sel-list" style={{ maxHeight: 200 }}>
-          {schedules.map((s) => (
+          {schedFiltered.map((s) => (
             <div
               key={s.id}
               className={`sel-row ${schedSel === s.id ? 'selected' : ''}`}
@@ -775,6 +847,9 @@ export default function Databases() {
             </div>
           ))}
           {schedules.length === 0 && <EmptyState text="No schedules yet — press Add." />}
+          {schedules.length > 0 && schedFiltered.length === 0 && (
+            <EmptyState text="No schedules match the filter." />
+          )}
         </div>
       </Card>
     </div>

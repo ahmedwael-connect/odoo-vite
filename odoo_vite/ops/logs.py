@@ -186,10 +186,20 @@ class LogOps:
                           "instance first.", "error")
             return Result.failure("Instance is not running")
         if profiler.py_spy_path() is None:
-            self._message("py-spy is not installed — install it with "
-                          "'pip install py-spy' (user-scoped, no sudo), "
-                          "then retry", "error")
-            return Result.failure("py-spy is not installed")
+            # 3.1.0 N2: install on demand instead of demanding a manual pip.
+            self._message("py-spy missing — installing it now (user pip)…",
+                          "info")
+
+            def _ensure():
+                return profiler.ensure_py_spy(
+                    progress_cb=lambda line: self._message(line.rstrip(),
+                                                            "info"))
+
+            ensure = await asyncio.to_thread(_ensure)
+            if not ensure.ok:
+                self._message(ensure.message, "error")
+                return ensure
+            self._message(ensure.message, "info")
         self._message(f"Profiling pid {pid} for {duration}s…", "info")
 
         def _work():

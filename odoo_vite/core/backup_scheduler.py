@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS backup_schedules (
 
 DEFAULT_BACKUPS_ROOT = "~/.local/share/odoo-vite/backups"
 
+
+def backups_root() -> Path:
+    """Scheduled-backups root — env-overridable like the other ODOO_VITE_*
+    seams (cache, registry, downloads), which keeps tests hermetic."""
+    return Path(os.environ.get("ODOO_VITE_BACKUPS_DIR")
+                or DEFAULT_BACKUPS_ROOT).expanduser()
+
 # ------------------------------------------------------------------ cron math
 
 _MONTH_NAMES = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
@@ -411,7 +418,7 @@ def prune_backups(directory: str | Path, retention_n: int,
 def schedule_dest_dir(sched: Schedule, instance_name: str,
                       db_name: str) -> Path:
     """Deterministic per-schedule location (BK.4 lists exactly this)."""
-    root = Path((sched.dest_dir or DEFAULT_BACKUPS_ROOT)).expanduser()
+    root = Path(sched.dest_dir).expanduser() if sched.dest_dir else backups_root()
     safe = "".join(c if (c.isalnum() or c in "-_.") else "_"
                    for c in instance_name)
     return root / (safe or "unnamed") / db_name
@@ -488,8 +495,7 @@ def run_schedule(schedule_id: str, db_path=None) -> Result:
 def list_backup_files(instance_name: str | None = None,
                       root: str | Path | None = None) -> list[dict]:
     """Newest-first dump entries under the scheduled-backups root."""
-    base = Path(root).expanduser() if root else Path(
-        DEFAULT_BACKUPS_ROOT).expanduser()
+    base = Path(root).expanduser() if root else backups_root()
     if not base.is_dir():
         return []
     out = []
@@ -517,12 +523,33 @@ def list_backup_files(instance_name: str | None = None,
     return out
 
 
+def _allowed_delete_roots(db_path=None) -> list[Path]:
+    """3.1.0 B4: dumps may only be deleted from the backups root or a
+    schedule's configured dest_dir — the JS facade must not be able to
+    unlink arbitrary paths."""
+    roots = {backups_root().resolve()}
+    for sched in list_schedules(db_path=db_path):
+        if sched.dest_dir:
+            roots.add(Path(sched.dest_dir).expanduser().resolve())
+    return sorted(roots)
+
+
 def delete_backup_file(dump_path: str | Path,
-                       audit_tag: str = "manual-delete") -> Result:
-    """Delete one dump + sidecar with audit. Confirmed by caller first."""
+                       audit_tag: str = "manual-delete",
+                       db_path=None) -> Result:
+    """Delete one dump + sidecar with audit. Confirmed by caller first.
+
+    Refuses paths outside the backups root / schedule dest dirs
+    (symlinks are resolved before the check).
+    """
     from odoo_vite.core import audit as _audit
 
     target = Path(dump_path).expanduser()
+    resolved = target.resolve()
+    if not any(resolved.is_relative_to(root)
+               for root in _allowed_delete_roots(db_path)):
+        return Result.failure(
+            f"Refusing to delete outside the backups folder: {target}")
     try:
         target.unlink()
         Path(str(target) + ".meta.json").unlink(missing_ok=True)

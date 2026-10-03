@@ -4,10 +4,11 @@
  */
 
 import { useEffect, useState } from 'react'
+import { copyWithToast, downloadText } from '../clipboard'
 import { getApi } from '../bridge'
 import { Modal } from '../components/dialog'
-import { ActionButton, DimText, EmptyState, LineList, SectionHeader, Select, TextInput } from '../components/ui'
-import { route } from '../events'
+import { ActionButton, DimText, EmptyState, LineList, SectionHeader, Select, StatusPill, TextInput } from '../components/ui'
+import { route, type ProgressOp } from '../events'
 import { useApp } from '../store'
 import { getTheme, setTheme, type ThemeChoice } from '../theme'
 import type { AuditEvent, Dict } from '../types'
@@ -250,6 +251,24 @@ export function EventLogDialog({ onClose }: { onClose: () => void }) {
   const api = getApi()
   const [events, setEvents] = useState<AuditEvent[]>([])
   const [status, setStatus] = useState('Loading…')
+  const [q, setQ] = useState('')
+
+  const filtered = q.trim()
+    ? events.filter((e) => auditLine(e).toLowerCase().includes(q.trim().toLowerCase()))
+    : events
+
+  const asJson = () => JSON.stringify(filtered, null, 2)
+  const asCsv = () => {
+    const esc = (v: unknown) => {
+      const s = String(v ?? '')
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const head = 'ts,instance_id,instance_name,action,detail'
+    const rows = filtered.map((e) =>
+      [e.ts, e.instance_id, e.instance_name, e.action, e.detail ?? ''].map(esc).join(','),
+    )
+    return [head, ...rows].join('\n')
+  }
 
   useEffect(() => {
     let stopped = false
@@ -278,17 +297,138 @@ export function EventLogDialog({ onClose }: { onClose: () => void }) {
       width={720}
       onClose={onClose}
       footer={
-        <ActionButton primary onClick={onClose}>
-          Close
-        </ActionButton>
+        <>
+          <ActionButton
+            disabled={!filtered.length}
+            title="Copy the filtered events as text"
+            onClick={() => void copyWithToast(filtered.map(auditLine).join('\n'), `${filtered.length} events`)}
+          >
+            Copy
+          </ActionButton>
+          <ActionButton
+            disabled={!filtered.length}
+            title="Download the filtered events as JSON"
+            onClick={() => downloadText('odoo-vite-events.json', 'application/json', asJson())}
+          >
+            JSON
+          </ActionButton>
+          <ActionButton
+            disabled={!filtered.length}
+            title="Download the filtered events as CSV"
+            onClick={() => downloadText('odoo-vite-events.csv', 'text/csv', asCsv())}
+          >
+            CSV
+          </ActionButton>
+          <ActionButton primary onClick={onClose}>
+            Close
+          </ActionButton>
+        </>
       }
     >
-      {events.length === 0 ? (
-        <EmptyState text={status || 'No audit events yet.'} />
+      <TextInput
+        placeholder="Filter events…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        aria-label="Filter events"
+      />
+      {events.length > 0 && (
+        <DimText>
+          {filtered.length} of {events.length} events
+        </DimText>
+      )}
+      {filtered.length === 0 ? (
+        <EmptyState text={status || (events.length ? 'No events match the filter.' : 'No audit events yet.')} />
       ) : (
-        <LineList lines={events.map(auditLine)} mono maxHeight={420} />
+        <LineList lines={filtered.map(auditLine)} mono maxHeight={420} />
       )}
       <DimText>App audit stream — refreshes every 2s while open.</DimText>
+    </Modal>
+  )
+}
+
+/**
+ * Live operations feed (3.1.0 C1): every progress-streaming operation,
+ * newest first, with the last line inline and full output on expand.
+ * Fed by the same useProgress() the statusline counter uses.
+ */
+export function ActivityDialog({ ops, onClose }: { ops: ProgressOp[]; onClose: () => void }) {
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const sorted = [...ops].sort((a, b) => b.startedAt - a.startedAt)
+  const time = (t: number) => {
+    try {
+      return new Date(t).toLocaleTimeString()
+    } catch {
+      return ''
+    }
+  }
+  const title = (op: ProgressOp) =>
+    op.lines[0] ? `${op.lines[0]}`.slice(0, 160) : op.op_id
+  const asText = () =>
+    sorted
+      .map((op) =>
+        [
+          `${time(op.startedAt)} ${op.op_id} ${op.done ? 'done' : 'running'}`,
+          ...op.lines,
+        ].join('\n'),
+      )
+      .join('\n\n')
+
+  return (
+    <Modal
+      title="Live operations"
+      width={680}
+      onClose={onClose}
+      footer={
+        <>
+          <ActionButton
+            disabled={!sorted.length}
+            title="Copy the whole feed to the clipboard"
+            onClick={() => void copyWithToast(asText(), `${sorted.length} operations`)}
+          >
+            Copy
+          </ActionButton>
+          <ActionButton primary onClick={onClose}>
+            Close
+          </ActionButton>
+        </>
+      }
+    >
+      {sorted.length === 0 ? (
+        <EmptyState text="No operations yet — progress streams here while they run." />
+      ) : (
+        <div className="sel-list" style={{ maxHeight: 420 }}>
+          {sorted.map((op) => (
+            <div
+              key={op.op_id}
+              className={`sel-row wrap ${expanded === op.op_id ? 'selected' : ''}`}
+              onClick={() => setExpanded(expanded === op.op_id ? null : op.op_id)}
+              title={op.op_id}
+            >
+              <span className="sel-title">
+                <StatusPill status={op.done ? 'done' : 'running'} /> {title(op)}
+              </span>
+              <span className="sel-badge dim-label">
+                {time(op.startedAt)} · {op.lines.length} line
+                {op.lines.length === 1 ? '' : 's'} · {op.done ? 'finished' : 'live'}
+              </span>
+              {expanded === op.op_id && (
+                <div
+                  className="sel-expand"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <DimText>{op.op_id}</DimText>
+                  {op.lines.length ? (
+                    <LineList lines={op.lines} mono maxHeight={200} />
+                  ) : (
+                    <DimText>No progress lines yet.</DimText>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <DimText>Streaming output from every progress operation — click a row to expand.</DimText>
     </Modal>
   )
 }
