@@ -224,6 +224,116 @@ export interface ModulesApi {
   split_deps(edges: unknown, name: string): Async<unknown[]>
 }
 
+export interface MarketplaceItem {
+  id: string
+  series: string
+  tech: string
+  tech_name?: string
+  title: string
+  summary: string
+  author: string
+  price: string
+  free: boolean
+  rating_count: number
+  rating_stars?: number
+  rating_value?: number
+  review_count?: number
+  purchases: number
+  downloads?: number
+  cover_url: string
+  source: 'mirror' | 'github'
+  official?: boolean
+  featured?: boolean
+  category?: string
+  detail_url?: string
+  repo_url?: string
+}
+
+export interface MarketplaceReview {
+  id?: number
+  remote_id?: string
+  rating: number
+  title: string
+  body: string
+  author: string
+  date?: string
+  created_at?: string
+  source: 'store' | 'local'
+}
+
+export interface MarketplaceDetail extends MarketplaceItem {
+  license: string
+  depends: { label: string; tech: string }[]
+  versions: string[]
+  screenshots: string[]
+  description_html: string
+  dl_hash: string
+  dl_version: string
+  available: Record<string, boolean>
+  reviews: MarketplaceReview[]
+  local_reviews: MarketplaceReview[]
+}
+
+export interface MarketplaceStats {
+  site_total: number
+  cached: number
+  github: number
+  installs: number
+  reviews: number
+  avg_local_rating: number
+  categories: string[]
+  featured: number
+  official: number
+  base_url: string
+}
+
+export interface MarketplaceSearchData {
+  items: MarketplaceItem[]
+  total: number
+  page: number
+  offline: boolean
+  note: string
+}
+
+export interface MarketplaceApi {
+  cancel(op_id: string): Async<Answer>
+  search(
+    query?: string,
+    order?: string,
+    category?: string,
+    series?: string,
+    price?: string,
+    author?: string,
+    page?: number,
+  ): Async<Result<MarketplaceSearchData>>
+  detail(module_id: string): Async<Result<MarketplaceDetail>>
+  stats(): Async<Result<MarketplaceStats>>
+  categories(): Async<Result<string[]>>
+  index(owner_repo: string, branch?: string, op_id?: string): Async<Result>
+  add_review(
+    module_id: string,
+    rating: number,
+    title: string,
+    body: string,
+    author: string,
+  ): Async<Result>
+  delete_review(review_id: number): Async<Result>
+  sync_featured(): Async<Result>
+  install_from_zip(
+    zip_path: string,
+    instance_id: string,
+    module_id?: string,
+  ): Async<Result>
+  watch_download(
+    module_id: string,
+    tech: string,
+    op_id?: string,
+  ): Async<Result<{ path: string; size: number }>>
+  open_url(url: string): Async<Answer>
+  installed_in(instance_id: string): Async<Dict[]>
+  record_download(module_id: string): Async<Answer>
+}
+
 export interface ConfigApi {
   read(instance_id: string): Async<Dict>
   save(instance_id: string, changes: Dict): Async<Result>
@@ -341,6 +451,7 @@ export interface ApiTree {
   lifecycle: LifecycleApi
   databases: DatabasesApi
   modules: ModulesApi
+  marketplace: MarketplaceApi
   config: ConfigApi
   logs: LogsApi
   devtools: DevToolsApi

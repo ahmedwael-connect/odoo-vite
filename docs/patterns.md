@@ -36,7 +36,11 @@ and steals in-flight clicks.
   verify-then-act paths always probe live.
 - With keep-mounted tabs (views stay in the DOM, hidden), background
   polls keep running by design — a returning tab shows live state, not a
-  reset. Gate any *expensive* work on visibility if it ever hurts.
+  reset. Gate any *expensive* work on visibility if it ever hurts. The
+  Logs tail is gated this way: it polls only while the Logs tab is
+  active (`active` prop), and pause/resume is lossless — the follower
+  offset lives server-side, so resume re-serves bytes written while
+  hidden.
 
 ## Layering (enforced by test)
 

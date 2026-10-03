@@ -1,6 +1,6 @@
 /**
  * Shell — sidebar (instance list + System), header (name/status/actions),
- * six tabs, status line, toast snackbar, dialog host.
+ * seven tabs, status line, toast snackbar, dialog host.
  * Port of ui_slint/app.slint + bridge refresh/select/show_toast.
  */
 
@@ -13,6 +13,7 @@ import { SelectionList, type SelRow } from './components/selection'
 import { ActionButton, SectionHeader, Spinner, StatusPill } from './components/ui'
 import { route, useProgress } from './events'
 import { AboutDialog, EventLogDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
+import { IndexModuleDialog } from './dialogs/marketplace'
 import { AdoptWizard, CreateWizard } from './dialogs/wizards'
 import { useApp } from './store'
 import { getTheme, initTheme, resolveTheme, setTheme } from './theme'
@@ -20,15 +21,24 @@ import Configuration from './views/Configuration'
 import Databases from './views/Databases'
 import DevTools from './views/DevTools'
 import Logs from './views/Logs'
+import Marketplace from './views/Marketplace'
 import Modules from './views/Modules'
 import Overview from './views/Overview'
 
-type Tab = 'overview' | 'databases' | 'modules' | 'configuration' | 'logs' | 'devtools'
+type Tab =
+  | 'overview'
+  | 'databases'
+  | 'modules'
+  | 'marketplace'
+  | 'configuration'
+  | 'logs'
+  | 'devtools'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'databases', label: 'Databases' },
   { id: 'modules', label: 'Modules' },
+  { id: 'marketplace', label: 'Marketplace' },
   { id: 'configuration', label: 'Configuration' },
   { id: 'logs', label: 'Logs' },
   { id: 'devtools', label: 'DevTools' },
@@ -255,6 +265,25 @@ export default function App() {
         ]
       : []),
     {
+      id: 'marketplace-index',
+      label: 'Index GitHub module…',
+      group: 'Marketplace',
+      icon: 'folder' as const,
+      keywords: 'github repo oca addon marketplace',
+      run: () => setDialog(<IndexModuleDialog onClose={() => setDialog(null)} />),
+    },
+    {
+      id: 'marketplace-featured',
+      label: 'Refresh featured flags',
+      group: 'Marketplace',
+      icon: 'refresh' as const,
+      keywords: 'apps odoo charts sync top',
+      run: () => {
+        void api.marketplace.sync_featured()
+        setTab('marketplace')
+      },
+    },
+    {
       id: 'preferences',
       label: 'Preferences…',
       group: 'System',
@@ -409,11 +438,14 @@ export default function App() {
           <div className="view" hidden={tab !== 'modules'}>
             <Modules />
           </div>
+          <div className="view" hidden={tab !== 'marketplace'}>
+            <Marketplace active={tab === 'marketplace'} />
+          </div>
           <div className="view" hidden={tab !== 'configuration'}>
             <Configuration />
           </div>
           <div className="view" hidden={tab !== 'logs'}>
-            <Logs />
+            <Logs active={tab === 'logs'} />
           </div>
           <div className="view" hidden={tab !== 'devtools'}>
             <DevTools />

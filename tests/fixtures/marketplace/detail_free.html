@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en-US" data-website-id="1" data-main-object="loempia.module(294084,)">
+    <head>
+        <meta charset="utf-8"/>
+        <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <meta name="mobile-web-app-capable" content="yes"/>
+        <meta name="generator" content="Odoo"/>
+      <meta name="google-site-verification" content="pgjyH0qvN69B0m_HrTKV6h8TVnbRXp5etEHo19unPy4"/>
+            
+        <meta property="og:type" content="website"/>
+        <meta property="og:title" content="pos_negative_stock_restrict | Odoo Apps Store"/>
+        <meta property="og:site_name" content="Odoo Apps Store"/>
+        <meta property="og:url" content="https://apps.odoo.com/apps/modules/17.0/pos_negative_stock_restrict"/>
+        <meta property="og:image" content="https://apps.odoo.com/web/image/loempia.module/294084/icon_image?unique=6f71184"/>
+            
+        <meta name="twitter:card" content="summary_large_image"/>
+        <meta name="twitter:title" content="pos_negative_stock_restrict | Odoo Apps Store"/>
+        <meta name="twitter:image" content="https://apps.odoo.com/web/image/loempia.module/294084/icon_image/300x300?unique=6f71184"/>
+        
+        <link rel="canonical" href="https://apps.odoo.com/apps/modules/17.0/pos_negative_stock_restrict"/>
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin=""/>
+        <title>Pos Negative Stock Restriction | Odoo Apps Store</title>
+        <link type="image/x-icon" rel="shortcut icon" href="//apps.odoocdn.com/web/image/website/1/favicon?unique=dcd95c7"/>
+        <link rel="preload" href="//apps.odoocdn.com/web/static/src/libs/fontawesome/fonts/fontawesome-webfont.woff2?v=4.7.0" as="font" crossorigin=""/>
+        <link type="text/css" rel="stylesheet" href="/web/assets/1/7916e98/web.assets_frontend.min.css"/>
+        <script id="web.layout.odooscript" type="text/javascript">
+            var odoo = {
+                csrf_token: "a8e9fdc0c0b271e01c5676bee777f9f57024f288o1822521024",
+                debug: "",
+            };
+        </script>
+        <script type="text/javascript">
+            odoo.__session_info__ = {"is_admin": false, "is_system": false, "is_public": true, "is_internal_user": false, "is_website_user": true, "uid": null, "registry_hash": "3b009b06487b72aef901a10e5098fcbf59bf686e2b0fa484d9272ce2004dd9f2", "is_frontend": true, "profile_session": null, "profile_collectors": null, "profile_params": null, "show_effect": true, "currencies": {"1": {"name": "EUR", "symbol": "\u20ac", "position": "after", "digits": [69, 2]}, "152": {"name": "GBP", "symbol": "\u00a3", "position": "before", "digits": [69, 2]}, "25": {"name": "HKD", "symbol": "$", "position": "after", "digits": [69, 2]}, "21": {"name": "INR", "symbol": "\u20b9", "position": "after", "digits": [69, 2]}, "3": {"name": "USD", "symbol": "$", "position": "before", "digits": [69, 2]}}, "quick_login": true, "bundle_params": {"lang": "en_US", "website_id": 1}, "test_mode": false, "websocket_worker_version": "19.0-2", "translationURL": "/website/translations", "geoip_country_code": "EG", "geoip_phone_code": 20, "lang_url_code": "en_US"};
+            if (!/(^|;\s)tz=/.test(document.cookie)) {
+                const userTZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                document.cookie = `tz=${userTZ}; path=/`;
+            }
+        </script>
+        <script type="text/javascript" defer="defer" src="/web/assets/1/4ff5080/web.assets_frontend_minimal.min.js" onerror="__odooAssetError=1"></script>
+        <script type="text/javascript" data-src="/web/assets/1/e0d411a/web.assets_frontend_lazy.min.js" onerror="__odooAssetError=1"></script>
+        
+                <script src="https://www.recaptcha.net/recaptcha/api.js?render=6Lcul_cUAAAAAIm051Is0wb8-Tq-AiOaK_ePfzvo"></script>
+            <noscript>
+                <style>
+                    /* Prevent animated elements hiding */
+                    .o_animate_in_children > * {
+                        opacity: 1!important;
+                        -webkit-transform: scale(1)!important;
+                        -ms-transform: scale(1)!important;
+                        transform: scale(1)!important;
+                    }
+                </style>
+            </noscript>
+        
+    </head>
+    <body>
+        
+
+
+
+        <div id="wrapwrap" class="    o_generic_model_page  loempia_modules_page o_footer_effect_enable">
+            <a class="o_skip_to_content btn btn-primary rounded-0 visually-hidden-focusable position-absolute start-0" href="#wrap">Skip to Content</a>
+                <header id="top" data-anchor="true" data-name="Header" data-extra-items-toggle-aria-label="Extra items button" class="   o_no_autohide_menu o_header_fixed o_main_header o_inverted o_not_editable o_main_header o_has_sub_nav o_inverted" style=" ">
+                    <div class="o_main_header_main top_menu" id="top_menu">
+                <a class="float-start o_logo" href="/"><span class="visually-hidden">Odoo</span></a>
+                <a href="#" role="button" class="o_mobile_menu_toggle d-inline-block d-lg-none">
+                    <i class="fa fa-bars" focusable="false"></i><span class="visually-hidden">Menu</span>
+                </a>
+                <ul class="o_header_buttons list-unstyled">
+            <li class="nav-item o_no_autohide_item">
+                <a href="/web/login" class="nav-link">Sign in</a>
+            </li>
+        <li class="nav-item o_no_autohide_item">
+            <a class="btn btn-primary btn-sm text-nowrap trial_link" href="https://www.odoo.com/trial">Try it free</a>
+        </li>
+                </ul>
+                <ul class="o_primary_nav">
+                    <li class="dropdown">
+                            <a href="#" aria-label="Apps: use the dropdown menu to switch apps" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" class="dropdown-toggle x_wd_no_caret">Apps</a>
+                        <div class="start-0 dropdown-menu o_secondary_nav" data-bs-parent="o_primary_nav">
+                            <div class="container">
+                                <div class="row">
+                                    <div class="col-lg-3 o_finance_apps ">
+                                        <div class="o_nav_app_family">Finance</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/accounting">Accounting</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/invoicing">Invoicing</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/expenses">Expenses</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/spreadsheet">Spreadsheet (BI)</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/documents">Documents</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/sign">Sign</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-lg-3 o_sale_apps ">
+                                        <div class="o_nav_app_family">Sales</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/crm">CRM</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/sales">Sales</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/point-of-sale-shop">POS Shop</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/point-of-sale-restaurant">POS Restaurant</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/subscriptions">Subscriptions</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/rental">Rental</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-lg-3 o_website_apps ">
+                                        <div class="o_nav_app_family">Websites</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/website">Website Builder</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/ecommerce">eCommerce</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/blog">Blog</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/forum">Forum</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/live-chat">Live Chat</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/elearning">eLearning</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-lg-3 o_inventory_apps ">
+                                        <div class="o_nav_app_family">Supply Chain</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/inventory">Inventory</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/manufacturing">Manufacturing</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/plm">PLM</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/purchase">Purchase</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/maintenance">Maintenance</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/quality">Quality</a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3 o_hr_apps ">
+                                        <div class="o_nav_app_family">Human Resources</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/employees">Employees</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/recruitment">Recruitment</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/time-off">Time Off</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/appraisals">Appraisals</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/referrals">Referrals</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/fleet">Fleet</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-lg-3 o_marketing_apps ">
+                                        <div class="o_nav_app_family">Marketing</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/social-marketing">Social Marketing</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/email-marketing">Email Marketing</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/sms-marketing">SMS Marketing</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/events">Events</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/marketing-automation">Marketing Automation</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/surveys">Surveys</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-lg-3 o_services_apps ">
+                                        <div class="o_nav_app_family">Services</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/project">Project</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/timesheet">Timesheets</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/field-service">Field Service</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/helpdesk">Helpdesk</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/planning">Planning</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/appointments">Appointments</a></li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-lg-3 o_productivity_apps ">
+                                        <div class="o_nav_app_family">Productivity</div>
+                                        <ul>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/discuss">Discuss</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/artificial-intelligence">Artificial Intelligence</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/iot">IoT</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/voip">VoIP</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/knowledge">Knowledge</a></li>
+                                            <li><a class="dropdown-item" href="https://www.odoo.com/app/whatsapp">WhatsApp</a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="o_store_link d-md-flex justify-content-md-center">
+                                <a class="mx-md-3 px-3 dropdown-item" href="/apps/modules"><i class="fa fa-cube fa-fw me-2"></i>Third party apps</a>
+                                <a class="mx-md-3 px-3 dropdown-item" href="https://www.odoo.com/app/studio"><i class="fa fa-pencil fa-fw me-2"></i>Odoo Studio</a>
+                                <a href="https://www.odoo.sh" class="mx-md-3 px-3"><i class="fa fa-cloud fa-fw me-2"></i>Odoo Cloud Platform</a>
+                            </span>
+                        </div>
+                    </li>
+                        
+                        <li class="dropdown">
+                            <a href="#" aria-label="Industries: use the dropdown menu to find links to industries related pages" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" class="dropdown-toggle x_wd_no_caret">Industries</a>
+                            <div class="start-0 dropdown-menu o_secondary_nav" data-bs-parent="o_primary_nav">
+                                <div class="container pb-4">
+                                    <div class="row">
+                                        <div class="col-lg-3 o_retail_industries ">
+                                            <div class="o_nav_app_family">Retail</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/book-store">Book Store</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/clothing-store">Clothing Store</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/furniture-store">Furniture Store</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/grocery-store">Grocery Store</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/hardware-store">Hardware Store</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/toy-store">Toy Store</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_food_industries ">
+                                            <div class="o_nav_app_family">Food & Hospitality</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/bar-pub">Bar and Pub</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/restaurant">Restaurant</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/fast-food">Fast Food</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/guest-house">Guest House</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/beverage-distributor">Beverage Distributor</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/hotel">Hotel</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_real_estate_industries ">
+                                            <div class="o_nav_app_family">Real Estate</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/real-estate-agency">Real Estate Agency</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/architecture-firm">Architecture Firm</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/construction/general-contractor">Construction</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/property-management">Property Management</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/gardening">Gardening</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/property-owner-association">Property Owner Association</a></li>
+
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_consulting_industries ">
+                                            <div class="o_nav_app_family">Consulting</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/accounting-firm">Accounting Firm </a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/odoo-partner">Odoo Partner</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/marketing-agency">Marketing Agency</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/law-firm">Law firm</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/talent-acquisition">Talent Acquisition</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/audit-certification">Audit & Certification</a></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-lg-3 o_manufacturing_industries ">
+                                            <div class="o_nav_app_family">Manufacturing</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/textile-manufacturing">Textile</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/metal-fabricator">Metal</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/custom-furniture-production">Furnitures</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/food-distribution">Food</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/micro-brewery">Brewery</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/corporate-gifts">Corporate Gifts</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_health_industries ">
+                                            <div class="o_nav_app_family">Health & Fitness</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/sports-club">Sports Club</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/eyewear-store">Eyewear Store</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/fitness-center">Fitness Center</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/wellness-practitioners">Wellness Practitioners</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/pharmacy">Pharmacy</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/hair-salon">Hair Salon</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_trades_industries ">
+                                            <div class="o_nav_app_family">Trades</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/handyman">Handyman</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/it-hardware-support">IT Hardware & Support</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/solar-energy">Solar Energy Systems</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/shoe-maker">Shoe Maker</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/cleaning-services">Cleaning Services</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/hvac-services">HVAC Services</a></li>
+
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_others_industries ">
+                                            <div class="o_nav_app_family">Others</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/nonprofit-organization">Nonprofit Organization</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/environmental-agency">Environmental Agency</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/billboard-rental">Billboard Rental</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/photography">Photography</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/bike-leasing">Bike Leasing</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/industries/software-reseller">Software Reseller</a></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <span class="o_store_link d-md-flex justify-content-center text-center">
+                                    <a class="fs-6 fw-bold px-3" href="https://www.odoo.com/all-industries">Browse all Industries &#10230</a>
+                                </span>
+                            </div>
+                        </li>
+                        
+                        <li class="dropdown">
+                            <a href="#" aria-label="Community: use the dropdown menu to find links to community related pages" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" class="dropdown-toggle x_wd_no_caret">Community</a>
+                            <div class="start-0 dropdown-menu o_secondary_nav pb-0" data-bs-parent="o_primary_nav">
+                                <div class="container">
+                                    <div class="row">
+                                        <div class="col-lg-3 o_learn_com">
+                                            <div class="o_nav_com_family">Learn</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/slides/all/tag/odoo-tutorials-9">Tutorials</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/page/docs">Documentation</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/slides/all?slide_category=certification">Certifications</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/training-events">Training</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/blog">Blog</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.fm" target="_blank">Podcast</a></li>
+                                            </ul>
+                                            <div class="o_nav_com_family mt-lg-5">Empower Education</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/education/program">Education Program</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/education/scale-up-business-game">Scale Up! Business Game</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/education/visit-odoo">Visit Odoo</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_software_com">
+                                            <div class="o_nav_com_family">Get the Software</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/page/download">Download</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/page/editions">Compare Editions</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/page/release-notes">Releases</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_collab_com">
+                                            <div class="o_nav_com_family">Collaborate</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://github.com/odoo">Github</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/forum/help-1">Forum</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/events">Events</a></li>
+                                                <li><a class="dropdown-item" href="https://github.com/odoo/odoo/wiki/Translations">Translations</a></li>
+                                            </ul>
+                                            <ul class="pt-lg-3">
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/become-a-partner">Become a Partner</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/services/partners">Services for Partners</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/accounting-firms/register">Register your Accounting Firm</a></li>
+                                            </ul>
+                                            <ul class="pt-lg-3">
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/affiliate">Affiliate Program</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-lg-3 o_services_com">
+                                            <div class="o_nav_com_family">Get Services</div>
+                                            <ul>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/partners">Find a Partner</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/accounting-firms">Find an Accountant</a></li>
+                                            </ul>
+                                            <ul class="pt-lg-3">
+                                                <li><ul class="pt-lg-3">
+            <li>
+                <a target="_blank" href="https://www.odoo.com/r/meeting">Get a Tailored Demo</a>
+            </li>
+        </ul>
+                                                </li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/pricing-packs">Implementation Services</a></li>
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/blog/customer-reviews-6">Customer References</a></li>
+                                            </ul>
+                                            <ul class="pt-lg-3">
+                                                <li><a class="dropdown-item" href="https://www.odoo.com/help">Support</a></li>
+                                                <li><a class="dropdown-item" href="//upgrade.odoo.com">Upgrades</a></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                                <span class="o_header_social">
+                                    <div class="social_icons">
+                                        <a target="_blank" href="https://github.com/odoo/odoo" class="d-inline dropdown-item"><i class="fa fa-fw fa-github" focusable="false"></i><span class="visually-hidden">Github</span></a>
+                                        <a target="_blank" href="https://www.youtube.com/channel/UCkQPikELWZFLgQNHd73jkdg" class="d-inline dropdown-item"><i class="fa fa-fw fa-youtube-play" focusable="false"></i><span class="visually-hidden">Youtube</span></a>
+                                        <a target="_blank" href="https://twitter.com/Odoo" class="d-inline dropdown-item"><i class="fa fa-fw fa-twitter" focusable="false"></i><span class="visually-hidden">Twitter</span></a>
+                                        <a target="_blank" href="https://www.linkedin.com/company/odoo" class="d-inline dropdown-item"><i class="fa fa-fw fa-linkedin" focusable="false"></i><span class="visually-hidden">Linkedin</span></a>
+                                        <a target="_blank" href="https://www.instagram.com/odoo.official" class="d-inline dropdown-item"><i class="fa fa-fw fa-instagram" focusable="false"></i><span class="visually-hidden">Instagram</span></a>
+                                        <a target="_blank" href="https://www.facebook.com/odoo" class="d-inline dropdown-item"><i class="fa fa-fw fa-facebook" focusable="false"></i><span class="visually-hidden">Facebook</span></a>
+                                        <a target="_blank" href="https://www.tiktok.com/@odoo" class="d-inline dropdown-item">
+                                            <svg xmlns="http://www.w3.org/2000/svg" style="width: 15px; margin-top: -3px;" class="custom-tiktok" viewBox="0 0 2859 3333" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd" fill="currentColor"><path d="M2081 0c55 473 319 755 778 785v532c-266 26-499-61-770-225v995c0 1264-1378 1659-1932 753-356-583-138-1606 1004-1647v561c-87 14-180 36-265 65-254 86-398 247-358 531 77 544 1075 705 992-358V1h551z"></path></svg>
+                                        </a>
+                                        <a target="_blank" href="//podcast.odoo.com" class="d-inline dropdown-item"><i class="fa fa-fw fa-spotify" focusable="false"></i><span class="visually-hidden">Spotify</span></a>
+                                    </div>
+                                    <div>
+                                        <a class="d-inline dropdown-item" href="tel:+3222903490"><i class="fa fa-phone text-muted me-1"></i>+32 2 290 34 90</a><ul class="pt-lg-3">
+            <li>
+                <a target="_blank" href="https://www.odoo.com/r/meeting">Get a Tailored Demo</a>
+            </li>
+        </ul>
+                                    </div>
+                                </span>
+                            </div>
+                        </li>
+                        <li><a href="https://www.odoo.com/pricing">Pricing</a></li>
+                        <li><a href="https://www.odoo.com/help">Help</a></li>
+
+
+                </ul>
+            </div>
+        <div id="loempia_navbar">
+            <div class="container">
+                <div class="row">
+                    <div class="col-md-8">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item">
+                                <a href="/apps/modules/browse">
+                                    <i class="fa fa-cube"></i> <b>APPS</b>
+                                </a>
+                            </li>
+                            <li class="breadcrumb-item">
+                                    <a itemprop="applicationCategory" href="/apps/modules/category/Point of Sale/browse">Point of Sale</a>
+                            </li>
+                            <li class="breadcrumb-item active d-flex">
+                                <a href="/apps/modules/browse?search=Pos Negative Stock Restriction">Pos Negative Stock Restriction</a>
+                                <a href="/apps/modules/browse?series=17.0">
+                                    <span class="badge bg-white d-inline ms-1">
+        v 
+        17.0
+                                    </span>
+                                </a>
+                            </li>
+                            <div class="d-flex justify-content-end flex-grow-1">
+                                <a href="/apps/sales-conditions" target="_blank" class="me-2">Sales Conditions</a>
+                                <a href="/apps/faq" target="_blank" class="">FAQ</a>
+                            </div>
+                        </ol>
+                    </div>
+                    <div class="d-block d-md-none col-1">
+                        <a class="loempia_btn loempia_navbar_back_btn" href="/apps/modules/browse">
+                            <i class="fa fa-chevron-left"></i>
+                        </a>
+                    </div>
+
+                    <div class="col-md-4 col-11">
+        <div class="row row-cols-lg-auto">
+            <form method="get" class="navbar-search input-group" action="/apps/modules/browse">
+                <input type="text" name="search" class="search-query form-control" placeholder="Your search..." value=""/>
+                <button type="submit" class="btn btn-link"><i class="fa fa-search"></i></button>
+            </form>
+        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </header>
+                <main>
+                    
+            <div id="wrap" itemscope="" itemtype="http://schema.org/SoftwareApplication" class="js_apps auto_pop">
+                
+                    <div class="container apps_page">
+                        <meta itemprop="applicationCategory" content="APPLICATION"/>
+                        <span itemprop="publisher" itemscope="" itemtype="http://schema.org/Organization"> <meta itemprop="name" content="Odoo S.A."/></span>
+                        <span itemprop="offers" itemscope="" itemtype="http://schema.org/Offer">
+                            <meta itemprop="availability" content="https://schema.org/InStock"/>
+                            <meta itemprop="price" content="17.21"/>
+                            <meta itemprop="priceCurrency" content="seo_module.currency_id.name"/>
+                        </span>
+                        
+                        <div class="row">
+                            
+        <div class="col-md-7 col-xl-6 mb-3">
+            <div class="loempia_app_cover shadow-sm" style="background-image:url(//apps.odoocdn.com/apps/module_image?image_id=27762386&amp;unique=a0a3f346ec9423a03ad0f1162308f3d1d7f80176) !important"></div>
+        </div>
+
+        
+        <div id="loempia_app_infos" class="col-md-5 col-xl-6 mb-3 loempia_app_info_has_cover">
+            <div class="d-flex">
+
+                    
+                    <img itemprop="image" class="shadow-sm loempia_app_icon big" src="//apps.odoocdn.com/web/image/loempia.module/294084/icon_image/84x84?unique=6f71184" loading="lazy"/>
+                    
+                    <div class="loempia_app_title">
+                        <h1 class="mt-0 mb-0" itemprop="name"><b>Pos Negative Stock Restriction</b></h1>
+                            <small>by</small>
+                               <a href="/apps/modules/browse?author=Vishnu Sasikumar">
+                                    <span itemprop="author" itemscope="" itemtype="http://schema.org/Person">
+                                        <span itemprop="name">Vishnu Sasikumar</span>
+                                        <span class="d-none" itemprop="url"></span>
+                                    </span>
+                                </a>
+                            
+                            <div class="mb-1">
+                                <span class="d-none" itemprop="operatingSystem">Odoo</span>
+                            </div>
+                    </div>
+                    <div class="loempia_app_title ms-auto ps-3 text-end">
+                            
+                    </div>
+            </div>
+            
+            <div class="loempia_tags">
+                
+                        <span class="badge bg-secondary" itemprop="softwareVersion">
+                            <b>
+        v 
+        17.0
+                            </b>
+                        </span>
+                
+                    <span><i class="fa fa-group"></i> Third Party</span>
+                
+                    <span title="Purchases"><i class="fa fa-shopping-cart"></i> 3</span>
+
+                
+                
+                    <span title="Downloads"><i class="fa fa-download"></i> 104</span>
+            </div>
+                
+                <form method="post" class="oe_import apps_buy_form" action="https://www.odoo.com/shop/apps_cart_update">
+                    <input class="js_module_id" type="hidden" value="294084"/>
+                    <input class="js_product_price" type="hidden"/>
+                    
+                        
+
+                        
+                            
+                            
+                            
+                            
+                                    <a href="#" id="dlbtn" itemprop="downloadUrl" class="js_apps_download btn btn-primary mb-2" data-version="17.0">
+                                        Download for v <b><span>17.0</span></b>
+                                    </a>
+                                    <a id="dlbtn" class="btn btn-primary mb-2" href="/loempia/download/odoo-sh/pos_negative_stock_restrict/17.0.2.0.0">
+                                        Deploy on <b>Odoo.sh</b>
+                                    </a>
+                            
+                    
+                    <input id="url_cart" type="hidden" value="https://www.odoo.com"/>
+                    <div id="js_login_alert" class="alert alert-info d-none mt-1 mb-0" role="alert">
+                        Apps purchases are linked to your Odoo account, please <a class="alert-link" href="/web/login?redirect=/apps/modules/17.0/pos_negative_stock_restrict">sign in</a> or <a class="alert-link" href="https://www.odoo.com/web/signup">sign up</a> first.
+                    </div>
+                </form>
+                    <form id="download_form" class="d-none" method="post" action="/loempia/verify-download">
+                        <input type="hidden" name="module_name" value="pos_negative_stock_restrict"/>
+                        <input type="hidden" name="version" value="17.0"/>
+                        <input type="hidden" name="dl_hash" value="7c1mtaj20LYXieNxgJ9WvD"/>
+                        <input type="hidden" name="grc3_token"/>
+                        <input type="hidden" name="csrf_token" value="a8e9fdc0c0b271e01c5676bee777f9f57024f288o1822521024"/>
+                    </form>
+
+            
+            <div class="p-0 col-12 d-md-none d-lg-block">
+        <table style="word-wrap: break-word;" class="loempia_app_table table table-sm small mt-2">
+            <tbody>
+                <tr>
+                    <td class="loempia_app_availability align-middle"><b class="align-middle">Versions</b></td>
+                    <td>
+                            <a>
+                                <span class="badge bg-primary me-1 mt-1">
+                                    17.0
+                                </span>
+                            </a>
+                            <a href="/apps/modules/18.0/pos_negative_stock_restrict">
+                                <span class="badge text-bg-secondary me-1 mt-1">
+                                    18.0
+                                </span>
+                            </a>
+                            <a href="/apps/modules/19.0/pos_negative_stock_restrict">
+                                <span class="badge text-bg-secondary me-1 mt-1">
+                                    19.0
+                                </span>
+                            </a>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+            </div>
+            <small class="text-muted mb-2">
+                You bought this module and need <b>support</b>?
+                <a rel="nofollow" href="/apps/support/294084">Click here!</a>
+            </small>
+        </div>
+                        </div>
+                        <div class="row d-none d-md-block d-lg-none">
+                            <div class="col-md-12">
+        <table style="word-wrap: break-word;" class="loempia_app_table table table-sm small mt-2">
+            <tbody>
+                <tr>
+                    <td class="loempia_app_availability align-middle"><b class="align-middle">Versions</b></td>
+                    <td>
+                            <a>
+                                <span class="badge bg-primary me-1 mt-1">
+                                    17.0
+                                </span>
+                            </a>
+                            <a href="/apps/modules/18.0/pos_negative_stock_restrict">
+                                <span class="badge text-bg-secondary me-1 mt-1">
+                                    18.0
+                                </span>
+                            </a>
+                            <a href="/apps/modules/19.0/pos_negative_stock_restrict">
+                                <span class="badge text-bg-secondary me-1 mt-1">
+                                    19.0
+                                </span>
+                            </a>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="module-description">
+                        <div id="loempia_tabs">
+                            <ul role="tablist" class="nav nav-tabs justify-content-center" data-tabs="tabs">
+                                <li class="nav-item"><a href="#desc" class="nav-link active" data-bs-toggle="tab">Description</a></li>
+                                <li class="nav-item"><a href="#manifest" class="nav-link" data-bs-toggle="tab">Manifest</a></li>
+                            </ul>
+                            <div id="loempia_tabs_content" class="tab-content">
+                                <div class="tab-pane active" id="desc">
+        
+        <div class="container">
+            
+            <div class="oe_styling_v8">
+                <div><section class="oe_container" style="padding:50px 0">
+    <div class="oe_row oe_spaced">
+        <div class="oe_span12" style="text-align:center">
+            <h2 style="font-size:42px; font-weight:700; color:#3a7f5a">
+                POS Negative Stock Restriction
+            </h2>
+
+            <p style="font-size:20px; color:#4a4a4a; margin-top:15px">
+                Prevent selling products with insufficient stock directly from the Point of Sale.
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- Overview Section -->
+<section class="oe_container">
+    <div style="max-width:700px; margin:0 auto; text-align:left">
+        <ul style="padding:0; font-size:20px; line-height:1.8; color:#4a4a4a">
+            <li>Restricts POS order validation when stock is insufficient</li>
+            <li>Prevents negative inventory during POS operations</li>
+            <li>Ensures accurate stock control in real time</li>
+            <li>Works seamlessly with existing POS workflows</li>
+            <li>Ideal for businesses requiring strict inventory control</li>
+        </ul>
+</div>
+
+</section>
+
+<!-- Step 1 -->
+<section class="oe_container" style="padding:40px 0">
+    <div class="oe_row oe_spaced" style="text-align:center">
+        <div class="oe_span12">
+
+            <h3 style="font-weight:600">Step 1</h3>
+            <p style="font-size:20px">Select the Point of Sale</p>
+
+            <img src="//apps.odoocdn.com/apps/assets/17.0/pos_negative_stock_restrict/menu.png?5abb7ec" class="oe_picture oe_screenshot" style="display:block; margin:30px auto; max-width:90%; border-radius:12px" loading="lazy">
+
+        </div>
+    </div>
+</section>
+
+<!-- Step 2 -->
+<section class="oe_container">
+    <div class="oe_row oe_spaced" style="text-align:center">
+        <div class="oe_span12">
+
+            <h3 style="font-weight:600">Step 2</h3>
+            <p style="font-size:20px">
+                Click <b>New Session</b> or <b>Continue Selling</b> to start the POS session.
+            </p>
+
+            <img src="//apps.odoocdn.com/apps/assets/17.0/pos_negative_stock_restrict/pos_kanban.png?5abb7ec" class="oe_picture oe_screenshot" style="display:block; margin:30px auto; max-width:90%; border-radius:12px" loading="lazy">
+
+        </div>
+    </div>
+</section>
+
+<!-- POS View -->
+<section class="oe_container" style="padding:40px 0">
+    <div class="oe_row oe_spaced" style="text-align:center">
+        <div class="oe_span12">
+
+            <h2 style="font-weight:600">POS Screen View</h2>
+
+            <p style="font-size:20px">
+                The system validates product availability by location and prevents order confirmation if stock is insufficient.
+            </p>
+
+            <img src="//apps.odoocdn.com/apps/assets/17.0/pos_negative_stock_restrict/pos_product_screen.png?5abb7ec" class="oe_picture oe_screenshot" style="display:block; margin:30px auto; max-width:90%; border-radius:12px" loading="lazy">
+
+        </div>
+    </div>
+</section>
+
+<!-- Support Section -->
+<section class="oe_container" style="padding:50px 0">
+    <div class="oe_row oe_spaced">
+        <div class="oe_span12" style="text-align:center">
+
+            <h3 style="font-size:28px; font-weight:600">
+                Need Support?
+            </h3>
+
+            <p style="font-size:18px; margin-top:10px">
+                Feel free to reach out anytime.
+            </p>
+
+            <p style="font-size:16px">
+                <img src="//apps.odoocdn.com/apps/assets/17.0/pos_negative_stock_restrict/mail.png?5abb7ec" style="width:30px" loading="lazy">    <a href="mailto:vishnu.sit2015@gmail.com">vishnu.sit2015@gmail.com</a>
+            </p>
+
+        </div>
+    </div>
+</section>
+
+<section class="oe_container oe_separator"></section>
+</div>
+            </div>
+            
+        </div>
+                                </div>
+                                <div class="tab-pane" id="manifest">
+        <div class="container" id="technical_info">
+            <table style="word-wrap: break-word;" class="loempia_app_table table table-sm small mt-2">
+                <thead class="alert-info">
+                    <tr>
+                        <td>
+                            <b>Availability</b>
+                        </td>
+                        <td>
+                            <div class="loempia_platform_availability w-100 d-flex">
+                                <div class="flex-grow-1">
+                                <i class="fa fa-times" style="color: red;"></i>
+                                <span> Odoo Online</span>
+                                </div>
+                                <div class="flex-grow-1"><i class="fa fa-check" style="color: green;"></i> Odoo.sh</div>
+                                <div class="flex-grow-1"><i class="fa fa-check" style="color: green;"></i> On Premise</div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><b>Odoo Apps Dependencies</b>
+                            <a data-bs-toggle="popover" data-bs-content="This app requires some additional standard apps from Odoo to be installed.">
+                                <i class="fa fa-info-circle text-info" role="img" aria-label="Warning"></i>
+                            </a>
+                        </td>
+                        <td>
+                                &bull; 
+                                <span>Inventory (stock)</span>
+                                <br/>
+                                &bull; 
+                                <span>Point of Sale (point_of_sale)</span>
+                                <br/>
+                                &bull; 
+                                <span>Discuss (mail)</span>
+                                <br/>
+                                &bull; 
+                                <span>Invoicing (account)</span>
+                                <br/>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><b>Lines of code</b>
+                            <a data-bs-toggle="popover" data-bs-html="true" data-bs-content="Odoo&#39;s public price to maintain custom code and third party module                is &lt;b&gt;$ &lt;span class=&#34;oe_currency_value&#34;&gt;6.00&lt;/span&gt;&lt;/b&gt; per &lt;b&gt;100&lt;/b&gt; lines of code. The service includes unlimited technical support                tickets, bug fixes and upgrade. &lt;br&gt; This module has a total of &lt;b&gt;48&lt;/b&gt; lines of code (dependencies included).                The estimated maintenance cost for this module is then &lt;b&gt;$ &lt;span class=&#34;oe_currency_value&#34;&gt;6.00&lt;/span&gt;&lt;/b&gt; per month.">
+                                    <i class="fa fa-exclamation-circle text-info" role="img" aria-label="Info"></i>
+                            </a>
+                        </td>
+                        <td><span>48</span></td>
+                    </tr>
+                </thead>
+                
+                <tbody>
+                    <tr>
+                        <td><b>Technical Name</b></td>
+                        <td><code>
+                        pos_negative_stock_restrict</code></td>
+                    </tr>
+                    <tr>
+                        <td><b>License</b></td><td>LGPL-3</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="container">
+                        
+        <section id="loempia-comments" class="mb-4 loempia_comments">
+            <div class="row">
+                <div class="col-lg-8 offset-lg-2 mb-3 css_editable_mode_hidden">
+                    <h2 class="mt-4 fw-light">
+                            Please <a href="/web/login?redirect=/apps/modules/17.0/pos_negative_stock_restrict"><b>log in</b></a> to comment on this module
+                    </h2>
+                    <div class="mb-3">
+                        <ul>
+                            <li>The author can leave a single reply to each comment.</li>
+                            <li>This section is meant to ask simple questions or leave a rating. Every report of a problem experienced while using the module should be addressed to the author directly (refer to the following point).</li>
+                            <li>
+                                    If you want to start a discussion with the author, please use the developer contact information. They can usually be found in the <a href="#module-description">description</a>.
+                            </li>
+                        </ul>
+                    </div>
+                    <form id="comment" action="/apps/rating">
+                        <div class="row">
+                            
+                            <div class="col-12">
+                                    <div class="mt-1 mb-1"><input type="number" name="rating" class="rating mb-1 d-none" min="1" max="5" value="0"/></div>
+                                <textarea rows="1" name="subject" class="form-control mb-1" placeholder="Write your overall feeling..." disabled="True"></textarea>
+                                <input name="module_id" type="hidden" value="294084"/>
+                                <textarea rows="8" name="comment" class="form-control o_wysiwyg_loader" placeholder="Write a detailed feedback..." disabled="True"></textarea>
+                                <button type="submit" id="post_button" class="btn btn-primary mt-2 a-submit disabled" disabled="diasbled">Post</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+            </div>
+        </section>
+                    </div>
+                    <div id="report_banner_state" class="o_report_banner"></div>
+            </div>
+        
+        <div id="o_shared_blocks" class="oe_unremovable"></div>
+                </main>
+                <footer id="bottom" data-anchor="true" data-name="Footer" class="o_footer o_colored_level o_cc  o_footer_slideout">
+                    <div id="footer" class="container o_not_editable ">
+                <span class="o_logo o_logo_inverse d-block mx-auto o_footer_logo my-5"></span>
+                <div class="row">
+                    <div class="col-12 col-lg-7 col-xl-6">
+                        <div class="row">
+                            <div class="col-12 col-md-4 mb-3 mb-md-0">
+                                <div class="row">
+                                    <div class="col-6 col-md-12">
+                                        <span class="o_footer_title">Community</span>
+                                        <ul class="o_footer_links list-unstyled">
+                                            <li><a href="https://www.odoo.com/slides/all/tag/odoo-tutorials-9">Tutorials</a></li>
+                                            <li><a href="https://www.odoo.com/page/docs">Documentation</a></li>
+                                            <li><a href="https://www.odoo.com/forum/help-1">Forum</a></li>
+                                            
+                                        </ul>
+                                    </div>
+                                    <div class="col-6 col-md-12">
+                                        <span class="o_footer_title">Open Source</span>
+                                        <ul class="o_footer_links list-unstyled">
+                                            <li><a href="https://www.odoo.com/page/download">Download</a></li>
+                                            <li class="divider"></li>
+                                            <li><a href="https://github.com/odoo/odoo">Github</a></li>
+                                            <li><a href="https://runbot.odoo.com/">Runbot</a></li>
+                                            <li><a href="https://github.com/odoo/odoo/wiki/Translations">Translations</a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <span class="o_footer_title">Services</span>
+                                <ul class="o_footer_links list-unstyled">
+                                    <li><a href="https://www.odoo.sh">Odoo.sh Hosting</a></li>
+                                    <li class="divider"></li>
+                                    <li><a href="https://www.odoo.com/help">Support</a></li>
+                                    <li><a href="https://upgrade.odoo.com">Upgrade</a></li>
+                                    <li><a href="https://www.odoo.com/page/developers-on-demand">Custom Developments</a></li>
+                                    <li><a href="https://www.odoo.com/education/program">Education</a></li>
+                                    <li class="divider"></li>
+                                    <li><a href="https://www.odoo.com/accounting-firms">Find an Accountant</a></li>
+                                    <li class="divider"></li>
+                                    <li><a href="https://www.odoo.com/partners">Find a Partner</a></li>
+                                    <li><a href="https://www.odoo.com/become-a-partner">Become a Partner</a></li>
+                                </ul>
+                            </div>
+                            <div class="col-6 col-md-4 mb-4">
+                                <span class="o_footer_title">About us</span>
+                                <ul class="o_footer_links list-unstyled">
+                                    <li><a href="https://www.odoo.com/page/about-us">Our company</a></li>
+                                    <li><a href="https://www.odoo.com/page/brand-assets">Brand Assets</a></li>
+                                    <li><a href="https://www.odoo.com/contactus">Contact us</a></li>
+                                    <li><a href="https://www.odoo.com/jobs">Jobs</a></li>
+                                    <li class="divider"></li>
+                                    <li><a href="https://www.odoo.com/events">Events</a></li>
+                                    <li><a href="//podcast.odoo.com">Podcast</a></li>
+                                    <li><a href="https://www.odoo.com/blog">Blog</a></li>
+                                    <li><a href="https://www.odoo.com/blog/6">Customers</a></li>
+                                    <li class="divider"></li>
+                                    <li><a href="https://www.odoo.com/legal">Legal</a> <span class="small text-muted">•</span> <a href="https://www.odoo.com/privacy">Privacy</a></li>
+                                    <li><a href="https://www.odoo.com/security">Security</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-5 col-xl-5 offset-xl-1">
+                        <div class="d-flex align-items-center justify-content-between">
+                        </div>
+                        <hr class="mt-3 mb-4"/>
+                        <p class="small text-muted">Odoo is a suite of open source business apps that cover all your company needs: CRM, eCommerce, accounting, inventory, point of sale, project management, etc.</p>
+                        <p class="small text-muted mb-4">Odoo's unique value proposition is to be at the same time very easy to use and fully integrated.</p>
+                        <div class="o_footer_social_media mb-4">
+                            <a target="_blank" href="https://www.facebook.com/odoo" class="me-3"><i class="fa fa-fw fa-facebook"></i></a>
+                            <a target="_blank" href="https://twitter.com/Odoo" class="me-3"><i class="fa fa-fw fa-twitter"></i></a>
+                            <a target="_blank" href="https://www.linkedin.com/company/odoo" class="me-3"><i class="fa fa-fw fa-linkedin"></i></a>
+                            <a target="_blank" href="https://github.com/odoo/odoo" class="me-3"><i class="fa fa-fw fa-github"></i></a>
+                            <a target="_blank" href="https://www.instagram.com/odoo.official" class="me-3"><i class="fa fa-fw fa-instagram"></i></a>
+                            <a target="_blank" href="https://www.tiktok.com/@odoo" class="me-3"><i class="fa fa-fw fa-tiktok"></i></a>
+                            <a target="_blank" class="me-3" href="tel:+3222903490"><i class="fa fa-fw fa-phone"></i></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        <div class="o_footer_copyright o_not_editable">
+              <div class="container py-3">
+                <div class="row">
+                    <div class="col-sm text-center text-sm-start text-muted">
+                        <span class="o_footer_copyright_name me-2"><a class="small" href="https://www.odoo.com/app/website">Website made with <span class="o_logo o_logo_inverse o_logo_15"></span></a></span>
+                    </div>
+                </div>
+              </div>
+            </div>
+        </footer>
+            </div>
+        <script name="plausible" defer="defer" src="https://download.odoo.com/js/plausi_odoo.js" data-domain="odoo.com"></script>
+        </body>
+</html>

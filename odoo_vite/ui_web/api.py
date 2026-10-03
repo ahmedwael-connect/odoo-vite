@@ -56,6 +56,7 @@ from odoo_vite.ops.logs import (
     format_slow_lines,
     parse_profile_duration,
 )
+from odoo_vite.ops.marketplace import MarketplaceOps
 from odoo_vite.ops.modules import (
     ModuleOps,
     preview_command,
@@ -492,6 +493,79 @@ class ModulesApi(Domain):
     def split_deps(self, edges: list, name: str) -> list:
         depends, required_by = split_deps(edges, name)
         return [list(depends), list(required_by)]
+
+
+# ---------------------------------------------------------------- Marketplace
+
+
+class MarketplaceApi(Domain):
+    """apps.odoo.com mirror + GitHub index (silent reads, toasting ops)."""
+
+    def __init__(self, push: PushChannel, cancels: CancelRegistry) -> None:
+        self._push = push
+        self._cancels = cancels
+        self._ops = MarketplaceOps(
+            on_message=_sink_message(push),
+            on_refresh=_sink_refresh(push),
+        )
+
+    def cancel(self, op_id: str) -> dict:
+        if self._cancels.cancel(op_id):
+            return {"ok": True, "message": "cancelling"}
+        return {"ok": False, "message": f"no running operation '{op_id}'"}
+
+    def search(self, query: str = "", order: str = "Relevance",
+               category: str = "", series: str = "", price: str = "",
+               author: str = "", page: int = 1) -> Any:
+        return asyncio.run(
+            self._ops.search(query, order, category, series, price, author,
+                             page))
+
+    def detail(self, module_id: str) -> Any:
+        return asyncio.run(self._ops.detail(module_id))
+
+    def stats(self) -> Any:
+        return asyncio.run(self._ops.stats())
+
+    def categories(self) -> Any:
+        return asyncio.run(self._ops.categories())
+
+    def index(self, owner_repo: str, branch: str = "",
+              op_id: str = "") -> Any:
+        return _progress_call(
+            self._push, self._cancels, self._ops.index, op_id,
+            owner_repo, branch)
+
+    def add_review(self, module_id: str, rating: int, title: str,
+                   body: str, author: str) -> Any:
+        return asyncio.run(
+            self._ops.add_review(module_id, rating, title, body, author))
+
+    def delete_review(self, review_id: int) -> Any:
+        return asyncio.run(self._ops.delete_review(review_id))
+
+    def sync_featured(self) -> Any:
+        return asyncio.run(self._ops.sync_featured())
+
+    def install_from_zip(self, zip_path: str, instance_id: str,
+                         module_id: str = "") -> Any:
+        return asyncio.run(
+            self._ops.install_from_zip(zip_path, instance_id, module_id))
+
+    def watch_download(self, module_id: str, tech: str,
+                       op_id: str = "") -> Any:
+        return _progress_call(
+            self._push, self._cancels, self._ops.watch_download, op_id,
+            module_id, tech)
+
+    def open_url(self, url: str) -> Any:
+        return asyncio.run(self._ops.open_url(url))
+
+    def installed_in(self, instance_id: str) -> Any:
+        return asyncio.run(self._ops.installed_in(instance_id))
+
+    def record_download(self, module_id: str) -> Any:
+        return self._ops.record_download(module_id)
 
 
 # ----------------------------------------------------------------- Configuration
@@ -1002,6 +1076,7 @@ class Api:
         self.lifecycle = LifecycleApi(push, cancels)
         self.databases = DatabasesApi(push)
         self.modules = ModulesApi(push, cancels)
+        self.marketplace = MarketplaceApi(push, cancels)
         self.config = ConfigApi(push, cancels)
         self.logs = LogsApi(push)
         self.devtools = DevToolsApi(push)

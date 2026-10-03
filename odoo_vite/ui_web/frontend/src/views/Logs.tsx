@@ -22,7 +22,7 @@ const TAIL_CAP = 2000
 // of the last parsed line so tracebacks stay visible under ERROR/CRITICAL.
 const LEVEL_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d+)?\s+\d+\s+([A-Z]+)\s/
 
-export default function Logs() {
+export default function Logs({ active = false }: { active?: boolean }) {
   const { current, currentId, setBusy } = useApp()
 
   const [lines, setLines] = useState<string[]>([])
@@ -75,11 +75,20 @@ export default function Logs() {
   // returns {initial:true} + the window; later polls only the new bytes;
   // rotation returns {rotated:true} + a fresh window. Clear is view-only —
   // the follower offset is untouched, so cleared stays cleared.
+  //
+  // Per-instance reset (keeps tab round-trips from wiping the view).
   useEffect(() => {
-    if (!currentId) return
     setLines([])
     setNote('')
     setOpError('')
+  }, [currentId])
+
+  // Poll only while this tab is active: with keep-mounted views a
+  // hidden Logs tab would tail the file forever in the background.
+  // Pause/resume is lossless — the follower offset stays server-side,
+  // so resume re-serves every byte written while hidden.
+  useEffect(() => {
+    if (!currentId || !active) return
 
     const merge = (res: { lines: string[]; initial?: boolean; rotated?: boolean }) => {
       const refill = res.initial === true || res.rotated === true
@@ -124,7 +133,7 @@ export default function Logs() {
       stopped = true
       window.clearInterval(timer)
     }
-  }, [currentId, api, current?.log_path])
+  }, [currentId, active, api, current?.log_path])
 
   // stick to bottom while following: the tail pane (.tail-lines) is its own
   // scroll container (style.css), so this is the pane, not the page.

@@ -395,7 +395,10 @@ export function useProgressRun() {
   const { pushDialog, popDialog } = useApp()
   const seq = useRef(0)
   return useCallback(
-    async (title: string, fn: (opId: string) => Promise<{ ok: boolean; message: string }>) => {
+    async <T extends { ok: boolean; message: string }>(
+      title: string,
+      fn: (opId: string) => Promise<T>,
+    ): Promise<T | { ok: false; message: string }> => {
       seq.current += 1
       const opId = `op-${Date.now()}-${seq.current}`
       pushDialog(
