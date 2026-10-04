@@ -6,7 +6,8 @@ restart, adopt, remove, clone, export/import instances; switch/track databases; 
 managed mode; OS-keyring secrets.
 
 Status: Qt → Slint → web migration complete; `pytest tests/` green
-plus live E2E runs (real window) on real Ubuntu.
+plus live E2E runs (real window) on real Ubuntu. Release history lives
+in [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
