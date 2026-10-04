@@ -402,9 +402,15 @@ export function ProgressDialog({
 
   const cancel = async () => {
     const api = getApi()
-    const res = await api.modules.cancel(opId)
-    const final = res.ok ? res : await api.wizards.cancel(opId)
-    setCancelMsg(final.message)
+    // 3.2.0 P1: a rejected cancel (both registries missed the op) used to
+    // escape as an unhandled rejection with no feedback.
+    try {
+      const res = await api.modules.cancel(opId)
+      const final = res.ok ? res : await api.wizards.cancel(opId)
+      setCancelMsg(final.message)
+    } catch (err) {
+      setCancelMsg(err instanceof Error ? err.message : String(err))
+    }
   }
 
   return (

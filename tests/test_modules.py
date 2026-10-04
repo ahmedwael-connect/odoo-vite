@@ -207,6 +207,18 @@ def test_uninstall_uses_shell_marker(tmp_path, db, monkeypatch):
     assert "shell" in cmd
     assert "button_immediate_uninstall" in stdin_text
 
+    # 3.3.0 P1: a quote in a name must be rejected before the shell ever
+    # runs (the old f"'{m}'" quoting was Python-source injection).
+    before = len(calls)
+    res = mm.uninstall_modules(
+        inst, "m_db", ["sale'); import os; os.system('id"])
+    assert not res.ok and "Invalid module name" in res.message
+    assert len(calls) == before
+    # legit names still embed as a proper Python list literal
+    res = mm.uninstall_modules(inst, "m_db", ["sale", "account"])
+    assert res.ok, res.message
+    assert '["sale", "account"]' in calls[-1][1]
+
 
 def test_diff_statuses(tmp_path, db, monkeypatch):
     from odoo_vite.core import module_manager as mm

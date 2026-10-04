@@ -37,6 +37,12 @@ _SKIP_NAMES = {"venv", "logs", "__pycache__", ".mypy_cache", ".pytest_cache",
 _SKIP_SUFFIXES = (".pyc", ".pyo")
 
 
+def _say(progress_cb, line: str) -> None:
+    """Progress line, tolerant of a missing callback (CLI/tests)."""
+    if progress_cb is not None:
+        progress_cb(line)
+
+
 def _iter_tree(base: Path):
     """Yield (fs_path, arc_rel) for exportable entries under base."""
     for root, dirs, files in os.walk(base, followlinks=False):
@@ -96,10 +102,13 @@ def export_preview(archive_path: str | Path) -> Result:
 
 
 def export_instance(source_id: str, dest_file: str | Path, db_path=None,
-                    src_password: str | None = None) -> Result:
+                    src_password: str | None = None,
+                    progress_cb=None, cancel=None) -> Result:
     """Write a portable bundle of an instance. Never raises.
 
     src_password: GUI-thread-resolved secret (see clone_instance).
+    progress_cb/cancel: 3.2.0 streaming — coarse stage lines + a cancel
+    check per file so a huge tree stays interruptible.
     """
     from odoo_vite.core import audit as audit_log
     from odoo_vite.core.registry import (
@@ -143,6 +152,8 @@ def export_instance(source_id: str, dest_file: str | Path, db_path=None,
             "workers": source.workers,
             "log_level": source.log_level,
             "auto_update_modules": list(source.auto_update_modules or []),
+            "pending_update_modules": list(
+                source.pending_update_modules or []),
             "addons_state": list(source.addons_state or []),
             "src_base": str(src_base),
             "has_community": (src_base / "community").is_dir(),
@@ -154,15 +165,26 @@ def export_instance(source_id: str, dest_file: str | Path, db_path=None,
         }
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
+            _say(progress_cb, f"Packing '{source.name}'…")
             with tarfile.open(dest, "w:gz") as archive:
                 payload = json.dumps(manifest, indent=2).encode("utf-8")
                 info = tarfile.TarInfo(MANIFEST_NAME)
                 info.size = len(payload)
                 archive.addfile(info, io.BytesIO(payload))
+                count = 0
                 for fs_path, rel in _iter_tree(src_base):
+                    if cancel is not None and cancel():
+                        try:
+                            dest.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        return Result.failure("Export cancelled")
                     archive.add(str(fs_path),
                                 arcname=FILES_PREFIX + rel.as_posix(),
                                 recursive=False)
+                    count += 1
+                    if count % 500 == 0:
+                        _say(progress_cb, f"Packed {count} files…")
             os.chmod(dest, ARCHIVE_MODE)
         except OSError as exc:
             return Result.failure(f"Cannot write bundle: {exc}")
@@ -181,7 +203,8 @@ def export_instance(source_id: str, dest_file: str | Path, db_path=None,
 
 def import_instance(archive_path: str | Path, new_name: str,
                     new_port: int | None = None, db_path=None,
-                    allow_plaintext: bool = False) -> Result:
+                    allow_plaintext: bool = False,
+                    progress_cb=None, cancel=None) -> Result:
     """Restore a bundle as a new instance. Never raises."""
     from odoo_vite.core import audit as audit_log
     from odoo_vite.core import provisioning as prov
@@ -218,6 +241,8 @@ def import_instance(archive_path: str | Path, new_name: str,
         if manifest.get("format") != FORMAT:
             return Result.failure(
                 f"Unsupported bundle format {manifest.get('format')!r}")
+        if cancel is not None and cancel():
+            return Result.failure("Import cancelled")
 
         if new_port is None:
             port = prov.suggest_port(int(manifest.get("port", 8069) or 8069)
@@ -237,7 +262,17 @@ def import_instance(archive_path: str | Path, new_name: str,
         try:
             with tarfile.open(archive, "r:gz") as tar:
                 members = _safe_members(tar)
+                file_total = sum(
+                    1 for m in members
+                    if m.name.startswith(FILES_PREFIX) and m.isfile())
+                _say(progress_cb, f"Unpacking {file_total} files…")
+                done = 0
                 for member in members:
+                    # 3.2.0: cancel mid-extract — clean the partial tree so
+                    # a retried import starts from a real fresh folder.
+                    if cancel is not None and cancel():
+                        shutil.rmtree(dst_base, ignore_errors=True)
+                        return Result.failure("Import cancelled")
                     if member.name == MANIFEST_NAME:
                         continue
                     if not member.name.startswith(FILES_PREFIX):
@@ -255,6 +290,9 @@ def import_instance(archive_path: str | Path, new_name: str,
                             continue
                         with open(target, "wb") as fh:
                             fh.write(extracted.read())
+                        done += 1
+                        if done % 500 == 0:
+                            _say(progress_cb, f"Unpacked {done}/{file_total}…")
                     # symlinks/devices/sockets: skipped by design
         except (tarfile.TarError, ValueError, OSError) as exc:
             return Result.failure(f"Cannot extract bundle: {exc}")
@@ -279,6 +317,11 @@ def import_instance(archive_path: str | Path, new_name: str,
         if enterprise and not Path(enterprise).expanduser().exists():
             enterprise = ""
 
+        # last cancel point before anything touches the registry/keyring
+        if cancel is not None and cancel():
+            shutil.rmtree(dst_base, ignore_errors=True)
+            return Result.failure("Import cancelled")
+        _say(progress_cb, "Registering instance…")
         new_id = str(uuid.uuid4())
         storage, column = store_db_password(
             new_id, manifest.get("exported_password", "") or "",
@@ -310,6 +353,8 @@ def import_instance(archive_path: str | Path, new_name: str,
             tracked_dbs=[],
             auto_update_modules=list(
                 manifest.get("auto_update_modules") or []),
+            pending_update_modules=list(
+                manifest.get("pending_update_modules") or []),
             status="stopped",
             pid=None,
             db_created=False,

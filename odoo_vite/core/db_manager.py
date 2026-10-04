@@ -19,10 +19,16 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 
 from odoo_vite.core.result import Result
 
 IDENTIFIER_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+# 3.2.0: tracked_dbs is a read-modify-write on the shared registry — the
+# batch loop (track_many) and single-track clicks run on real threads
+# (asyncio.to_thread) and could drop an entry. One lock, in-process.
+_TRACK_LOCK = threading.Lock()
 
 
 def is_valid_identifier(name: str) -> bool:
@@ -39,13 +45,14 @@ def _qliteral(value: str) -> str:
 
 
 def _run(cmd: list[str], env_extra: dict[str, str] | None = None,
-         timeout: int = 60) -> tuple[int, str]:
+         timeout: int = 60, input_text: str | None = None) -> tuple[int, str]:
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, env=env
+            cmd, capture_output=True, text=True, timeout=timeout, env=env,
+            input=input_text,
         )
         return proc.returncode, (proc.stdout + proc.stderr).strip()
     except subprocess.TimeoutExpired:
@@ -142,8 +149,11 @@ def ensure_role(db_user: str, db_password: str, dry_run: bool = False,
             f"CREATE ROLE {_qident(db_user)} WITH LOGIN NOCREATEDB; END IF; END $$; "
             f"ALTER ROLE {_qident(db_user)} WITH LOGIN PASSWORD {_qliteral(db_password)};"
         )
+    # 3.3.0 P1: the ALTER ... PASSWORD script goes in on stdin (`-f -`),
+    # never argv — argv is world-readable in `ps` / /proc/*/cmdline for the
+    # whole pkexec auth-dialog window.
     privileged = ["pkexec", "--user", "postgres", "psql",
-                  "-v", "ON_ERROR_STOP=1", "-c", script]
+                  "-v", "ON_ERROR_STOP=1", "-f", "-"]
 
     if dry_run:
         return Result.success(
@@ -181,7 +191,7 @@ def ensure_role(db_user: str, db_password: str, dry_run: bool = False,
             f"WITH LOGIN CREATEDB PASSWORD '***';\""
         )
 
-    rc, out = _run(privileged, timeout=120)
+    rc, out = _run(privileged, timeout=120, input_text=script)
     if rc != 0:
         hint = out.splitlines()[-1] if out else f"exit {rc}"
         return Result.failure(
@@ -418,19 +428,20 @@ def track_database(instance_id: str, db_name: str, db_path=None) -> Result:
     name = (db_name or "").strip()
     if not is_valid_identifier(name):
         return Result.failure(f"Invalid database name '{db_name}'")
-    inst = get_instance(instance_id, db_path)
-    if inst is None:
-        return Result.failure(f"No instance with id '{instance_id}'")
-    tracked = list(inst.tracked_dbs or [])
-    if name in tracked:
+    with _TRACK_LOCK:
+        inst = get_instance(instance_id, db_path)
+        if inst is None:
+            return Result.failure(f"No instance with id '{instance_id}'")
+        tracked = list(inst.tracked_dbs or [])
+        if name in tracked:
+            return Result.success(data={"tracked_dbs": tracked},
+                                  message=f"'{name}' is already tracked")
+        tracked.append(name)
+        res = update_instance(instance_id, db_path, tracked_dbs=tracked)
+        if not res.ok:
+            return Result.failure(f"Cannot track '{name}': {res.message}")
         return Result.success(data={"tracked_dbs": tracked},
-                              message=f"'{name}' is already tracked")
-    tracked.append(name)
-    res = update_instance(instance_id, db_path, tracked_dbs=tracked)
-    if not res.ok:
-        return Result.failure(f"Cannot track '{name}': {res.message}")
-    return Result.success(data={"tracked_dbs": tracked},
-                          message=f"'{name}' is now tracked")
+                              message=f"'{name}' is now tracked")
 
 
 def untrack_database(instance_id: str, db_name: str, db_path=None) -> Result:
@@ -442,21 +453,24 @@ def untrack_database(instance_id: str, db_name: str, db_path=None) -> Result:
     from odoo_vite.core.registry import get_instance, update_instance
 
     name = (db_name or "").strip()
-    inst = get_instance(instance_id, db_path)
-    if inst is None:
-        return Result.failure(f"No instance with id '{instance_id}'")
-    tracked = list(inst.tracked_dbs or [])
-    was_primary = (name == (inst.primary_db or ""))
-    if name not in tracked:
-        return Result.success(data={"tracked_dbs": tracked,
-                                    "was_primary": was_primary},
-                              message=f"'{name}' was not tracked — nothing to do")
-    tracked.remove(name)
-    res = update_instance(instance_id, db_path, tracked_dbs=tracked)
-    if not res.ok:
-        return Result.failure(f"Cannot untrack '{name}': {res.message}")
-    msg = f"'{name}' untracked"
-    if was_primary:
-        msg += " (note: it is still the primary database — running instance unaffected)"
-    return Result.success(data={"tracked_dbs": tracked, "was_primary": was_primary},
-                          message=msg)
+    with _TRACK_LOCK:
+        inst = get_instance(instance_id, db_path)
+        if inst is None:
+            return Result.failure(f"No instance with id '{instance_id}'")
+        tracked = list(inst.tracked_dbs or [])
+        was_primary = (name == (inst.primary_db or ""))
+        if name not in tracked:
+            return Result.success(
+                data={"tracked_dbs": tracked, "was_primary": was_primary},
+                message=f"'{name}' was not tracked — nothing to do")
+        tracked.remove(name)
+        res = update_instance(instance_id, db_path, tracked_dbs=tracked)
+        if not res.ok:
+            return Result.failure(f"Cannot untrack '{name}': {res.message}")
+        msg = f"'{name}' untracked"
+        if was_primary:
+            msg += (" (note: it is still the primary database — running "
+                    "instance unaffected)")
+        return Result.success(
+            data={"tracked_dbs": tracked, "was_primary": was_primary},
+            message=msg)

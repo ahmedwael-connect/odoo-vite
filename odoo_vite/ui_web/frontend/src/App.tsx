@@ -13,6 +13,7 @@ import { CommandPalette, type Command } from './components/palette'
 import { SelectionList, type SelRow } from './components/selection'
 import { ActionButton, SectionHeader, Spinner, StatusPill } from './components/ui'
 import { route, useProgress } from './events'
+import { Banner } from './components/widgets'
 import { AboutDialog, ActivityDialog, EventLogDialog, ImportDialog, PreferencesDialog } from './dialogs/system'
 import { IndexModuleDialog } from './dialogs/marketplace'
 import { AdoptWizard, CreateWizard } from './dialogs/wizards'
@@ -61,6 +62,7 @@ export default function App() {
     setBusy,
     dialogs,
     setDialog,
+    error,
   } = useApp()
   const ops = useProgress()
   const confirm = useConfirm()
@@ -440,6 +442,20 @@ export default function App() {
         </nav>
 
         <main className="content">
+          {/* 3.2.0 P1: the store's error was set but never rendered — a
+              failing bridge looked like "app froze with no reason". */}
+          {error && (
+            <Banner
+              kind="error"
+              action={
+                <ActionButton disabled={busy} onClick={() => void refresh()}>
+                  Retry
+                </ActionButton>
+              }
+            >
+              {error}
+            </Banner>
+          )}
           {/* keep-mounted: hidden views hold their scroll/selection/state;
               background polls stay live (docs/patterns.md) */}
           <div className="view" hidden={tab !== 'overview'}>

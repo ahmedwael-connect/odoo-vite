@@ -276,7 +276,12 @@ def provision_instance(
 
 
 def discard_draft(instance_id: str, db_path=None) -> Result:
-    """Delete partial files + keyring entry + registry row for a draft."""
+    """Delete partial files + keyring entry + registry row for a draft.
+
+    3.3.0 P1: the wizard can only discard its own unfinished draft. Any
+    other id (adopted instance = the user's real checkout, or a
+    finalized/stopped instance) must never reach the rmtree below.
+    """
     from odoo_vite.core.registry import delete_db_password, delete_instance, get_instance
 
     inst = None
@@ -284,7 +289,16 @@ def discard_draft(instance_id: str, db_path=None) -> Result:
         inst = get_instance(instance_id, db_path)
     except Exception:
         inst = None
-    if inst is not None and inst.path:
+    if inst is None:
+        return Result.failure(f"No instance with id '{instance_id}'")
+    mode = (inst.mode or "managed").lower()
+    status = (inst.status or "").lower()
+    if mode == "adopted" or status != "draft":
+        return Result.failure(
+            f"Refusing to discard '{inst.name}': only unfinished managed "
+            "drafts are deleted here (adopted instances keep their files; "
+            "finalized instances are removed via Remove)")
+    if inst.path:
         try:
             shutil.rmtree(inst.path, ignore_errors=True)
         except Exception:

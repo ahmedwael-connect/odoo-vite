@@ -1,4 +1,4 @@
-# Odoo Vite — pywebview + React frontend (v3.1.0)
+# Odoo Vite — pywebview + React frontend (v3.2.0)
 
 Native Ubuntu desktop app that manages the full lifecycle of
 local Odoo instances — "Docker Desktop, but for Odoo". Create, start, stop,
@@ -31,7 +31,7 @@ sudo apt install -y \
   libssl-dev zlib1g-dev gnome-keyring
 
 # 2. Get the app (tarball attached to the GitHub release, or clone)
-tar xzf odoo-vite-3.1.0.tar.gz && cd odoo-vite-3.1.0
+tar xzf odoo-vite-3.2.0.tar.gz && cd odoo-vite-3.2.0
 # or: git clone <repo-url> && cd odoo-vite
 # NOTE: *.tar.gz and odoo-vite-*/ are local release artifacts (git-ignored),
 # never committed — download them from the release page.

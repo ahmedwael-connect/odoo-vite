@@ -48,6 +48,8 @@ def test_migrate_sprint1_db(tmp_path):
     assert res.ok, res.message
     assert "password_storage" in res.data["columns"]
     assert "last_error" in res.data["columns"]
+    # 3.2.0 F1: legacy DBs gain the one-shot update queue column.
+    assert "pending_update_modules" in res.data["columns"]
 
     inst = get_instance("abc-1", db)
     assert inst is not None
@@ -55,6 +57,7 @@ def test_migrate_sprint1_db(tmp_path):
     assert inst.status == "stopped"  # existing values preserved
     assert inst.password_storage == "plaintext"  # default applied
     assert inst.last_error is None
+    assert inst.pending_update_modules == []
 
 
 def test_ensure_schema_idempotent_and_fresh(tmp_path):

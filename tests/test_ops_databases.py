@@ -122,3 +122,61 @@ def test_reconcile_timer_tracks_enabled_schedules(monkeypatch):
     state.update(installed=False)
     asyncio.run(ops._reconcile_timer())          # nothing to do
     assert calls == []
+
+
+def test_streamed_db_ops_guards_and_kwarg_passthrough(tmp_path, monkeypatch):
+    """3.2.0: init/backup/restore forward progress_cb/cancel — the
+    _progress_call streaming contract — and fail cleanly for unknown ids."""
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance
+    from odoo_vite.core.result import Result
+    from odoo_vite.ops import databases as db_mod
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "stream.db"))
+    ops, _messages = _ops()
+
+    # unknown instance — the pw/instance guards fire before any tool runs
+    res = asyncio.run(ops.backup_db("no-such", "db", "/tmp/x.dump"))
+    assert not res.ok and "not found" in res.message
+    res = asyncio.run(ops.restore_db("no-such", "/tmp/x.dump", "db"))
+    assert not res.ok and "not found" in res.message
+    res = asyncio.run(ops.init_db("no-such", "db"))
+    assert not res.ok  # initialize_database's own id guard
+
+    seen: dict = {}
+
+    def fake_init(iid, db_name, progress_cb=None, cancel=None, db_path=None):
+        seen["init"] = (progress_cb, cancel)
+        return Result.success(message="init ok")
+
+    def fake_backup(db_name, dest, progress_cb=None, cancel=None, **kw):
+        seen["backup"] = (progress_cb, cancel)
+        return Result.success(message="backup ok")
+
+    def fake_restore(dump, target, progress_cb=None, cancel=None, **kw):
+        seen["restore"] = (progress_cb, cancel)
+        return Result.success(message="restore ok")
+
+    monkeypatch.setattr(db_mod.process_manager, "initialize_database",
+                        fake_init)
+    monkeypatch.setattr(db_mod.db_backup, "backup_database", fake_backup)
+    monkeypatch.setattr(db_mod.db_backup, "restore_database", fake_restore)
+
+    def _cb(_line):
+        return None
+
+    def _cancel():
+        return False
+
+    inst = Instance(name="Stream", version="17.0", path=str(tmp_path))
+    assert create_instance(inst).ok
+
+    assert asyncio.run(ops.init_db(inst.id, "db",
+                                   progress_cb=_cb, cancel=_cancel)).ok
+    assert asyncio.run(ops.backup_db(inst.id, "db", "/tmp/x.dump",
+                                     progress_cb=_cb, cancel=_cancel)).ok
+    assert asyncio.run(ops.restore_db(inst.id, "/tmp/x.dump", "db",
+                                      progress_cb=_cb, cancel=_cancel)).ok
+    assert seen["init"] == (_cb, _cancel)
+    assert seen["backup"] == (_cb, _cancel)
+    assert seen["restore"] == (_cb, _cancel)

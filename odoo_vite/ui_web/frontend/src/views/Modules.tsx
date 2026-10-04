@@ -3,9 +3,9 @@
  * Port of ui_slint/modules.slint + bridge _on_mod_action.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getApi } from '../bridge'
-import { Modal, useConfirm, useConfirmBackup, useProgressRun } from '../components/dialog'
+import { Modal, useConfirm, useConfirmBackup, useProgressRun, useTypedConfirm } from '../components/dialog'
 import {
   ActionButton,
   Card,
@@ -176,9 +176,10 @@ function ScaffoldDialog({
 // -------------------------------------------------------------------- view
 
 export default function Modules() {
-  const { current, currentId, setDialog, setBusy } = useApp()
+  const { current, currentId, setDialog, setBusy, statuses } = useApp()
   const confirm = useConfirm()
   const confirmBackup = useConfirmBackup()
+  const typedConfirm = useTypedConfirm()
   const runProgress = useProgressRun()
 
   const [modules, setModules] = useState<ModuleRow[]>([])
@@ -190,6 +191,9 @@ export default function Modules() {
   const [search, setSearch] = useState('')
   const [filterIdx, setFilterIdx] = useState(0)
   const [busy, setLocalBusy] = useState(false)
+  // 3.3.0 P2: stale-response guard — a slow refresh started for the
+  // previous instance must not paint its error onto the new one.
+  const seqRef = useRef(0)
 
   const primary = current?.primary_db ?? ''
   const modDb = primary ? `on ${primary}` : 'no primary database'
@@ -210,6 +214,7 @@ export default function Modules() {
 
   // load on instance change; consume events
   useEffect(() => {
+    const seq = ++seqRef.current
     if (!currentId) return
     setModules([])
     setCats({})
@@ -240,7 +245,7 @@ export default function Modules() {
     void getApi()
       .modules.refresh_modules(currentId)
       .then((res) => {
-        if (!res.ok) setError(res.message)
+        if (seq === seqRef.current && !res.ok) setError(res.message)
       })
     return () => {
       offReady()
@@ -269,11 +274,12 @@ export default function Modules() {
   const routeErr = (text: string) => route({ kind: 'message', payload: { text, level: 'error' } })
 
   const refresh = async () => {
+    const seq = seqRef.current
     setLocalBusy(true)
     setBusy(true)
     try {
       const res = await api.modules.refresh_modules(currentId)
-      if (!res.ok) setError(res.message)
+      if (seq === seqRef.current && !res.ok) setError(res.message)
     } finally {
       setLocalBusy(false)
       setBusy(false)
@@ -331,9 +337,12 @@ export default function Modules() {
       case 'uninstall': {
         if (!selected) return routeErr('Pick a module first')
         const cmd = await previewFor('uninstall', [selected])
-        const ok = await confirm({
+        // 3.2.0: uninstall drops the module's tables/data — re-type the
+        // module name (parity with Drop/Remove/Restore destructive flows).
+        const ok = await typedConfirm({
           heading: `Uninstall ${selected} from "${primary}"?`,
-          body: `Runs:\n${cmd}`,
+          body: `Runs:\n${cmd}\nRe-type the module name to confirm.`,
+          expected: selected,
           confirmLabel: 'Uninstall',
           destructive: true,
         })
@@ -341,7 +350,11 @@ export default function Modules() {
         return
       }
       case 'update-code': {
-        if (current.status === 'running') return routeErr('Stop the instance first')
+        // 3.2.0 P1: current.status is the registry snapshot — use the 2s
+        // live poll (and the backend re-probes the pid) so a stale
+        // "running" no longer blocks an instance that already died.
+        const live = statuses.find((s) => s.id === currentId)?.status === 'running'
+        if (live) return routeErr('Stop the instance first')
         const auto = current.auto_update_modules ?? []
         if (auto.length === 0) return routeErr('No auto-update modules configured')
         if (!primary) return routeErr('This instance has no primary database')
@@ -374,6 +387,27 @@ export default function Modules() {
           }
         }
         await runOp('Update code', auto, 'update-code')
+        return
+      }
+      case 'queue-update': {
+        if (checkedNames.length === 0) return routeErr('Check at least one module')
+        const ok = await confirm({
+          heading: `Update ${checkedNames.join(', ')} on next start?`,
+          body:
+            'Queues a one-shot update: the next time this instance starts it runs ' +
+            `odoo-bin -u ${checkedNames.join(', ')} exactly once, then the queue clears.`,
+          confirmLabel: 'Queue update',
+        })
+        if (!ok) return
+        const merged = [...(current.pending_update_modules ?? [])]
+        for (const n of checkedNames) if (!merged.includes(n)) merged.push(n)
+        const res = await api.config.meta_save(currentId, { pending_update_modules: merged })
+        if (!res.ok) return routeErr(res.message)
+        route({
+          kind: 'message',
+          payload: { text: `Queued for next start: ${checkedNames.join(', ')}`, level: 'info' },
+        })
+        await refresh()
         return
       }
       case 'deps': {
@@ -428,6 +462,13 @@ export default function Modules() {
             </ActionButton>
             <ActionButton disabled={busy || checked.size === 0} onClick={() => void onAction('update')}>
               Update Checked
+            </ActionButton>
+            <ActionButton
+              disabled={busy || checked.size === 0}
+              title="Queue a one-shot -u for the next start"
+              onClick={() => void onAction('queue-update')}
+            >
+              Update on Next Run…
             </ActionButton>
             <ActionButton
               disabled={busy}

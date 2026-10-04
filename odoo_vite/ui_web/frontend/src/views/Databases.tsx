@@ -8,6 +8,7 @@ import { getApi } from '../bridge'
 import {
   Modal,
   useConfirm,
+  useProgressRun,
   useTypedConfirm,
 } from '../components/dialog'
 import { Icon } from '../components/icons'
@@ -261,6 +262,7 @@ export default function Databases() {
   const { current, currentId, setDialog, setBusy } = useApp()
   const confirm = useConfirm()
   const typedConfirm = useTypedConfirm()
+  const runProgress = useProgressRun()
 
   const [states, setStates] = useState<Record<string, DbState>>({})
   const [schedules, setSchedules] = useState<ScheduleRow[]>([])
@@ -412,6 +414,30 @@ export default function Databases() {
     }
   }
 
+  // 3.2.0: init/backup/restore stream live lines + support Cancel — same
+  // busy/reload contract as run(), but under a ProgressDialog.
+  const runP = async (
+    title: string,
+    fn: (opId: string) => Promise<unknown>,
+  ): Promise<Dict | null> => {
+    setLocalBusy(true)
+    setBusy(true)
+    try {
+      const res = (await runProgress(
+        title,
+        fn as (opId: string) => Promise<{ ok: boolean; message: string }>,
+      )) as Dict | null
+      if (res && res.ok === false) {
+        route({ kind: 'message', payload: { text: String(res.message ?? 'failed'), level: 'error' } })
+      }
+      return res
+    } finally {
+      setLocalBusy(false)
+      setBusy(false)
+      void load()
+    }
+  }
+
   const requirePicked = (): string | null => {
     if (!picked) {
       route({ kind: 'message', payload: { text: 'Pick a database first', level: 'error' } })
@@ -475,7 +501,7 @@ export default function Databases() {
         return
       case 'init-db': {
         const db = requirePicked()
-        if (db) await run(() => api.databases.init_db(currentId, db))
+        if (db) await runP('Initializing database…', (opId) => api.databases.init_db(currentId, db, opId))
         return
       }
       case 'drop-db': {
@@ -507,7 +533,17 @@ export default function Databases() {
           'Postgres dumps (*.dump)',
         )
         if (!dest.ok || !dest.path) return
-        await run(() => api.databases.backup_db(currentId, db, dest.path!))
+        // 3.2.0 P0: pywebview's save dialog never asks about overwriting.
+        if (await api.app.path_exists(dest.path)) {
+          const ow = await confirm({
+            heading: 'Overwrite existing file?',
+            body: `${dest.path} already exists — overwrite it? The current contents are lost.`,
+            confirmLabel: 'Overwrite',
+            destructive: true,
+          })
+          if (!ow) return
+        }
+        await runP('Backing up database…', (opId) => api.databases.backup_db(currentId, db, dest.path!, opId))
         return
       }
       case 'restore-db': {
@@ -526,7 +562,7 @@ export default function Databases() {
           confirmLabel: 'Restore (drop + recreate)',
           destructive: true,
         })
-        if (ok) await run(() => api.databases.restore_db(currentId, dump.path!, db))
+        if (ok) await runP('Restoring database…', (opId) => api.databases.restore_db(currentId, dump.path!, db, opId))
         return
       }
     }
@@ -581,7 +617,17 @@ export default function Databases() {
       })
       if (ok) await run(() => api.databases.sched_delete(sel.id))
     } else if (action === 'files') {
-      const files = (await api.databases.list_backup_files(currentId)) as {
+      // 3.2.0 P0: never trust the cast — a non-array answer would crash
+      // FilesDialog's .map render.
+      const rawFiles = (await api.databases.list_backup_files(currentId)) as unknown
+      if (!Array.isArray(rawFiles)) {
+        route({
+          kind: 'message',
+          payload: { text: 'Could not list backup files', level: 'error' },
+        })
+        return
+      }
+      const files = rawFiles as {
         path: string
         name: string
         detail?: string
@@ -602,15 +648,19 @@ export default function Databases() {
                 confirmLabel: 'Restore (drop + recreate)',
                 destructive: true,
               })
-              if (ok) await run(() => api.databases.restore_db(currentId, path, db))
+              if (ok) await runP('Restoring database…', (opId) => api.databases.restore_db(currentId, path, db, opId))
             })()
           }}
           onDelete={(path) => {
             setDialog(null)
             void (async () => {
-              const ok = await confirm({
+              // 3.2.0: dumps are one-of-a-kind backups — re-type the file
+              // name (typed-confirm parity with Drop/Restore/Remove).
+              const base = path.split('/').pop() ?? path
+              const ok = await typedConfirm({
                 heading: 'Delete dump file?',
-                body: path,
+                body: `${path}\n\nRe-type the file name to confirm deletion.`,
+                expected: base,
                 confirmLabel: 'Delete',
                 destructive: true,
               })

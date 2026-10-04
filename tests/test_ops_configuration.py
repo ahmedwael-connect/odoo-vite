@@ -39,7 +39,8 @@ def _conf_text():
 
 def _inst(conf_path="", **overrides):
     base = dict(conf_path=conf_path, description="", workers=0,
-                log_level="info", python_binary="")
+                log_level="info", python_binary="",
+                auto_update_modules=[], pending_update_modules=[])
     base.update(overrides)
     return SimpleNamespace(**base)
 
@@ -47,7 +48,9 @@ def _inst(conf_path="", **overrides):
 def test_read_conf_view(tmp_path):
     conf = tmp_path / "odoo.conf"
     conf.write_text(_conf_text())
-    view = read_conf_view(_inst(str(conf), description="D", workers=2))
+    view = read_conf_view(_inst(str(conf), description="D", workers=2,
+                                auto_update_modules=["sale"],
+                                pending_update_modules=["stock"]))
     assert view["error"] == ""
     assert view["conf_path"] == str(conf)
     assert view["lines"][0] == "db_host = localhost"
@@ -57,6 +60,9 @@ def test_read_conf_view(tmp_path):
     assert view["backup_path"] == ""
     assert view["description"] == "D"
     assert view["workers"] == 2
+    # 3.2.0 F1: both update lists feed the metadata-card editor.
+    assert view["auto_update_modules"] == ["sale"]
+    assert view["pending_update_modules"] == ["stock"]
 
 
 def test_read_conf_view_errors():
@@ -157,6 +163,36 @@ def test_meta_save_round_trip(tmp_path, monkeypatch):
     res = asyncio.run(ops.meta_save(inst.id, {"workers": "xx"}))
     assert not res.ok and "Invalid workers" in res.message
     assert any("Metadata saved" in m for m, _k in messages)
+
+
+def test_meta_save_partial_payload_and_queue(tmp_path, monkeypatch):
+    """3.2.0 F1: absent keys are untouched, so a queue-only write from the
+    Overview (or Modules view) never wipes description/workers/log_level."""
+    (tmp_path / "odoo.conf").write_text(_conf_text())
+    inst = _db_instance(tmp_path, monkeypatch, description="Keep me")
+    ops, _, _ = _ops()
+    from odoo_vite.core.registry import get_instance
+
+    res = asyncio.run(ops.meta_save(
+        inst.id, {"pending_update_modules": ["stock", " sale ", ""]}))
+    assert res.ok, res.message
+    row = get_instance(inst.id)
+    assert row.pending_update_modules == ["stock", "sale"]  # stripped, no blanks
+    assert row.description == "Keep me"
+
+    res = asyncio.run(ops.meta_save(inst.id, {"description": "New"}))
+    assert res.ok, res.message
+    row = get_instance(inst.id)
+    assert row.description == "New"
+    assert row.pending_update_modules == ["stock", "sale"]  # still untouched
+
+    res = asyncio.run(ops.meta_save(
+        inst.id, {"pending_update_modules": "stock"}))
+    assert not res.ok and "list" in res.message
+
+    res = asyncio.run(ops.meta_save(inst.id, {"pending_update_modules": []}))
+    assert res.ok, res.message
+    assert get_instance(inst.id).pending_update_modules == []
 
 
 def test_apply_addons_round_trip(tmp_path, monkeypatch):

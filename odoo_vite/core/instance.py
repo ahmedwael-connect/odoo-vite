@@ -54,6 +54,10 @@ class Instance:
     primary_db: str = ""
     tracked_dbs: list[str] = field(default_factory=list)
     auto_update_modules: list[str] = field(default_factory=list)
+    # 3.2.0 F1: one-shot update queue — merged into the next start's -u
+    # argument and cleared when that launch succeeds (auto_update_modules
+    # above stays the "every start" list).
+    pending_update_modules: list[str] = field(default_factory=list)
     # Sprint 2: "draft" until provisioning succeeds, then "stopped".
     # (Live truth still comes from process_manager.)
     status: str = "draft"
@@ -100,6 +104,8 @@ class Instance:
             "primary_db": self.primary_db,
             "tracked_dbs": json.dumps(self.tracked_dbs or []),
             "auto_update_modules": json.dumps(self.auto_update_modules or []),
+            "pending_update_modules": json.dumps(
+                self.pending_update_modules or []),
             "status": self.status,
             "pid": self.pid,
             "last_error": self.last_error,
@@ -153,6 +159,7 @@ class Instance:
             primary_db=get("primary_db") or "",
             tracked_dbs=_loads(get("tracked_dbs")),
             auto_update_modules=_loads(get("auto_update_modules")),
+            pending_update_modules=_loads(get("pending_update_modules")),
             status=get("status") or "draft",
             pid=get("pid"),
             last_error=get("last_error"),

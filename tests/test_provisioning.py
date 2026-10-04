@@ -131,3 +131,28 @@ def test_discard_draft(tmp_path, db, hermetic_passwords):
     assert res.ok, res.message
     assert list_instances(db) == []
     assert not (tmp_path / "inst").exists()
+
+
+def test_discard_draft_refuses_non_drafts_and_adopted(tmp_path, db):
+    """3.3.0 P1: discard_draft must not rmtree arbitrary instance paths."""
+    from odoo_vite.core.registry import create_instance, get_instance, list_instances
+
+    base = tmp_path / "real"
+    base.mkdir()
+    (base / "odoo.conf").write_text("[options]")
+
+    stopped = _inst(tmp_path, name="Ready", status="stopped")
+    create_instance(stopped, db)
+    res = provisioning.discard_draft(stopped.id, db)
+    assert not res.ok and "refusing" in res.message.lower()
+    assert base.is_dir() and (base / "odoo.conf").is_file()
+    assert get_instance(stopped.id, db) is not None
+
+    adopted = _inst(tmp_path, name="Adopted", mode="adopted", status="draft")
+    create_instance(adopted, db)
+    res = provisioning.discard_draft(adopted.id, db)
+    assert not res.ok and "refusing" in res.message.lower()
+    assert get_instance(adopted.id, db) is not None
+
+    assert len(list_instances(db)) == 2
+    assert not provisioning.discard_draft("nope", db).ok

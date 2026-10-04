@@ -35,6 +35,64 @@ export function useBridgeReady(): { ready: boolean; native: boolean } {
 
 // ---------------------------------------------------------------- mock (dev)
 
+/**
+ * 3.3.0 P0: a missing mock method used to be `undefined` — calling it threw
+ * a synchronous TypeError inside effects (`.catch` never attached) and the
+ * root ErrorBoundary white-screened the whole app. Every path the shell can
+ * reach now falls through to a generic, shape-tolerant answer instead.
+ */
+function mockValue(path: string): unknown {
+  // Overrides for callers that DON'T check `.ok` first and need a real shape.
+  if (path.endsWith('group_entries')) return { likely: [], other: [], plain: [] }
+  if (path.endsWith('state_categories')) return {}
+  if (path.endsWith('detect_editors')) return {}
+  if (path.endsWith('shell_poll')) return { running: false, lines: [] }
+  if (path.endsWith('server_reachable')) return true
+  if (
+    path.endsWith('format_meta_line') ||
+    path.endsWith('format_record_label') ||
+    path.endsWith('format_cron_line') ||
+    path.endsWith('validate_locate') ||
+    path.endsWith('validate_details') ||
+    path.endsWith('suggest_db_name') ||
+    path.endsWith('generate_password')
+  )
+    return ''
+  if (path.endsWith('config.read')) return {}
+  // Default: an array carrying Result fields — `.map`/`.length` are safe,
+  // `res.ok` is false so guarded call sites bail with the mock message,
+  // and an array as a React child renders as nothing (no object-child crash).
+  const arr: unknown[] = []
+  return Object.assign(arr, {
+    ok: false,
+    message: `mock: ${path} — not implemented in browser dev`,
+  })
+}
+
+function mockFn(path: string): unknown {
+  return new Proxy(
+    function () {},
+    {
+      get(_t, prop) {
+        if (prop === 'then' || prop === 'toJSON' || typeof prop === 'symbol')
+          return undefined
+        return mockFn(`${path}.${String(prop)}`)
+      },
+      apply: () => Promise.resolve(mockValue(path)),
+    },
+  )
+}
+
+function withFallback<T extends object>(target: T, prefix: string): T {
+  return new Proxy(target, {
+    get(t, prop, recv) {
+      const v = Reflect.get(t, prop, recv) as unknown
+      if (v !== null && v !== undefined) return v
+      return mockFn(`${prefix}.${String(prop)}`)
+    },
+  })
+}
+
 const MOCK_INSTANCES: InstanceRow[] = [
   {
     id: 'mock-demo',
@@ -74,6 +132,7 @@ const mock: ApiTree = {
       ok: false,
       message: 'mock: no file dialog in browser dev',
     }),
+    path_exists: async (): Promise<boolean> => false,
     version: async () => 'dev (mock)',
     instance: async (id: string) => MOCK_INSTANCES.find((i) => i.id === id) ?? null,
     enterprise: async (): Promise<Result> => ({ ok: true, message: 'mock: no enterprise' }),
@@ -285,8 +344,18 @@ const mock: ApiTree = {
 }
 
 /** The API to call from the shell: native bridge when present, mock otherwise. */
+const safeMock: ApiTree = new Proxy(mock as ApiTree, {
+  get(t, prop, recv) {
+    const v = Reflect.get(t, prop, recv) as unknown
+    if (v !== null && v !== undefined) {
+      return typeof v === 'object' ? withFallback(v as object, String(prop)) : v
+    }
+    return mockFn(String(prop))
+  },
+})
+
 export function getApi(): ApiTree {
-  return window.pywebview?.api ?? mock
+  return window.pywebview?.api ?? safeMock
 }
 
 /** Simulate a push from mock code (used by browser-dev demo controls). */

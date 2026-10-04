@@ -213,6 +213,49 @@ def test_auto_update_modules_appended(db, fake_fs, _popen, _no_collision, monkey
     assert cmd[cmd.index("-u") + 1] == "sale,stock"
 
 
+def test_pending_update_merged_and_consumed(db, fake_fs, _popen, _no_collision,
+                                            monkeypatch):
+    """3.2.0 F1: the one-shot queue joins -u (deduped) and clears after a
+    launch that stays alive; the every-start list is left alone."""
+    monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
+    inst = _inst(fake_fs, auto_update_modules=["sale"],
+                 pending_update_modules=["stock", " sale "])
+    _register(inst, db)
+    res = process_manager.start_instance(
+        inst.id, confirm_cb=lambda pv: True, db_path=db)
+    assert res.ok, res.message
+    cmd = FakePopen.launched[0][0]
+    assert cmd[cmd.index("-u") + 1] == "sale,stock"
+    row = get_instance(inst.id, db)
+    assert row.pending_update_modules == []
+    assert row.auto_update_modules == ["sale"]
+
+
+def test_pending_survives_immediate_crash(db, fake_fs, _popen, _no_collision,
+                                          monkeypatch):
+    """Consume-on-success only: a launch that dies instantly keeps the queue."""
+    monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: None)
+    FakePopen.poll_result = 1
+    inst = _inst(fake_fs, pending_update_modules=["stock"])
+    _register(inst, db)
+    res = process_manager.start_instance(
+        inst.id, confirm_cb=lambda pv: True, db_path=db)
+    assert not res.ok
+    row = get_instance(inst.id, db)
+    assert row.pending_update_modules == ["stock"]
+
+
+def test_build_command_pending_can_be_excluded(fake_fs):
+    """Standalone initialize_database must not drain the start queue."""
+    inst = _inst(fake_fs, auto_update_modules=["sale"],
+                 pending_update_modules=["stock"])
+    cmd = process_manager._build_command(inst, "d", True,
+                                         include_pending=False)
+    assert cmd[cmd.index("-u") + 1] == "sale"
+    full = process_manager._build_command(inst, "d", True)
+    assert full[full.index("-u") + 1] == "sale,stock"
+
+
 def test_already_running_refuses(db, fake_fs, _popen, monkeypatch):
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: 99999)
     inst = _inst(fake_fs)

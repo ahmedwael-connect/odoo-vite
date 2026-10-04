@@ -69,12 +69,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState('')
   const toastSeq = useRef(0)
 
-  const loadStatuses = useCallback(async () => {
+  const loadStatuses = useCallback(async (): Promise<boolean> => {
     try {
       setStatuses(await getApi().app.statuses())
       setError('')
+      return true
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      return false
     }
   }, [])
 
@@ -101,7 +103,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // boot + 2s status poll (Slint bridge's poll timer)
   useEffect(() => {
     refresh()
-    const timer = window.setInterval(loadStatuses, 2000)
+    // 3.2.0 P1: if the page rendered before pywebview attached, the first
+    // refresh answered from the browser-dev mock — re-sync the moment the
+    // real bridge shows up (otherwise instances stay mock until F5).
+    const onBridgeReady = () => refresh()
+    window.addEventListener('pywebviewready', onBridgeReady)
+    // 3.2.0: adaptive poll — 2s while healthy, 10s when the window is
+    // hidden or the bridge is failing (was a fixed 2s interval forever).
+    let timer = 0
+    const schedule = (ms: number) => {
+      timer = window.setTimeout(() => {
+        const tick = async () => {
+          if (document.hidden) {
+            schedule(10000)
+            return
+          }
+          const ok = await loadStatuses()
+          schedule(ok ? 2000 : 10000)
+        }
+        void tick()
+      }, ms)
+    }
+    schedule(2000)
     const offRefresh = onEvent('refresh', () => refresh())
     const offMessage = onEvent('message', (payload) => {
       toastSeq.current += 1
@@ -115,7 +138,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     })
     return () => {
-      window.clearInterval(timer)
+      window.removeEventListener('pywebviewready', onBridgeReady)
+      window.clearTimeout(timer)
       offRefresh()
       offMessage()
     }

@@ -185,7 +185,12 @@ export default function DevTools() {
   const [rpcUser, setRpcUser] = useState('')
   const [rpcPass, setRpcPass] = useState('')
   const [rpcRemember, setRpcRemember] = useState(false)
-  const [rpcStatus, setRpcStatus] = useState('Not connected.')
+  // 3.2.0: RPC sessions are per-instance and live on in the backend — a
+  // flat reset to "Not connected." on instance switch was a fake reset
+  // (claimed dead while A's session was alive; stayed "dead" on A after
+  // switching back). Key the status by instance instead.
+  const [rpcByIid, setRpcByIid] = useState<Record<string, string>>({})
+  const rpcStatus = currentId ? (rpcByIid[currentId] ?? 'Not connected.') : 'Not connected.'
 
   const [models, setModels] = useState<ModelEntry[]>([])
   const [modelSelected, setModelSelected] = useState('')
@@ -258,11 +263,30 @@ export default function DevTools() {
     setRecPage('No query yet.')
     setCrons([])
     setCronEmpty('No cron jobs loaded — press Refresh.')
-    setRpcStatus('Not connected.')
+    // rpcStatus is keyed per instance now — intentionally NOT reset here
+    // (the per-instance session may still be alive on the backend).
     setShellRunning(false)
     setShellStatus('Shell not running.')
     setShellLines([])
-  }, [currentId])
+    // 3.2.0 P1: the shell is app-global — the reset above used to leave
+    // shellRunning=false (Stop disabled) while the subprocess kept going,
+    // so a shell started on another instance became unstoppable. Re-probe
+    // the real state and resume polling when it's alive.
+    void api.devtools
+      .shell_poll()
+      .then((res) => {
+        if (res.lines?.length) {
+          setShellLines((prev) =>
+            [...prev, ...res.lines.map((l) => l.slice(0, 2000))].slice(-SHELL_CAP),
+          )
+        }
+        if (res.running) {
+          setShellRunning(true)
+          setShellStatus('Shell running.')
+        }
+      })
+      .catch(() => undefined)
+  }, [currentId, api])
 
   // ------------------------------------------------------------- events
   useEffect(() => {
@@ -270,7 +294,8 @@ export default function DevTools() {
     const mine = (p: Dict) => !p.instance_id || p.instance_id === currentId
 
     const offRpc = onEvent('dev-rpc', (p) => {
-      if (mine(p)) setRpcStatus(String(p.message ?? ''))
+      const iid = String(p.instance_id ?? '') || currentId || ''
+      if (iid) setRpcByIid((prev) => ({ ...prev, [iid]: String(p.message ?? '') }))
     })
     const offModels = onEvent('dev-models', (p) => {
       if (!mine(p)) return

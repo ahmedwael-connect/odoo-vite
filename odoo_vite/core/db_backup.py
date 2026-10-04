@@ -80,6 +80,7 @@ def backup_database(
     db_name: str,
     dest_path: str | Path,
     progress_cb: Callable[[str], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
     db_user: str = "odoo",
     db_password: str | None = None,
     instance_id: str = "",
@@ -112,12 +113,34 @@ def backup_database(
     env = dict(os.environ)
     if db_password:
         env["PGPASSWORD"] = db_password
+    # 3.3.0 P1: pg_dump writes into a `.part` sibling and the result is
+    # atomically renamed only on success — a cancelled/failed run used to
+    # leave a truncated file AT THE FINAL PATH, indistinguishable from a
+    # good backup to prune/index/list.
+    part = Path(str(dest) + ".part")
+    try:
+        part.unlink(missing_ok=True)
+    except OSError:
+        pass
     res = run_streaming(
-        ["pg_dump", "-h", "localhost", "-U", db_user, "-Fc", "-f", str(dest), db_name],
-        progress_cb=progress_cb, timeout=3600, env=env,
+        ["pg_dump", "-h", "localhost", "-U", db_user, "-Fc", "-f",
+         str(part), db_name],
+        progress_cb=progress_cb, cancel=cancel, timeout=3600, env=env,
     )
     if not res.ok:
+        try:
+            part.unlink(missing_ok=True)
+        except OSError:
+            pass
         return Result.failure(f"pg_dump failed: {res.message}")
+    try:
+        os.replace(part, dest)
+    except OSError as exc:
+        try:
+            part.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return Result.failure(f"Cannot finalize backup file: {exc}")
     try:
         size = dest.stat().st_size
     except OSError:
@@ -148,6 +171,7 @@ def restore_database(
     dump_path: str | Path,
     target_db: str,
     progress_cb: Callable[[str], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
     db_user: str = "odoo",
     db_password: str | None = None,
 ) -> Result:
@@ -171,6 +195,10 @@ def restore_database(
     valid = validate_dump(dump_path)
     if not valid.ok:
         return valid
+    # 3.2.0: cancel BEFORE the destructive drop — once the target is gone
+    # there is nothing left to "not do".
+    if cancel is not None and cancel():
+        return Result.failure("Restore cancelled (target untouched)")
     fmt = (valid.data or {}).get("format", "custom")
 
     import os
@@ -199,7 +227,8 @@ def restore_database(
     else:
         cmd = ["psql", "-h", "localhost", "-U", db_user, "-d", target_db,
                "-v", "ON_ERROR_STOP=1", "-f", str(Path(dump_path).expanduser())]
-    res = run_streaming(cmd, progress_cb=progress_cb, timeout=3600, env=env)
+    res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel,
+                        timeout=3600, env=env)
     if not res.ok:
         return Result.failure(
             f"Restore into '{target_db}' failed: {res.message} "

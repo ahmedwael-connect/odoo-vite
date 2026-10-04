@@ -1195,6 +1195,36 @@ def sync_featured(db_path=None) -> Result:
 # ------------------------------------------------------------- github index
 
 _REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+_BRANCH_RE = re.compile(r"^[\w./-]+$")
+
+
+def _repo_path(owner_repo: str) -> tuple[str, Result | None]:
+    """Validate owner/repo and resolve it inside the marketplace cache.
+
+    Returns (source, None) when safe, or ("", failure) when the input is
+    not a plain owner/repo pair or would escape the cache directory
+    (e.g. `../..` — the regex alone accepts dots, and rmtree on the
+    result would delete the app data directory).
+    """
+    source = (owner_repo or "").strip().strip("/")
+    if source.startswith("https://github.com/"):
+        source = source[len("https://github.com/"):]
+    if not _REPO_RE.match(source) or any(
+        seg in ("", ".", "..") for seg in source.split("/")
+    ):
+        return "", Result.failure(
+            "Expected a GitHub repo as owner/repo (e.g. OCA/web-responsive)")
+    cache_root = cache_dir().resolve()
+    dest = (cache_root / source).resolve()
+    if dest == cache_root or not dest.is_relative_to(cache_root):
+        return "", Result.failure(
+            f"Refusing to use a path outside the marketplace cache: {source}")
+    return source, None
+
+
+def _branch_ok(branch: str) -> bool:
+    return bool(branch) and bool(_BRANCH_RE.match(branch)) and \
+        not branch.startswith("-") and ".." not in branch
 
 
 def _run_git(args: list[str], timeout: int = 120,
@@ -1264,12 +1294,9 @@ def index(owner_repo: str, branch: str = "", progress_cb=None,
     scans for __manifest__.py, and upserts source='github' rows with
     manifest metadata + README as description.
     """
-    source = (owner_repo or "").strip().strip("/")
-    if source.startswith("https://github.com/"):
-        source = source[len("https://github.com/"):]
-    if not _REPO_RE.match(source):
-        return Result.failure(
-            "Expected a GitHub repo as owner/repo (e.g. OCA/web-responsive)")
+    source, err = _repo_path(owner_repo)
+    if err is not None:
+        return err
     if shutil.which("git") is None:
         return Result.failure("git is not installed (required to index)")
     if cancel is not None and cancel():
@@ -1281,8 +1308,10 @@ def index(owner_repo: str, branch: str = "", progress_cb=None,
         if not bres.ok:
             return bres
         branch = bres.data
+    if not _branch_ok(branch):
+        return Result.failure(f"Invalid branch name '{branch}'")
 
-    dest = cache_dir() / source
+    dest = (cache_dir().resolve() / source).resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     if (dest / ".git").exists():

@@ -492,6 +492,35 @@ def test_index_github_validation(tmp_path, monkeypatch):
     assert not m.index("OCA/web", cancel=lambda: True, db_path=db).ok
 
 
+def test_index_github_traversal_guard(tmp_path, monkeypatch):
+    """3.3.0 P0: owner/repo input must never escape the cache dir.
+
+    The old regex accepted `../..`, so dest resolved to the parent of the
+    cache (the app data dir) and the refresh path rmtree'd it before the
+    clone even ran.
+    """
+    db = _db(tmp_path)
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("ODOO_VITE_MARKETPLACE_CACHE", str(cache))
+    monkeypatch.setenv("ODOO_VITE_GITHUB_BASE", "https://github.com")
+    cache.mkdir()
+    marker = tmp_path / "keepme.txt"
+    marker.write_text("x")
+
+    for evil in ("../..", "..", "a/..", "OCA/..", "x/../../y",
+                 "https://github.com/../..", "/../.."):
+        res = m.index(evil, db_path=db)
+        assert not res.ok, f"accepted {evil!r}"
+    assert marker.is_file(), "traversal deleted files outside the cache"
+    assert cache.is_dir()
+
+    # branch names are git argv too — reject option-like / traversal forms
+    res = m.index("OCA/demo", branch="--upload-pack=/bin/sh", db_path=db)
+    assert not res.ok and "branch" in res.message.lower()
+    res = m.index("OCA/demo", branch="../../x", db_path=db)
+    assert not res.ok and "branch" in res.message.lower()
+
+
 # ---------------------------------------------------------------- zip import
 
 

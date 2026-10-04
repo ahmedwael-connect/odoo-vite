@@ -151,7 +151,11 @@ def test_apply_writes_conf_then_registry(tmp_path, db):
     res = addon_paths.apply_addons_state(inst.id, entries, db_path=db)
     assert res.ok, res.message
     assert res.data["addons_path"] == "/a"
-    assert get_instance(inst.id, db).addons_state == entries
+    # 3.2.0 F2: stored rows gain a detected `type` (neither path exists,
+    # so both classify as unknown).
+    assert get_instance(inst.id, db).addons_state == [
+        {"path": "/a", "enabled": True, "type": "unknown"},
+        {"path": "/b", "enabled": False, "type": "unknown"}]
     text = (base / "odoo.conf").read_text()
     assert "addons_path = /a\n" in text and "/b" not in text
     # empty path / empty result refused

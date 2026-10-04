@@ -134,6 +134,20 @@ export default function Overview() {
 
   const api = getApi()
 
+  // 3.2.0 F1: one-shot update queue — surface it before Start, let it be
+  // cleared without touching the every-start list.
+  const pending = current.pending_update_modules ?? []
+  const clearPending = async () => {
+    setBusy(true)
+    try {
+      const res = await api.config.meta_save(current.id, { pending_update_modules: [] })
+      route({ kind: 'message', payload: { text: res.message, level: res.ok ? 'info' : 'error' } })
+    } finally {
+      setBusy(false)
+      refresh()
+    }
+  }
+
   const act = async <T extends { ok: boolean; message: string }>(fn: () => Promise<T>): Promise<T> => {
     setBusy(true)
     try {
@@ -155,8 +169,15 @@ export default function Overview() {
         body: `${data.preview?.detail ?? res.message}\n\nRuns odoo-bin -i base, then starts.`,
         confirmLabel: 'Create + Start',
       })
-      if (ok) await act(() => api.lifecycle.start(current.id, null, true))
+      if (ok) {
+        const res2 = await act(() => api.lifecycle.start(current.id, null, true))
+        if (!res2.ok) route({ kind: 'message', payload: { text: res2.message, level: 'error' } })
+      }
+      return
     }
+    // 3.2.0 P1: any other failure used to be silent ("pressed Start,
+    // nothing happened" — e.g. venv missing, conf gone, port in use).
+    route({ kind: 'message', payload: { text: res.message, level: 'error' } })
   }
 
   const onRemove = async () => {
@@ -208,7 +229,37 @@ export default function Overview() {
     if (busy) return
     const picked = await api.app.pick_file('Export instance as…', 'save', 'Odoo Vite bundles (*.tar.gz)')
     if (!picked.ok || !picked.path) return
-    await act(() => api.transfer.export_bundle(current.id, picked.path!))
+    // 3.2.0 P0: pywebview's save dialog never asks about overwriting.
+    if (await api.app.path_exists(picked.path!)) {
+      const ow = await confirm({
+        heading: 'Overwrite existing bundle?',
+        body: `${picked.path} already exists — overwrite it? The current contents are lost.`,
+        confirmLabel: 'Overwrite',
+        destructive: true,
+      })
+      if (!ow) return
+    }
+    // 3.2.0 P1: bundles carry odoo.conf — the database password travels
+    // inside the archive; say so before writing it to disk.
+    const pw = await confirm({
+      heading: 'Export contains the database password?',
+      body:
+        'The bundle includes odoo.conf (db_password), addons state and instance metadata.\n' +
+        'Treat the file as a credential — store and share it accordingly.',
+      confirmLabel: 'Export',
+    })
+    if (!pw) return
+    // 3.2.0: export streams file progress + supports Cancel (big trees).
+    setBusy(true)
+    try {
+      const res = await runProgress('Exporting instance…', (opId) =>
+        getApi().transfer.export_bundle(current.id, picked.path!, opId),
+      )
+      route({ kind: 'message', payload: { text: res.message, level: res.ok ? 'info' : 'error' } })
+    } finally {
+      setBusy(false)
+      refresh()
+    }
   }
 
   const onRebuildVenv = async () => {
@@ -273,6 +324,19 @@ export default function Overview() {
           </div>
           <DimText>{health.summary}</DimText>
         </Card>
+      )}
+
+      {pending.length > 0 && (
+        <Banner
+          kind="info"
+          action={
+            <ActionButton disabled={busy} onClick={() => void clearPending()}>
+              Clear
+            </ActionButton>
+          }
+        >
+          Will update on next start: {pending.join(', ')}
+        </Banner>
       )}
 
       <Card title="Server">

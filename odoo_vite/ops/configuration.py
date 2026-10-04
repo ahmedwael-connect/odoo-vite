@@ -68,6 +68,11 @@ def read_conf_view(inst) -> dict:
         "workers": inst.workers or 0,
         "log_level": inst.log_level or "info",
         "python_binary": inst.python_binary or "",
+        # 3.2.0 F1: both update lists drive the metadata card editor.
+        "auto_update_modules": list(
+            getattr(inst, "auto_update_modules", None) or []),
+        "pending_update_modules": list(
+            getattr(inst, "pending_update_modules", None) or []),
     }
 
 
@@ -82,7 +87,7 @@ def validate_meta(meta: dict) -> str | None:
 
 class ConfigOps:
     def __init__(self, on_message=None, on_refresh=None) -> None:
-        self._message = on_message or (lambda _m: None)
+        self._message = on_message or (lambda _m, _k="info": None)
         self._refresh = on_refresh or (lambda: None)
 
     async def _run(self, fn, *args, **kwargs):
@@ -94,7 +99,9 @@ class ConfigOps:
             res = Result.success(
                 data=res.data,
                 message=res.message + " (takes effect on next restart)")
-        self._message(res.message)
+        # 3.2.0 P1: failures were pushed as level "info" and rendered like
+        # a success toast — failures belong on the error channel.
+        self._message(res.message, "info" if res.ok else "error")
         self._refresh()
         return res
 
@@ -125,38 +132,73 @@ class ConfigOps:
 
     async def meta_save(self, instance_id: str, meta: dict):
         """Registry + conf metadata write (Qt meta_save parity: workers
-        pre-check runs before ANY write)."""
+        pre-check runs before ANY write).
+
+        3.2.0 F1: keys absent from `meta` are left untouched, so callers
+        may write a subset (e.g. only the pending-update queue from the
+        Overview) without wiping description/workers/log_level/python.
+        """
 
         def _work():
             inst = get_instance(instance_id)
             if inst is None:
                 return Result.failure("Instance disappeared")
-            try:
-                workers = int(meta.get("workers", 0) or 0)
-            except (TypeError, ValueError):
-                return Result.failure(
-                    f"Invalid workers value '{meta.get('workers')}'")
-            pre = conf_manager.check_workers_prereqs(workers, inst.conf_path)
-            if not pre.ok:
-                return Result.failure(pre.message)
-            res = update_instance(
-                instance_id,
-                description=meta.get("description", ""),
-                workers=workers,
-                log_level=meta.get("log_level", "info"),
-                python_binary=meta.get("python_binary", ""))
-            if not res.ok:
-                return Result.failure(res.message)
-            conf_res = conf_manager.update_conf_keys(inst.conf_path, {
-                "workers": str(workers),
-                "log_level": meta.get("log_level", "info"),
-            })
-            if not conf_res.ok:
-                return Result.failure(
-                    "Metadata saved, but conf write failed: "
-                    + conf_res.message)
+
+            fields: dict = {}
+            workers: int | None = None
+            if "workers" in meta:
+                try:
+                    workers = int(meta.get("workers", 0) or 0)
+                except (TypeError, ValueError):
+                    return Result.failure(
+                        f"Invalid workers value '{meta.get('workers')}'")
+                pre = conf_manager.check_workers_prereqs(workers,
+                                                         inst.conf_path)
+                if not pre.ok:
+                    return Result.failure(pre.message)
+                fields["workers"] = workers
+            if "description" in meta:
+                fields["description"] = str(meta.get("description") or "")
+            if "log_level" in meta:
+                fields["log_level"] = meta.get("log_level") or "info"
+            if "python_binary" in meta:
+                fields["python_binary"] = str(meta.get("python_binary") or "")
+            for key in ("auto_update_modules", "pending_update_modules"):
+                if key in meta:
+                    raw = meta.get(key)
+                    if not isinstance(raw, (list, tuple)):
+                        return Result.failure(
+                            f"'{key}' must be a list of module names")
+                    fields[key] = [
+                        str(m).strip() for m in raw if str(m).strip()]
+
+            if fields:
+                res = update_instance(instance_id, **fields)
+                if not res.ok:
+                    return Result.failure(res.message)
+
+            conf_fields: dict = {}
+            if workers is not None:
+                conf_fields["workers"] = str(workers)
+            if "log_level" in meta:
+                conf_fields["log_level"] = meta.get("log_level") or "info"
+            if conf_fields:
+                conf_res = conf_manager.update_conf_keys(inst.conf_path,
+                                                         conf_fields)
+                if not conf_res.ok:
+                    return Result.failure(
+                        "Metadata saved, but conf write failed: "
+                        + conf_res.message)
+
+            if not fields and not conf_fields:
+                return Result.success(message="Nothing to save")
+            parts = []
+            if fields:
+                parts.append("registry")
+            if conf_fields:
+                parts.append("odoo.conf")
             return Result.success(
-                message="Metadata saved (registry + odoo.conf)")
+                message="Metadata saved (" + " + ".join(parts) + ")")
 
         return await self._run(_work)
 

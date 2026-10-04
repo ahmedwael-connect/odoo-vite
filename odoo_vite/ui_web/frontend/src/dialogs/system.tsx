@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react'
 import { copyWithToast, downloadText } from '../clipboard'
 import { getApi } from '../bridge'
-import { Modal } from '../components/dialog'
+import { Modal, useProgressRun } from '../components/dialog'
 import { ActionButton, DimText, EmptyState, LineList, SectionHeader, Select, StatusPill, TextInput } from '../components/ui'
 import { route, type ProgressOp } from '../events'
 import { useApp } from '../store'
@@ -54,7 +54,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         level: res.ok ? 'info' : 'error',
       },
     })
-    onClose()
+    // 3.2.0 P1: a failed save kept the dialog — closing hid the failure and
+    // the form state looked saved.
+    if (res.ok) onClose()
   }
 
   return (
@@ -140,6 +142,7 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
 export function ImportDialog({ onClose }: { onClose: () => void }) {
   const api = getApi()
   const { refresh } = useApp()
+  const runProgress = useProgressRun()
   const [archive, setArchive] = useState('')
   const [info, setInfo] = useState<Dict | null>(null)
   const [name, setName] = useState('')
@@ -177,7 +180,10 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     }
     setBusy(true)
     try {
-      const res = await api.transfer.import_bundle(archive, trimmed, port)
+      // 3.2.0: unpacking a big bundle streams + cancels like export.
+      const res = await runProgress('Importing instance…', (opId) =>
+        api.transfer.import_bundle(archive, trimmed, port, opId),
+      )
       if (!res.ok) {
         setError(res.message)
         return

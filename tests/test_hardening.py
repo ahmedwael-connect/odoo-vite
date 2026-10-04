@@ -62,6 +62,32 @@ def test_ensure_role_scripts_per_mode():
     assert "CREATEDB" not in man.data["script"].replace("NOCREATEDB", "")
 
 
+def test_ensure_role_password_never_in_argv(monkeypatch):
+    """3.3.0 P1: ALTER ... PASSWORD travels on stdin, never in argv
+    (argv is world-readable via `ps` during the pkexec dialog)."""
+    from odoo_vite.core import db_manager
+
+    captured: dict = {}
+
+    def _cap(cmd, env_extra=None, timeout=60, input_text=None):
+        captured["cmd"] = cmd
+        captured["input"] = input_text
+        return 0, ""
+
+    monkeypatch.setattr(db_manager, "_run", _cap)
+    monkeypatch.setattr(db_manager, "role_exists", lambda *a, **k: False)
+    monkeypatch.setattr(db_manager, "role_has_createdb", lambda *a, **k: None)
+    monkeypatch.setattr(db_manager, "server_reachable", lambda: True)
+    monkeypatch.setattr(db_manager.shutil, "which",
+                        lambda n: f"/usr/bin/{n}")
+
+    res = db_manager.ensure_role("u9", "s3cret-pw", createdb=True)
+    assert res.ok, res.message
+    assert "s3cret-pw" not in " ".join(captured["cmd"])
+    assert captured["cmd"][-2:] == ["-f", "-"]
+    assert "s3cret-pw" in (captured["input"] or "")
+
+
 def test_ensure_role_resolves_global_mode(tmp_path, monkeypatch):
     from odoo_vite.core import db_manager
     from odoo_vite.core.settings import set_provisioning_mode

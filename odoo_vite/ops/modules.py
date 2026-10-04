@@ -238,7 +238,12 @@ class ModuleOps:
         if inst is None:
             self._message("Instance disappeared", "error")
             return Result.failure("Instance disappeared")
-        if (inst.status or "") == "running":
+        # 3.2.0 P1: the registry status is a snapshot — a process that died
+        # externally left status="running" here and blocked update-code
+        # forever. Probe the live pid instead (and vice versa).
+        from odoo_vite.core import process_manager
+
+        if process_manager._alive_pid(inst) is not None:
             self._message("Stop the instance first — code changes under a "
                           "live server would half-apply", "error")
             return Result.failure("Stop the instance first — code changes "

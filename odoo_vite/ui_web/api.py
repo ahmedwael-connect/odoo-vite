@@ -280,6 +280,17 @@ class AppApi(Domain):
         path = self._file_dialog("folder", title, "")
         return {"ok": True, "path": path}
 
+    def path_exists(self, path: str) -> bool:
+        """3.2.0 P0: save dialogs don't confirm overwrite (pywebview/GTK
+        never sets do-overwrite-confirmation) — the UI asks before writing."""
+        raw = str(path or "").strip()
+        if not raw:
+            return False
+        try:
+            return Path(raw).expanduser().exists()
+        except (OSError, ValueError):
+            return False
+
     def version(self) -> str:
         return version_mod.__version__
 
@@ -336,8 +347,9 @@ class LifecycleApi(Domain):
 
 
 class DatabasesApi(Domain):
-    def __init__(self, push: PushChannel) -> None:
+    def __init__(self, push: PushChannel, cancels: CancelRegistry) -> None:
         self._push = push
+        self._cancels = cancels
         self._ops = DatabaseOps(
             on_message=_sink_message(push),
             on_refresh=_sink_refresh(push),
@@ -364,17 +376,30 @@ class DatabasesApi(Domain):
     def discover_entries(self, instance_id: str) -> Any:
         return asyncio.run(self._ops.discover_entries(instance_id))
 
-    def init_db(self, instance_id: str, db_name: str) -> Any:
-        return asyncio.run(self._ops.init_db(instance_id, db_name))
+    def init_db(self, instance_id: str, db_name: str,
+                op_id: str = "") -> Any:
+        # 3.2.0: `-i base` can run for minutes — stream it + allow cancel.
+        return _progress_call(
+            self._push, self._cancels, self._ops.init_db, op_id,
+            instance_id, db_name,
+        )
 
     def drop_db(self, instance_id: str, db_name: str) -> Any:
         return asyncio.run(self._ops.drop_db(instance_id, db_name))
 
-    def backup_db(self, instance_id: str, db_name: str, dest: str) -> Any:
-        return asyncio.run(self._ops.backup_db(instance_id, db_name, dest))
+    def backup_db(self, instance_id: str, db_name: str, dest: str,
+                  op_id: str = "") -> Any:
+        return _progress_call(
+            self._push, self._cancels, self._ops.backup_db, op_id,
+            instance_id, db_name, dest,
+        )
 
-    def restore_db(self, instance_id: str, dump: str, target: str) -> Any:
-        return asyncio.run(self._ops.restore_db(instance_id, dump, target))
+    def restore_db(self, instance_id: str, dump: str, target: str,
+                   op_id: str = "") -> Any:
+        return _progress_call(
+            self._push, self._cancels, self._ops.restore_db, op_id,
+            instance_id, dump, target,
+        )
 
     def validate(self, instance_id: str) -> Any:
         return asyncio.run(self._ops.validate(instance_id))
@@ -642,6 +667,10 @@ class ConfigApi(Domain):
 
     def looks_like_addons(self, path: str) -> bool:
         return bool(addon_paths.looks_like_addons_folder(path))
+
+    def auto_type_addons(self, instance_id: str) -> Any:
+        """3.2.0 F2: classify every addons path (community/enterprise/…)."""
+        return addon_paths.auto_type_addons(instance_id)
 
     def venv_status(self, instance_id: str) -> dict:
         """Is the instance's venv python present? (Overview U5.2 warning.)"""
@@ -1010,8 +1039,9 @@ class WizardsApi(Domain):
 
 
 class TransferApi(Domain):
-    def __init__(self, push: PushChannel) -> None:
+    def __init__(self, push: PushChannel, cancels: CancelRegistry) -> None:
         self._push = push
+        self._cancels = cancels
         self._ops = TransferOps(
             on_message=_sink_message(push), on_refresh=_sink_refresh(push)
         )
@@ -1019,11 +1049,20 @@ class TransferApi(Domain):
     def preview(self, archive: str) -> Any:
         return self._ops.preview(archive)
 
-    def export_bundle(self, instance_id: str, dest: str) -> Any:
-        return asyncio.run(self._ops.export_bundle(instance_id, dest))
+    def export_bundle(self, instance_id: str, dest: str,
+                      op_id: str = "") -> Any:
+        # 3.2.0: streamed + cancelable (large trees can take minutes).
+        return _progress_call(
+            self._push, self._cancels, self._ops.export_bundle, op_id,
+            instance_id, dest,
+        )
 
-    def import_bundle(self, archive: str, new_name: str, new_port=None) -> Any:
-        return asyncio.run(self._ops.import_bundle(archive, new_name, new_port))
+    def import_bundle(self, archive: str, new_name: str, new_port=None,
+                      op_id: str = "") -> Any:
+        return _progress_call(
+            self._push, self._cancels, self._ops.import_bundle, op_id,
+            archive, new_name, new_port,
+        )
 
     def bundle_filename(self, name: str, stamp: str) -> str:
         return bundle_filename(name, stamp)
@@ -1096,14 +1135,14 @@ class Api:
         cancels = CancelRegistry()
         self.app = AppApi(push, file_dialog)
         self.lifecycle = LifecycleApi(push, cancels)
-        self.databases = DatabasesApi(push)
+        self.databases = DatabasesApi(push, cancels)
         self.modules = ModulesApi(push, cancels)
         self.marketplace = MarketplaceApi(push, cancels)
         self.config = ConfigApi(push, cancels)
         self.logs = LogsApi(push)
         self.devtools = DevToolsApi(push)
         self.wizards = WizardsApi(push, cancels)
-        self.transfer = TransferApi(push)
+        self.transfer = TransferApi(push, cancels)
         self.audit = AuditApi()
         life = LifecycleOps(
             on_message=_sink_message(push), on_refresh=_sink_refresh(push)

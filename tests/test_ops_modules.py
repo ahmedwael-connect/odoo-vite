@@ -184,8 +184,13 @@ def test_update_code_guards(tmp_path, monkeypatch):
                    status="running", auto_update_modules=["sale"])
     assert create_instance(run).ok
     ops, messages, _, _, _ = _ops()
+    # 3.2.0: the Stop guard probes the LIVE pid — simulate a live process.
+    monkeypatch.setattr(
+        "odoo_vite.core.process_manager._alive_pid",
+        lambda inst: 4321 if inst.name == "Run" else None)
     res = asyncio.run(ops.update_code(run.id))
     assert not res.ok and "Stop" in res.message
+    # remaining cases: patched _alive_pid returns None → normal guards.
 
     bare = Instance(name="Bare", version="17.0", path=str(tmp_path),
                     community_path=str(tmp_path / "odoo"))
@@ -201,6 +206,43 @@ def test_update_code_guards(tmp_path, monkeypatch):
     res = asyncio.run(ops.update_code(nongit.id))
     assert not res.ok and "git" in res.message
     assert update_instance(run.id, status="stopped").ok  # leave clean
+
+
+def test_update_code_stale_running_passes_guard(tmp_path, monkeypatch):
+    """3.2.0: registry status='running' with a dead pid must NOT trip the
+    Stop guard (that was the stuck-forever bug); it fails later at the
+    git checkout probe instead."""
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "stale.db"))
+    stale = Instance(
+        name="Stale", version="17.0", path=str(tmp_path),
+        community_path=str(tmp_path / "plain"),
+        auto_update_modules=["sale"], status="running")
+    assert create_instance(stale).ok
+    (tmp_path / "plain").mkdir()
+    ops, _messages, _, _, _ = _ops()
+    res = asyncio.run(ops.update_code(stale.id))
+    assert not res.ok
+    assert "Stop" not in res.message
+    assert "git" in res.message  # died at the checkout probe, not the guard
+
+
+def test_update_code_empty_community_refused(tmp_path, monkeypatch):
+    """3.2.0: empty community_path collapsed to Path('.') and stage 1 ran
+    `git -C . pull` against the app's cwd (any git repo, incl. our own)."""
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance
+
+    monkeypatch.setenv("ODOO_VITE_DB", str(tmp_path / "ec.db"))
+    inst = Instance(name="NoSrc", version="17.0", path=str(tmp_path),
+                    community_path="", auto_update_modules=["sale"])
+    assert create_instance(inst).ok
+    ops, _messages, _, _, _ = _ops()
+    res = asyncio.run(ops.update_code(inst.id))
+    assert not res.ok
+    assert "community checkout" in res.message
 
 
 def test_run_tests_refuses_primary_db(tmp_path, monkeypatch):

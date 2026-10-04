@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS instances (
     primary_db TEXT NOT NULL DEFAULT '',
     tracked_dbs TEXT NOT NULL DEFAULT '[]',
     auto_update_modules TEXT NOT NULL DEFAULT '[]',
+    pending_update_modules TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'draft',
     pid INTEGER,
     last_error TEXT,
@@ -62,7 +63,8 @@ _COLUMNS = [
     "id", "name", "version", "mode", "path", "venv_path", "community_path",
     "enterprise_path", "custom_addons_path", "conf_path", "log_path", "port",
     "db_user", "db_password", "password_storage", "primary_db", "tracked_dbs",
-    "auto_update_modules", "status", "pid", "last_error", "db_created",
+    "auto_update_modules", "pending_update_modules", "status", "pid",
+    "last_error", "db_created",
     "provisioning_mode", "description", "workers", "log_level",
     "python_binary", "addons_state", "created_at",
 ]
@@ -80,6 +82,7 @@ _MIGRATIONS = [
     ("log_level", "ALTER TABLE instances ADD COLUMN log_level TEXT NOT NULL DEFAULT 'info'"),
     ("python_binary", "ALTER TABLE instances ADD COLUMN python_binary TEXT NOT NULL DEFAULT ''"),
     ("addons_state", "ALTER TABLE instances ADD COLUMN addons_state TEXT NOT NULL DEFAULT ''"),
+    ("pending_update_modules", "ALTER TABLE instances ADD COLUMN pending_update_modules TEXT NOT NULL DEFAULT '[]'"),
 ]
 
 KEYRING_SERVICE = "odoo-vite"
@@ -224,7 +227,8 @@ def update_instance(
         return Result.failure("Nothing to update (no valid fields given)")
     import json as _json
 
-    for key in ("tracked_dbs", "auto_update_modules", "addons_state"):
+    for key in ("tracked_dbs", "auto_update_modules", "pending_update_modules",
+                "addons_state"):
         if key in updates and isinstance(updates[key], (list, tuple)):
             updates[key] = _json.dumps(list(updates[key]))
     set_clause = ", ".join(f"{k} = :{k}" for k in updates)

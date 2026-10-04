@@ -292,6 +292,17 @@ def test_app_pick_file_wiring():
     assert wired.app.pick_dir()["path"] == "/tmp/folder-result.tar.gz"
 
 
+def test_app_path_exists(tmp_path):
+    """3.2.0 P0: the UI's overwrite guard probe."""
+    api, _push = create_api(None)
+    target = tmp_path / "bundle.tar.gz"
+    assert api.app.path_exists(str(target)) is False
+    target.write_text("x")
+    assert api.app.path_exists(str(target)) is True
+    assert api.app.path_exists("") is False
+    assert api.app.path_exists(str(tmp_path / "nope")) is False
+
+
 # ---------------------------------------------------------------------- logs
 
 
@@ -466,9 +477,10 @@ def test_config_addons_state_and_heuristic(env, tmp_path):
     iid2 = _register(Instance(name="addons2", conf_path=str(conf)))
     rows = api.config.addons_state(iid2)
     assert [r["path"] for r in rows] == [str(good), str(tmp_path / "gone")]
-    assert rows[0] == {"path": str(good), "enabled": True,
+    assert rows[0] == {"path": str(good), "enabled": True, "type": "extra",
                        "exists": True, "modules": 2}
     assert rows[1] == {"path": str(tmp_path / "gone"), "enabled": True,
+                       "type": "unknown",
                        "exists": False, "modules": 0}
 
 

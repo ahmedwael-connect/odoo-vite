@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from odoo_vite.core.path_types import PATH_TYPES, detect_path_type
 from odoo_vite.core.result import Result
 
 
@@ -62,11 +63,30 @@ def count_addon_modules(path: str) -> int:
 
 
 def get_addons_state(instance) -> list[dict]:  # type: ignore[no-untyped-def]
-    """Stored list, or lazy one-time migration from the conf string."""
+    """Stored list, or lazy one-time migration from the conf string.
+
+    3.2.0 F2: entries carry a `type` (PATH_TYPES). Rows persisted before
+    F2 have none — those are classified at read time (cheap, not saved;
+    apply/auto-detect persists).
+    """
     stored = list(instance.addons_state or [])
     if stored:
-        return [{"path": str(e.get("path", "")), "enabled": bool(e.get("enabled", True))}
-                for e in stored if isinstance(e, dict) and e.get("path")]
+        stored_types = {
+            str(e.get("path", "")): str(e.get("type", ""))
+            for e in stored if isinstance(e, dict) and e.get("path")
+        }
+        out = []
+        for e in stored:
+            if not isinstance(e, dict) or not e.get("path"):
+                continue
+            path = str(e.get("path", ""))
+            entry_type = stored_types.get(path, "")
+            if entry_type not in PATH_TYPES:
+                entry_type = detect_path_type(instance, path)
+            out.append({"path": path,
+                        "enabled": bool(e.get("enabled", True)),
+                        "type": entry_type})
+        return out
     # Not yet migrated: parse the live conf string (all enabled, in order).
     from odoo_vite.core.conf_manager import parse_conf_file
 
@@ -74,7 +94,11 @@ def get_addons_state(instance) -> list[dict]:  # type: ignore[no-untyped-def]
     current = ""
     if conf is not None and conf.is_file():
         current = parse_conf_file(conf).get("options", {}).get("addons_path", "")
-    return parse_addons_string(current)
+    return [
+        {"path": e["path"], "enabled": e["enabled"],
+         "type": detect_path_type(instance, e["path"])}
+        for e in parse_addons_string(current)
+    ]
 
 
 def apply_addons_state(instance_id: str, entries: list[dict],  # type: ignore[no-untyped-def]
@@ -97,7 +121,14 @@ def apply_addons_state(instance_id: str, entries: list[dict],  # type: ignore[no
         path = str(entry.get("path", "")).strip()
         if not path:
             return Result.failure("Addons entries must not have an empty path")
-        clean.append({"path": path, "enabled": bool(entry.get("enabled", True))})
+        # 3.2.0 F2: keep an explicit valid type; classify anything else
+        # (legacy rows, newly added folders) so the type is never lost.
+        entry_type = str(entry.get("type") or "")
+        if entry_type not in PATH_TYPES:
+            entry_type = detect_path_type(inst, path)
+        clean.append({"path": path,
+                      "enabled": bool(entry.get("enabled", True)),
+                      "type": entry_type})
     if not inst.conf_path:
         return Result.failure("Instance records no conf path")
     derived = derive_addons_path(clean)
@@ -116,3 +147,34 @@ def apply_addons_state(instance_id: str, entries: list[dict],  # type: ignore[no
         data={"addons_path": derived, "entries": clean},
         message=f"Addons path updated ({len(clean)} entries, "
                 f"{sum(1 for e in clean if e['enabled'])} enabled)")
+
+
+def auto_type_addons(instance_id: str, db_path=None) -> Result:
+    """3.2.0 F2: re-detect `type` for every stored entry.
+
+    Registry-only write — classification is metadata, so the conf's
+    addons_path string is deliberately left untouched (no backup churn).
+    """
+    from odoo_vite.core.registry import get_instance, update_instance
+
+    inst = get_instance(instance_id, db_path)
+    if inst is None:
+        return Result.failure(f"No instance with id '{instance_id}'")
+    entries = [
+        {"path": e["path"], "enabled": bool(e.get("enabled", True)),
+         "type": detect_path_type(inst, e["path"])}
+        for e in get_addons_state(inst)
+    ]
+    if not entries:
+        return Result.success(
+            data={"entries": []}, message="No addon paths to classify")
+    stored = update_instance(instance_id, db_path, addons_state=entries)
+    if not stored.ok:
+        return Result.failure(stored.message)
+    counts: dict[str, int] = {}
+    for e in entries:
+        counts[e["type"]] = counts.get(e["type"], 0) + 1
+    summary = ", ".join(f"{n} {t}" for t, n in sorted(counts.items()))
+    return Result.success(
+        data={"entries": entries},
+        message=f"Detected types for {len(entries)} path(s) ({summary})")

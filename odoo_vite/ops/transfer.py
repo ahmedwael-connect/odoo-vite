@@ -93,7 +93,8 @@ class TransferOps:
         self._refresh()
         return res
 
-    async def export_bundle(self, instance_id: str, dest: str):
+    async def export_bundle(self, instance_id: str, dest: str,
+                            progress_cb=None, cancel=None):
         """Password resolves HERE (UI thread) — dbus never on workers."""
         inst = get_instance(instance_id)
         if inst is None:
@@ -107,14 +108,16 @@ class TransferOps:
         self._message(f"Exporting '{inst.name}'…", "info")
         return await self._run(
             transfer_core.export_instance, instance_id, dest,
-            src_password=password)
+            src_password=password, progress_cb=progress_cb, cancel=cancel)
 
     async def import_bundle(self, archive: str, new_name: str,
-                            new_port: int | None):
+                            new_port: int | None,
+                            progress_cb=None, cancel=None):
         if not (new_name or "").strip():
             self._message("Import needs a name — cancelled", "error")
             return Result.failure("Import needs a name")
         self._message(f"Importing '{new_name}'…", "info")
         return await self._run(
             transfer_core.import_instance, archive,
-            new_name.strip(), new_port)
+            new_name.strip(), new_port,
+            progress_cb=progress_cb, cancel=cancel)

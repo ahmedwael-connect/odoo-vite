@@ -39,6 +39,17 @@ interface AddonsEntry extends Dict {
   enabled: boolean
   exists?: boolean
   modules?: number
+  type?: string
+}
+
+/** 3.2.0 F2: mirrors core/path_types.PATH_TYPES (labels are UI-only). */
+const PATH_TYPES = ['community', 'enterprise', 'custom', 'extra', 'unknown'] as const
+const PATH_TYPE_LABEL: Record<string, string> = {
+  community: 'Community',
+  enterprise: 'Enterprise',
+  custom: 'Custom',
+  extra: 'Extra',
+  unknown: 'Unknown',
 }
 
 /** Client mirror of core/addon_paths.derive_addons_path (enabled only, order kept). */
@@ -139,6 +150,19 @@ function AddonsDialog({
     }
   }
 
+  // 3.2.0 F2: classify every path server-side (registry-only write) and
+  // re-read the enriched rows.
+  const autoDetect = async () => {
+    setError('')
+    const res = await api.config.auto_type_addons(instanceId)
+    if (res.ok) {
+      setNotice(res.message)
+      await load()
+    } else {
+      setError(res.message)
+    }
+  }
+
   const preview = derivePreview(entries)
 
   return (
@@ -186,6 +210,23 @@ function AddonsDialog({
                 {e.modules ?? 0} modules
               </span>
             )}
+            <Select
+              value={(PATH_TYPES as readonly string[]).includes(e.type ?? '') ? e.type : 'unknown'}
+              onChange={(ev) => {
+                setNotice('')
+                setEntries((prev) =>
+                  prev.map((row, j) => (j === i ? { ...row, type: ev.target.value } : row)),
+                )
+              }}
+              title="Path type"
+              aria-label={`Type of ${e.path}`}
+            >
+              {PATH_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {PATH_TYPE_LABEL[t]}
+                </option>
+              ))}
+            </Select>
             <button
               type="button"
               className="btn icon"
@@ -232,6 +273,12 @@ function AddonsDialog({
       )}
       <div className="btn-row">
         <ActionButton onClick={() => void add()}>Add folder…</ActionButton>
+        <ActionButton
+          title="Classify paths as Community/Enterprise/Custom/Extra (registry only)"
+          onClick={() => void autoDetect()}
+        >
+          Auto-detect types
+        </ActionButton>
         {pending && (
           <ActionButton primary onClick={addAnyway}>
             Add anyway
@@ -258,8 +305,18 @@ export default function Configuration() {
   const [rawKey, setRawKey] = useState('')
   const [rawValue, setRawValue] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
-  const [meta, setMeta] = useState({ description: '', workers: 0, logLevel: 'info', python: '' })
+  const [meta, setMeta] = useState({
+    description: '',
+    workers: 0,
+    logLevel: 'info',
+    python: '',
+    auto: [] as string[],
+    pending: [] as string[],
+  })
   const [metaErr, setMetaErr] = useState('')
+  // 3.2.0 F1: module-update queue editor (once/every target).
+  const [updText, setUpdText] = useState('')
+  const [updTarget, setUpdTarget] = useState<'once' | 'every'>('once')
   const [loadErr, setLoadErr] = useState('')
   // 3.1.0 B10: unsaved edits must survive the global refresh event.
   const [dirty, setDirty] = useState(false)
@@ -273,35 +330,44 @@ export default function Configuration() {
   useEffect(() => {
     dirtyRef.current = dirty
   }, [dirty])
+  // 3.3.0 P2: request guard — a slow config.read for the previous instance
+  // resolving after a switch used to overwrite view/common with the old
+  // instance's conf AND wipe unsaved edits (setDirty(false) in finally).
+  const loadSeq = useRef(0)
 
-  const load = useCallback(
-    async (id: string) => {
-      try {
-        const v = (await getApi().config.read(id)) as ConfView
-        if (v.error) {
-          setLoadErr(v.error)
-          setView({})
-          setCommon({})
-          return
-        }
-        setLoadErr('')
-        setView(v)
-        setCommon({ ...(v.common ?? {}) })
-        setMeta({
-          description: v.description ?? '',
-          workers: v.workers ?? 0,
-          logLevel: v.log_level ?? 'info',
-          python: v.python_binary ?? '',
-        })
-      } catch (err) {
-        setLoadErr(err instanceof Error ? err.message : String(err))
-      } finally {
+  const load = useCallback(async (id: string) => {
+    const seq = ++loadSeq.current
+    const stale = () => seq !== loadSeq.current
+    try {
+      const v = (await getApi().config.read(id)) as ConfView
+      if (stale()) return
+      if (v.error) {
+        setLoadErr(v.error)
+        setView({})
+        setCommon({})
+        return
+      }
+      setLoadErr('')
+      setView(v)
+      setCommon({ ...(v.common ?? {}) })
+      setMeta({
+        description: v.description ?? '',
+        workers: v.workers ?? 0,
+        logLevel: v.log_level ?? 'info',
+        python: v.python_binary ?? '',
+        auto: v.auto_update_modules ?? [],
+        pending: v.pending_update_modules ?? [],
+      })
+    } catch (err) {
+      if (stale()) return
+      setLoadErr(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (!stale()) {
         setDirty(false)
         setRefreshSkipped(false)
       }
-    },
-    [],
-  )
+    }
+  }, [])
 
   useEffect(() => {
     if (!currentId) return
@@ -410,6 +476,8 @@ export default function Configuration() {
       workers: Number(meta.workers) || 0,
       log_level: meta.logLevel,
       python_binary: meta.python.trim(),
+      auto_update_modules: meta.auto,
+      pending_update_modules: meta.pending,
     }
     const err = await api.config.validate_meta(payload)
     if (err) {
@@ -431,6 +499,34 @@ export default function Configuration() {
     const res = await api.app.pick_file('Python interpreter', 'open')
     if (res.ok && res.path) editMeta((m) => ({ ...m, python: res.path ?? '' }))
   }
+
+  // 3.2.0 F1: queue module updates (once = next start, every = each start).
+  const queueUpdates = () => {
+    const names = updText
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (names.length === 0) return
+    if (updTarget === 'once') {
+      editMeta((m) => {
+        const merged = [...m.pending]
+        for (const n of names) if (!merged.includes(n)) merged.push(n)
+        return { ...m, pending: merged }
+      })
+    } else {
+      editMeta((m) => {
+        const merged = [...m.auto]
+        for (const n of names) if (!merged.includes(n)) merged.push(n)
+        return { ...m, auto: merged }
+      })
+    }
+    setUpdText('')
+  }
+
+  const dropPending = (name: string) =>
+    editMeta((m) => ({ ...m, pending: m.pending.filter((x) => x !== name) }))
+  const dropAuto = (name: string) =>
+    editMeta((m) => ({ ...m, auto: m.auto.filter((x) => x !== name) }))
 
   return (
     <div className="view conf-view">
@@ -614,6 +710,68 @@ export default function Configuration() {
           />
           <ActionButton onClick={() => void browsePython()}>Browse…</ActionButton>
         </div>
+        <div className="addons-path-row">
+          <span className="field-label">Queue module updates</span>
+          <TextInput
+            placeholder="module_a, module_b"
+            value={updText}
+            onChange={(e) => setUpdText(e.target.value)}
+            aria-label="Modules to update"
+          />
+          <Select
+            value={updTarget}
+            onChange={(e) => setUpdTarget(e.target.value === 'every' ? 'every' : 'once')}
+            aria-label="Update frequency"
+          >
+            <option value="once">Next start only</option>
+            <option value="every">Every start</option>
+          </Select>
+          <ActionButton disabled={busy || !updText.trim()} onClick={queueUpdates}>
+            Add
+          </ActionButton>
+        </div>
+        <div className="upd-chips" aria-label="Queued one-shot updates">
+          {meta.pending.map((name) => (
+            <span key={`pending-${name}`} className="chip edit">
+              {name}
+              <button
+                type="button"
+                className="btn icon"
+                onClick={() => dropPending(name)}
+                title="Remove from next-start queue"
+                aria-label={`Remove ${name} from next-start queue`}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+          ))}
+          {meta.pending.length > 0 && (
+            <ActionButton onClick={() => editMeta((m) => ({ ...m, pending: [] }))}>
+              Clear queued
+            </ActionButton>
+          )}
+        </div>
+        <div className="upd-chips" aria-label="Every-start updates">
+          {meta.auto.map((name) => (
+            <span key={`auto-${name}`} className="chip edit">
+              {name}
+              <button
+                type="button"
+                className="btn icon"
+                onClick={() => dropAuto(name)}
+                title="Remove from every-start list"
+                aria-label={`Remove ${name} from every-start list`}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+        {meta.pending.length === 0 && meta.auto.length === 0 && (
+          <DimText>
+            No module updates configured — nothing is added to odoo-bin's -u argument on start.
+          </DimText>
+        )}
         <ErrorText text={metaErr} />
       </Card>
     </div>

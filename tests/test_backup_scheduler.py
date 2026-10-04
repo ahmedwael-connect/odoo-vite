@@ -1,5 +1,6 @@
 """Sprint BK.1 tests: cron parsing/next-run, retention selection, schedule CRUD."""
 
+import os
 from datetime import datetime
 
 import pytest
@@ -96,6 +97,108 @@ def test_create_rejects_bad_input(tmp_path):
     assert not bs.create_schedule("i", [], "0 2 * * *", db_path=db).ok
     assert not bs.create_schedule("i", ["d"], "0 2 * * *", retention_n=-1,
                                   db_path=db).ok
+    # 3.3.0 P1: database names become path segments — reject traversal
+    for evil in ([".."], ["../.."], ["a/../.."], ["UPPER"], ["has space"],
+                 [""], ["drop;db"]):
+        res = bs.create_schedule("i", evil, "0 2 * * *", db_path=db)
+        assert not res.ok, f"accepted {evil!r}"
+
+
+def test_dest_dir_segments_never_escape_root(tmp_path, monkeypatch):
+    """Legacy/poisoned rows: sanitize keeps every dump inside the root."""
+    monkeypatch.setenv("ODOO_VITE_BACKUPS_DIR", str(tmp_path / "backups"))
+    sched = bs.Schedule(id="s1", instance_id="i", databases=["x"],
+                        cron="0 2 * * *", dest_dir=str(tmp_path / "backups"))
+    root = (tmp_path / "backups").resolve()
+    for inst_name, db_name in (("..", ".."), ("a/../../b", "../../x"),
+                               ("..", "prod"), ("ok", "..")):
+        d = bs.schedule_dest_dir(sched, inst_name, db_name).resolve()
+        assert d != root and root in d.parents, (inst_name, db_name, d)
+        assert ".." not in d.relative_to(root).parts
+
+
+def test_run_schedule_partial_failure_prunes_only_successes(tmp_path,
+                                                            monkeypatch):
+    """3.3.0 P1: a failed database keeps its history (no prune), the run is
+    recorded FAILED even when another database succeeded."""
+    from pathlib import Path
+
+    from odoo_vite.core import db_backup as bak
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance
+    from odoo_vite.core.result import Result
+
+    monkeypatch.setenv("ODOO_VITE_AUDIT", str(tmp_path / "audit.log"))
+    reg = tmp_path / "reg.db"
+    inst = Instance(name="Par", version="17.0", path=str(tmp_path / "i"),
+                    db_user="odoo", primary_db="good_db")
+    assert create_instance(inst, reg).ok
+    root = tmp_path / "backups"
+    created = bs.create_schedule(inst.id, ["good_db", "bad_db"], "0 2 * * *",
+                                 retention_n=1, dest_dir=str(root),
+                                 db_path=reg)
+    assert created.ok, created.message
+    sid = created.data["id"]
+
+    # pre-existing dumps for BOTH databases (old mtimes)
+    for name in ("good_db", "bad_db"):
+        d = root / "Par" / name
+        d.mkdir(parents=True)
+        for i in range(2):
+            f = d / f"2024010{i}-000000.dump"
+            f.write_bytes(b"old")
+            os.utime(f, (1600000000 + i, 1600000000 + i))
+
+    def fake_backup(db_name, dest, **kw):
+        if db_name == "bad_db":
+            return Result.failure("pg_dump failed: boom")
+        Path(dest).write_bytes(b"PGDMP" + b"\x00" * 100)
+        return Result.success(data={"dest": str(dest)}, message="ok")
+
+    monkeypatch.setattr(bak, "backup_database", fake_backup)
+    res = bs.run_schedule(sid, db_path=reg)
+    assert not res.ok, "partial run must not report success"
+    assert "bad_db" in res.message and "1 failed" in res.message
+
+    row = bs.get_schedule(sid, db_path=reg)
+    assert row.last_status.startswith("FAILED:")
+
+    # failed db: prune skipped entirely — history intact
+    assert len(list((root / "Par" / "bad_db").glob("*.dump"))) == 2
+    # succeeded db: retention ran, newest (the fresh dump) survives
+    good = list((root / "Par" / "good_db").glob("*.dump"))
+    assert len(good) == 1
+    assert good[0].name.endswith(".dump") and "2024" not in good[0].name
+
+
+def test_run_schedule_all_failed_never_prunes(tmp_path, monkeypatch):
+    """3.3.0 P1: total failure must not delete a single old dump."""
+    from odoo_vite.core import db_backup as bak
+    from odoo_vite.core.instance import Instance
+    from odoo_vite.core.registry import create_instance
+    from odoo_vite.core.result import Result
+
+    monkeypatch.setenv("ODOO_VITE_AUDIT", str(tmp_path / "audit.log"))
+    reg = tmp_path / "reg.db"
+    inst = Instance(name="AllBad", version="17.0", path=str(tmp_path / "i2"),
+                    db_user="odoo")
+    assert create_instance(inst, reg).ok
+    root = tmp_path / "backups2"
+    created = bs.create_schedule(inst.id, ["dbone"], "0 2 * * *",
+                                 retention_n=1, dest_dir=str(root),
+                                 db_path=reg)
+    assert created.ok
+    d = root / "AllBad" / "dbone"
+    d.mkdir(parents=True)
+    old = d / "20240101-000000.dump"
+    old.write_bytes(b"old")
+
+    monkeypatch.setattr(
+        bak, "backup_database",
+        lambda *a, **k: Result.failure("pg_dump failed: down"))
+    res = bs.run_schedule(created.data["id"], db_path=reg)
+    assert not res.ok
+    assert old.exists(), "old dump deleted although nothing was produced"
 
 
 def test_due_schedules_minute_match(tmp_path):

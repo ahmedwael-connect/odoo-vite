@@ -44,17 +44,29 @@ def should_watch(path: str) -> bool:
 
 
 def watch_roots(instance) -> list[str]:  # type: ignore[no-untyped-def]
-    """Scope: custom_addons always; community/enterprise too (they change
-    less often, but a git pull there deserves the same restart).
+    """Scope: every enabled addons_path entry (3.2.0 F2 — the structured
+    addons_state list, so extra/custom folders Odoo actually loads are
+    watched too), plus the community repo root (a git pull there deserves
+    the same restart). Falls back to the legacy field-based scan when no
+    structured state exists yet.
 
     custom_addons_path may be a comma-separated list (standard Odoo
     conf form: ``addons_path = a/b, c/d``) — each entry is checked
     separately; a whole unsplit string never matches ``is_dir()``.
     """
     roots: list[str] = []
-    raw_custom = str(instance.custom_addons_path or "")
-    candidates = [p.strip() for p in raw_custom.split(",") if p.strip()]
-    candidates += [instance.community_path or "", instance.enterprise_path or ""]
+    from odoo_vite.core.addon_paths import get_addons_state
+
+    state = [e for e in get_addons_state(instance)
+             if e.get("path") and e.get("enabled", True)]
+    if state:
+        candidates = [str(e["path"]) for e in state]
+        candidates += [instance.community_path or "",
+                       instance.enterprise_path or ""]
+    else:
+        raw_custom = str(instance.custom_addons_path or "")
+        candidates = [p.strip() for p in raw_custom.split(",") if p.strip()]
+        candidates += [instance.community_path or "", instance.enterprise_path or ""]
     for raw in candidates:
         if raw and Path(raw).is_dir() and raw not in roots:
             roots.append(raw)

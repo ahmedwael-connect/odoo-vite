@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -213,7 +214,14 @@ def update_code(instance, module_names: list[str], progress_cb=None,  # type: ig
         return Result.failure(
             f"Stop '{instance.name}' first — updating code under a running "
             "server leaves stale code in memory; restart after updating")
-    community = Path(instance.community_path or "")
+    # 3.2.0: an EMPTY community_path collapsed to Path(".") — and if the
+    # app happened to run inside a git repo, stage 1 pulled the APP's repo
+    # (`git -C . pull`). Refuse before the .git probe.
+    if not str(instance.community_path or "").strip():
+        return Result.failure(
+            "No community checkout configured — nothing to pull "
+            "(set the community addons path first)")
+    community = Path(instance.community_path).expanduser()
     if not (community / ".git").is_dir():
         return Result.failure(
             f"{community} is not a git checkout — cannot pull updates "
@@ -270,7 +278,15 @@ def uninstall_modules(instance, db_name: str, module_names: list[str],
     err = _one_shot_preconditions(instance, db_name, db_path)
     if err is not None:
         return err
-    names_literal = "[" + ", ".join(f"'{m}'" for m in mods) + "]"
+    # 3.3.0 P1: names are embedded in a Python source snippet fed to
+    # `odoo-bin shell` — the old hand-rolled `'…'` quoting let a quote in
+    # a name inject arbitrary Python running with full DB access. Validate
+    # the technical-name shape and embed via json.dumps (valid Python).
+    bad = [m for m in mods if not re.fullmatch(r"[a-z_][a-z0-9_]*", m)]
+    if bad:
+        return Result.failure(
+            "Invalid module name(s): " + ", ".join(repr(b) for b in bad))
+    names_literal = json.dumps(mods)
     script = (
         "mods = env['ir.module.module'].search([('name', 'in', "
         f"{names_literal})])\n"
@@ -327,12 +343,28 @@ def diff_modules(instance, db_name: str, db_path=None) -> Result:  # type: ignor
         return res
     addons_roots: list[Path] = []
     # Note: framework modules (base, auth_totp, …) live in odoo/odoo/addons,
-    # not in community/addons — both must be scanned.
-    for root in [Path(instance.community_path) / "addons",
-                 Path(instance.community_path) / "odoo" / "addons",
-                 Path(instance.enterprise_path or ""),
-                 Path(instance.custom_addons_path or "")]:
-        if str(root) and root.is_dir():
+    # not in community/addons — both must be scanned. 3.2.0 F2: the rest
+    # comes from the structured addons_state list (enabled entries), so
+    # extra/custom folders are diffed too; legacy instances without state
+    # keep the field-based scan.
+    from odoo_vite.core.addon_paths import get_addons_state
+
+    state = [e for e in get_addons_state(instance)
+             if e.get("path") and e.get("enabled", True)]
+    if state:
+        candidates = [Path(e["path"]) for e in state]
+        if instance.community_path:
+            candidates += [Path(instance.community_path) / "addons",
+                           Path(instance.community_path) / "odoo" / "addons"]
+    else:
+        candidates = [Path(instance.community_path) / "addons",
+                      Path(instance.community_path) / "odoo" / "addons",
+                      Path(instance.enterprise_path or ""),
+                      Path(instance.custom_addons_path or "")]
+    seen: set[str] = set()
+    for root in candidates:
+        if str(root) and str(root) not in seen and root.is_dir():
+            seen.add(str(root))
             addons_roots.append(root)
     manifests: dict[str, str | None] = {}
     for root in addons_roots:

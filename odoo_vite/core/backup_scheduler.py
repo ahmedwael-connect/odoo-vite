@@ -198,12 +198,21 @@ def _conn(db_path=None) -> sqlite3.Connection:
 
 def _validate(expr: str, databases: list, retention_n: int,
               retention_days: int) -> Result:
+    from odoo_vite.core.db_manager import is_valid_identifier
+
     try:
         parse_cron(expr)
     except ValueError as exc:
         return Result.failure(f"Invalid cron expression: {exc}")
     if not databases:
         return Result.failure("Schedule needs at least one database")
+    for name in databases:
+        # 3.3.0 P1: the name is joined into the dump directory path — a
+        # traversal form would aim prune_backups outside the backups root.
+        if not isinstance(name, str) or not is_valid_identifier(name):
+            return Result.failure(
+                f"Invalid database name {name!r} — use lowercase letters, "
+                "digits and underscores (same rule as pg_dump)")
     if retention_n < 0 or retention_days < 0:
         return Result.failure("Retention values cannot be negative")
     return Result.success(message="ok")
@@ -415,13 +424,23 @@ def prune_backups(directory: str | Path, retention_n: int,
 # ------------------------------------------------------------------ execution
 
 
+def _path_seg(value: str) -> str:
+    """One safe path segment (rejects the empty string and `.`/`..`)."""
+    safe = "".join(c if (c.isalnum() or c in "-_.") else "_"
+                   for c in (value or ""))
+    return safe if safe not in ("", ".", "..") else "unnamed"
+
+
 def schedule_dest_dir(sched: Schedule, instance_name: str,
                       db_name: str) -> Path:
-    """Deterministic per-schedule location (BK.4 lists exactly this)."""
+    """Deterministic per-schedule location (BK.4 lists exactly this).
+
+    3.3.0: both segments are sanitized here as well as validated on save —
+    legacy rows predate the identifier check and must not be able to aim
+    prune_backups at `root/../..`.
+    """
     root = Path(sched.dest_dir).expanduser() if sched.dest_dir else backups_root()
-    safe = "".join(c if (c.isalnum() or c in "-_.") else "_"
-                   for c in instance_name)
-    return root / (safe or "unnamed") / db_name
+    return root / _path_seg(instance_name) / _path_seg(db_name)
 
 
 def due_schedules(now: datetime | None = None, db_path=None) -> list[Schedule]:
@@ -462,7 +481,7 @@ def run_schedule(schedule_id: str, db_path=None) -> Result:
         return Result.failure(msg)
     pw = get_db_password(inst)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    failures, made = [], []
+    failures, made, ok_dbs = [], [], []
     for db_name in sched.databases:
         dest = schedule_dest_dir(sched, inst.name, db_name) / f"{stamp}.dump"
         res = db_backup.backup_database(
@@ -470,18 +489,27 @@ def run_schedule(schedule_id: str, db_path=None) -> Result:
             instance_id=inst.id, instance_name=inst.name)
         if res.ok:
             made.append(str(dest))
+            ok_dbs.append(db_name)
         else:
             failures.append(f"{db_name}: {res.message}")
-    if sched.retention_n > 0 or sched.retention_days > 0:
-        for db_name in sched.databases:
+    # 3.3.0 P1: retention only touches databases that GOT a fresh dump this
+    # run — pruning a failed database would delete history while producing
+    # nothing, and an all-failed run must never prune at all.
+    if (sched.retention_n > 0 or sched.retention_days > 0) and ok_dbs:
+        for db_name in ok_dbs:
             prune_backups(schedule_dest_dir(sched, inst.name, db_name),
                           sched.retention_n, sched.retention_days,
                           audit_tag=f"schedule:{schedule_id}", db_path=db_path)
-    if failures and not made:
-        _record_run(schedule_id, False, "; ".join(failures), db_path)
-        return Result.failure("; ".join(failures))
-    msg = f"Backed up {len(made)} database(s)" + (
-        f"; {len(failures)} failed ({'; '.join(failures)})" if failures else "")
+    if failures:
+        # Partial success records (and returns) as FAILED: the row + the
+        # runner's exit code are the only signals a human gets for a
+        # schedule that is quietly losing databases.
+        msg = f"Backed up {len(made)} database(s); {len(failures)} failed ("
+        msg += "; ".join(failures) + ")"
+        _record_run(schedule_id, False, msg, db_path)
+        return Result.failure(msg, data={"dumps": made,
+                                         "failures": len(failures)})
+    msg = f"Backed up {len(made)} database(s)"
     _record_run(schedule_id, True, msg, db_path)
     return Result.success(data={"dumps": made}, message=msg)
 

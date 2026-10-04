@@ -82,6 +82,7 @@ export interface InstanceRow {
   pid: number | null
   last_error: string | null
   auto_update_modules?: string[]
+  pending_update_modules?: string[]
 }
 
 export interface StatusRow extends Dict {
@@ -140,6 +141,8 @@ export interface ConfView {
   workers?: number
   log_level?: string
   python_binary?: string
+  auto_update_modules?: string[]
+  pending_update_modules?: string[]
 }
 
 export interface ModelEntry {
@@ -177,6 +180,7 @@ export interface AppApi {
   save_theme(theme: string): Async<Result>
   pick_file(title?: string, mode?: string, pattern?: string): Async<Answer & { path?: string }>
   pick_dir(title?: string): Async<Answer & { path?: string }>
+  path_exists(path: string): Async<boolean>
   version(): Async<string>
 }
 
@@ -199,10 +203,10 @@ export interface DatabasesApi {
   server_reachable(): Async<boolean>
   list_backup_files(instance_id: string): Async<Dict[]>
   discover_entries(instance_id: string): Async<Dict>
-  init_db(instance_id: string, db_name: string): Async<Result>
+  init_db(instance_id: string, db_name: string, op_id?: string): Async<Result>
   drop_db(instance_id: string, db_name: string): Async<Result>
-  backup_db(instance_id: string, db_name: string, dest: string): Async<Result>
-  restore_db(instance_id: string, dump: string, target: string): Async<Result>
+  backup_db(instance_id: string, db_name: string, dest: string, op_id?: string): Async<Result>
+  restore_db(instance_id: string, dump: string, target: string, op_id?: string): Async<Result>
   validate(instance_id: string): Async<Dict>
   track(instance_id: string, db_name: string): Async<Answer>
   untrack(instance_id: string, db_name: string): Async<Answer>
@@ -363,6 +367,7 @@ export interface ConfigApi {
   meta_save(instance_id: string, meta: Dict): Async<Result>
   apply_addons(instance_id: string, entries: unknown[]): Async<Result>
   addons_state(instance_id: string): Async<Dict[]>
+  auto_type_addons(instance_id: string): Async<Result>
   looks_like_addons(path: string): Async<boolean>
   validate_meta(meta: Dict): Async<string | null>
   venv_status(instance_id: string): Async<Dict>
@@ -444,8 +449,8 @@ export interface WizardsApi {
 
 export interface TransferApi {
   preview(archive: string): Async<Result>
-  export_bundle(instance_id: string, dest: string): Async<Result>
-  import_bundle(archive: string, new_name: string, new_port?: number | null): Async<Result>
+  export_bundle(instance_id: string, dest: string, op_id?: string): Async<Result>
+  import_bundle(archive: string, new_name: string, new_port?: number | null, op_id?: string): Async<Result>
   bundle_filename(name: string, stamp: string): Async<string>
 }
 

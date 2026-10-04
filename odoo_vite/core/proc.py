@@ -72,26 +72,53 @@ def run_streaming(
         threading.Thread(target=_watch, daemon=True).start()
 
     lines: list[str] = []
-    try:
-        assert proc.stdout is not None
-        for raw in proc.stdout:
-            text = raw.rstrip("\n")
-            lines.append(text)
-            if progress_cb is not None:
-                try:
-                    progress_cb(text)
-                except Exception:
-                    pass
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    io_errors: list[OSError] = []
+    finished = threading.Event()
+
+    def _pump() -> None:
+        try:
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                text = raw.rstrip("\n")
+                lines.append(text)
+                if progress_cb is not None:
+                    try:
+                        progress_cb(text)
+                    except Exception:
+                        pass
+        except OSError as exc:
+            io_errors.append(exc)
+        finally:
+            finished.set()
+
+    # 3.3.0 P2: the reader runs in its own thread. The old main-thread
+    # `for raw in proc.stdout` blocked until EOF, so wait(timeout=...) only
+    # ever ran AFTER the child was gone — a hung-but-silent child (git/pip
+    # waiting on a prompt) could never time out and the TimeoutExpired
+    # branch was dead code.
+    threading.Thread(target=_pump, daemon=True).start()
+
+    deadline = time.monotonic() + timeout
+    while not finished.wait(0.2):
+        if time.monotonic() >= deadline:
+            _kill_quietly(proc)
+            return Result.failure(
+                f"Timed out after {timeout}s: {' '.join(cmd)}",
+                data={"lines": lines, "returncode": -1, "cancelled": False},
+            )
+    if io_errors:
         return Result.failure(
-            f"Timed out after {timeout}s: {' '.join(cmd)}",
+            f"Process I/O error: {io_errors[0]}",
             data={"lines": lines, "returncode": -1, "cancelled": False},
         )
-    except OSError as exc:
+    # EOF seen; the child may still be exiting — bound the reap by the
+    # same overall deadline (0 remaining → immediate timeout).
+    try:
+        proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        _kill_quietly(proc)
         return Result.failure(
-            f"Process I/O error: {exc}",
+            f"Timed out after {timeout}s: {' '.join(cmd)}",
             data={"lines": lines, "returncode": -1, "cancelled": False},
         )
 
@@ -119,3 +146,15 @@ def _cancel_now(cancel: Callable[[], bool]) -> bool:
         return bool(cancel())
     except Exception:
         return False
+
+
+def _kill_quietly(proc: subprocess.Popen) -> None:
+    """Kill + reap, swallowing races (child already gone, etc.)."""
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except (subprocess.TimeoutExpired, OSError):
+        pass

@@ -56,6 +56,47 @@ def test_backup_refuses_missing_db(tmp_path, monkeypatch):
     assert not res.ok and "does not exist" in res.message
 
 
+def test_backup_atomic_no_partial_left(tmp_path, monkeypatch):
+    """3.3.0 P1: a failed/cancelled pg_dump must not leave a truncated file
+    at the final path (prune/index/list cannot tell it from a good dump)."""
+    from pathlib import Path
+
+    import odoo_vite.core.db_state as st
+    from odoo_vite.core import proc
+    from odoo_vite.core.result import Result
+
+    monkeypatch.setattr(db_backup.shutil, "which",
+                        lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr(st, "get_db_state",
+                        lambda *a, **k: st.DbState(
+                            db_name="db1", exists=True, initialized=True))
+    dest = tmp_path / "out.dump"
+    part = tmp_path / "out.dump.part"
+
+    def _fail(cmd, progress_cb=None, cancel=None, timeout=0, env=None, **k):
+        Path(cmd[cmd.index("-f") + 1]).write_bytes(b"PGDMP" + b"\x00" * 10)
+        return Result.failure("interrupted")
+
+    monkeypatch.setattr(proc, "run_streaming", _fail)
+    res = db_backup.backup_database("db1", dest)
+    assert not res.ok
+    assert not dest.exists(), "truncated dump left at the final path"
+    assert not part.exists(), ".part sibling left behind"
+
+    def _ok(cmd, progress_cb=None, cancel=None, timeout=0, env=None, **k):
+        Path(cmd[cmd.index("-f") + 1]).write_bytes(b"PGDMP" + b"\x00" * 5000)
+        if progress_cb:
+            progress_cb("dumping db1")
+        return Result.success(data={"returncode": 0})
+
+    monkeypatch.setattr(proc, "run_streaming", _ok)
+    res = db_backup.backup_database("db1", dest)
+    assert res.ok, res.message
+    assert dest.exists() and dest.stat().st_size > 0
+    assert not part.exists()
+    assert (tmp_path / "out.dump.meta.json").is_file()
+
+
 def test_restore_validates_first(tmp_path):
     garbage = tmp_path / "garbage.dump"
     garbage.write_bytes(b"junk" * 100)
@@ -84,16 +125,27 @@ def _e2e_like(tmp_path, **overrides):
     return Instance(**kwargs)
 
 
-def test_validate_live_e2e_shape():
-    """Shape of a healthy report (uses the real E2E row if present)."""
-    from odoo_vite.core.registry import get_instance_by_name
+def test_validate_live_e2e_shape(tmp_path):
+    """Shape of a healthy report.
 
-    inst = get_instance_by_name("E2E 17 Demo")
-    if inst is None:
-        pytest.skip("no E2E instance in this registry")
+    3.3.0: hermetic — it used to reach into the developer's REAL registry
+    for the 'E2E 17 Demo' row (and silently skipped/failed with machine
+    state). Now it builds its own instance; only the live-Postgres probes
+    degrade to a skip when the local environment is incomplete.
+    """
+    inst = _e2e_like(tmp_path)
+    base = tmp_path / "i"
+    (base / "community").mkdir(parents=True)
+    (base / "logs").mkdir(parents=True)
+    (base / "odoo.conf").write_text(
+        "[options]\ndb_host = localhost\ndb_port = 5432\ndb_user = odoo\n")
     report = validate_db_config(inst)
     by_field = {c["field"]: c for c in report["checks"]}
     assert by_field["conf_file"]["ok"] is True
+    live = [c for c in report["checks"]
+            if c["field"] in ("db_user", "db_password", "primary_db")]
+    if any(c["ok"] is not True for c in live):
+        pytest.skip(f"local postgres e2e env unavailable: {live}")
     assert by_field["db_user"]["ok"] is True
     assert by_field["db_password"]["ok"] is True
     assert by_field["primary_db"]["ok"] is True

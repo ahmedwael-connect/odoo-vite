@@ -39,6 +39,9 @@ export default function Logs({ active = false }: { active?: boolean }) {
   const [slowStatus, setSlowStatus] = useState('')
   const [profileIdx, setProfileIdx] = useState(1)
   const [profileSvg, setProfileSvg] = useState('')
+  // 3.2.0 P1: profiler failures landed in the Search status line (wrong
+  // box — looked like the text search broke); keep a dedicated error.
+  const [profileErr, setProfileErr] = useState('')
   const [busyOps, setBusyOps] = useState(0)
   const [opError, setOpError] = useState('')
   const [tailLevelIdx, setTailLevelIdx] = useState(0)
@@ -185,7 +188,7 @@ export default function Logs({ active = false }: { active?: boolean }) {
     const offProfile = onEvent('profile-ready', (p) => {
       if (p.instance_id !== currentId) return
       setProfileSvg(p.ok ? p.svg ?? '' : '')
-      if (!p.ok) setSearchStatus(p.message)
+      setProfileErr(p.ok ? '' : String(p.message ?? 'Profiler failed'))
     })
     return () => {
       offSearch()
@@ -247,10 +250,8 @@ export default function Logs({ active = false }: { active?: boolean }) {
     const seconds = Number(text.replace(/\D/g, '')) || 10
     void run(async () => {
       const res = await api.logs.profile(currentId!, seconds)
-      if (!res.ok) {
-        setProfileSvg('')
-        setSearchStatus(res.message)
-      }
+      setProfileErr(res.ok ? '' : res.message)
+      if (!res.ok) setProfileSvg('')
     }, 'Profile')
   }
 
@@ -311,6 +312,7 @@ export default function Logs({ active = false }: { active?: boolean }) {
       {hasInstance && !follow && <Banner kind="warn">Not following — toggle Follow to resume</Banner>}
       {note && <p className="dim-label">{note}</p>}
       {opError && <Banner kind="error">{opError}</Banner>}
+      {profileErr && <Banner kind="error">{profileErr}</Banner>}
 
       <Card title="Search (full file)">
         <div className="btn-row">

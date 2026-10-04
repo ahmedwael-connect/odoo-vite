@@ -145,7 +145,9 @@ class DevToolsOps:
         res = await asyncio.to_thread(_work)
         if res.ok:
             data = res.data or {}
-            self._sessions[instance_id] = data
+            # Full copy (password included) stays server-side — odoo_inspect
+            # needs it for every subsequent call in this session.
+            self._sessions[instance_id] = dict(data)
             self._browser.pop(instance_id, None)
             self._rpc(instance_id,
                        f"Connected as {data.get('user')} "
@@ -154,6 +156,10 @@ class DevToolsOps:
         else:
             self._rpc(instance_id, f"Not connected: {res.message}")
             self._message(res.message, "error")
+        # 3.3.0 P1: never serialize the Odoo RPC password to JS — the
+        # _INSTANCE_PUBLIC contract has no room for secrets.
+        if res.ok and isinstance(res.data, dict):
+            res.data = {k: v for k, v in res.data.items() if k != "password"}
         return res
 
     # ----------------------------------------------------------------- models

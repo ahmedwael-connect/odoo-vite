@@ -178,9 +178,11 @@ class DatabaseOps:
 
     # ------------------------------------------------------------------ ops
 
-    async def init_db(self, instance_id: str, db_name: str):
+    async def init_db(self, instance_id: str, db_name: str,
+                      progress_cb=None, cancel=None):
         return await self._run(
-            process_manager.initialize_database, instance_id, db_name)
+            process_manager.initialize_database, instance_id, db_name,
+            progress_cb=progress_cb, cancel=cancel)
 
     async def drop_db(self, instance_id: str, db_name: str):
         inst, pw = self._instance_pw(instance_id)
@@ -190,7 +192,8 @@ class DatabaseOps:
         return await self._run(
             db_manager.drop_database, db_name, inst.db_user, pw)
 
-    async def backup_db(self, instance_id: str, db_name: str, dest: str):
+    async def backup_db(self, instance_id: str, db_name: str, dest: str,
+                        progress_cb=None, cancel=None):
         inst, pw = self._instance_pw(instance_id)
         if inst is None:
             self._message("Instance not found", "error")
@@ -198,16 +201,19 @@ class DatabaseOps:
         return await self._run(
             db_backup.backup_database, db_name, dest,
             db_user=inst.db_user, db_password=pw,
-            instance_id=inst.id, instance_name=inst.name)
+            instance_id=inst.id, instance_name=inst.name,
+            progress_cb=progress_cb, cancel=cancel)
 
-    async def restore_db(self, instance_id: str, dump: str, target: str):
+    async def restore_db(self, instance_id: str, dump: str, target: str,
+                         progress_cb=None, cancel=None):
         inst, pw = self._instance_pw(instance_id)
         if inst is None:
             self._message("Instance not found", "error")
             return Result.failure("Instance not found")
         return await self._run(
             db_backup.restore_database, dump, target,
-            db_user=inst.db_user, db_password=pw)
+            db_user=inst.db_user, db_password=pw,
+            progress_cb=progress_cb, cancel=cancel)
 
     async def validate(self, instance_id: str):
         inst, _pw = self._instance_pw(instance_id)

@@ -18,6 +18,26 @@ CUSTOM_ADDONS_DIRNAME = "custom_addons"
 LOG_RELATIVE = "logs/odoo.log"
 
 
+def _addons_from_state(instance) -> list[str]:  # type: ignore[no-untyped-def]
+    """3.2.0 F2: addons_state is the source of truth — regenerate must not
+    silently drop the structured list (extra paths, disabled entries) and
+    rebuild from the instance fields instead.
+
+    Falls back to [] (caller builds the field-based default) when no state
+    is stored yet or every entry is disabled (an empty addons_path would
+    boot Odoo with no addons at all).
+    """
+    from odoo_vite.core.addon_paths import get_addons_state
+
+    try:
+        state = get_addons_state(instance)
+    except Exception:  # noqa: BLE001 — never let bookkeeping block a write
+        return []
+    paths = [str(e.get("path", "")) for e in state
+             if e.get("path") and e.get("enabled", True)]
+    return paths if paths else []
+
+
 def write_conf(instance) -> Result:  # type: ignore[no-untyped-def]
     """Write odoo.conf for a (draft or complete) instance.
 
@@ -48,10 +68,12 @@ def write_conf(instance) -> Result:  # type: ignore[no-untyped-def]
         except OSError as exc:
             return Result.failure(f"Cannot prepare instance folders: {exc}")
 
-        addons = [str(community / "addons")]
-        if instance.enterprise_path:
-            addons.append(str(Path(instance.enterprise_path)))
-        addons.append(str(custom_addons))
+        addons = _addons_from_state(instance)
+        if not addons:
+            addons = [str(community / "addons")]
+            if instance.enterprise_path:
+                addons.append(str(Path(instance.enterprise_path)))
+            addons.append(str(custom_addons))
 
         password = get_db_password(instance)
 

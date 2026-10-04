@@ -177,19 +177,19 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
 
   const beginProvision = async () => {
     const values = detailsPayload()
-    let inst: Dict
-    if (!draft) {
-      inst = (await api.wizards.build_draft(values, version)) as Dict
-    } else {
-      inst = (await api.wizards.refresh_draft(draft, values, version)) as Dict
-    }
-    setDraft(inst)
     setProvLines([])
     setProvStatus('Provisioning…')
     setProvRunning(true)
     setProvDone(false)
     setProvFailed(false)
+    // 3.2.0 P1: draft build/refresh sits INSIDE the try — a rejection there
+    // (bad port, disk error) used to escape the IIFE and strand the page
+    // on "Provisioning…" with no error shown.
     try {
+      const inst: Dict = draft
+        ? ((await api.wizards.refresh_draft(draft, values, version)) as Dict)
+        : ((await api.wizards.build_draft(values, version)) as Dict)
+      setDraft(inst)
       const res = await api.wizards.provision(inst, values.plaintext, opId)
       setProvRunning(false)
       if (res.ok) {
@@ -223,14 +223,18 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
       setPage(2) // advisory — warnings never block
     } else if (page === 2) {
       void (async () => {
-        const err = await api.wizards.validate_details(detailsPayload())
-        if (err) {
-          setDetErr(err)
-          return
+        try {
+          const err = await api.wizards.validate_details(detailsPayload())
+          if (err) {
+            setDetErr(err)
+            return
+          }
+          setDetErr('')
+          setPage(3)
+          await beginProvision()
+        } catch (err) {
+          setDetErr(err instanceof Error ? err.message : String(err))
         }
-        setDetErr('')
-        setPage(3)
-        await beginProvision()
       })()
     }
   }
@@ -441,16 +445,23 @@ export function AdoptWizard({ onClose }: { onClose: () => void }) {
 
   const buildGapPage = (info: Dict) => {
     void (async () => {
-      const parsedNow = (info.parsed ?? {}) as Dict
-      const reportNow = (info.report ?? {}) as Dict
-      const gap = (await api.wizards.gap_rows(parsedNow, reportNow)) as unknown as GapRow[]
-      setRows(gap)
-      const seed: Dict = {}
-      for (const r of gap) if (r.missing) seed[r.key] = r.value
-      setGapValues(seed)
-      if (!gapDb.trim()) {
-        const suggested = await api.wizards.suggest_db_name(name)
-        setGapDb(suggested)
+      try {
+        const parsedNow = (info.parsed ?? {}) as Dict
+        const reportNow = (info.report ?? {}) as Dict
+        const gapRes = (await api.wizards.gap_rows(parsedNow, reportNow)) as unknown
+        // 3.2.0 P0: a non-array answer (error object) would crash the .map
+        // render and the seed loop below.
+        const gap = Array.isArray(gapRes) ? (gapRes as GapRow[]) : []
+        setRows(gap)
+        const seed: Dict = {}
+        for (const r of gap) if (r.missing) seed[r.key] = r.value
+        setGapValues(seed)
+        if (!gapDb.trim()) {
+          const suggested = await api.wizards.suggest_db_name(name)
+          setGapDb(suggested)
+        }
+      } catch (err) {
+        setGapErr(err instanceof Error ? err.message : String(err))
       }
     })()
   }
@@ -458,15 +469,19 @@ export function AdoptWizard({ onClose }: { onClose: () => void }) {
   const next = () => {
     if (page === 0) {
       void (async () => {
-        const err = await api.wizards.validate_locate(name.trim(), conf, community)
-        if (err) {
-          setLocErr(err)
-          return
+        try {
+          const err = await api.wizards.validate_locate(name.trim(), conf, community)
+          if (err) {
+            setLocErr(err)
+            return
+          }
+          setLocErr('')
+          const info = await reparse(conf, community)
+          setPage(1)
+          buildGapPage(info)
+        } catch (err) {
+          setLocErr(err instanceof Error ? err.message : String(err))
         }
-        setLocErr('')
-        const info = await reparse(conf, community)
-        setPage(1)
-        buildGapPage(info)
       })()
     } else if (page === 1) {
       if (!gapDb.trim()) {
@@ -483,16 +498,21 @@ export function AdoptWizard({ onClose }: { onClose: () => void }) {
     void (async () => {
       setRunStatus(`Adopting ${name.trim()}…`)
       setDone(false)
-      const overrides = await api.wizards.build_adopt_overrides(parsed, gapValues, gapDb.trim())
-      const res = await api.wizards.adopt_run(name.trim(), conf, community, overrides)
-      if (res.ok) {
+      try {
+        const overrides = await api.wizards.build_adopt_overrides(parsed, gapValues, gapDb.trim())
+        const res = await api.wizards.adopt_run(name.trim(), conf, community, overrides)
+        if (res.ok) {
+          setDone(true)
+          setRunStatus('Adopted ✓ (no files touched)')
+          refresh()
+          route({ kind: 'message', payload: { text: res.message, level: 'info' } })
+        } else {
+          setDone(true)
+          setRunStatus(`Adopt failed: ${res.message}`)
+        }
+      } catch (err) {
         setDone(true)
-        setRunStatus('Adopted ✓ (no files touched)')
-        refresh()
-        route({ kind: 'message', payload: { text: res.message, level: 'info' } })
-      } else {
-        setDone(true)
-        setRunStatus(`Adopt failed: ${res.message}`)
+        setRunStatus(`Adopt failed: ${err instanceof Error ? err.message : String(err)}`)
       }
     })()
   }

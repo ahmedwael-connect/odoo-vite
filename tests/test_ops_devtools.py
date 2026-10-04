@@ -122,7 +122,10 @@ def test_rpc_connect_round_trip(tmp_path, monkeypatch):
     res = asyncio.run(ops.rpc_connect(inst.id, "admin", "pw"))
     assert res.ok
     assert sinks["rpc"] == [(inst.id, "Connected as admin (db main).")]
-    assert ops._session(inst.id) == session
+    assert ops._session(inst.id) == session  # password kept server-side
+    # 3.3.0 P1: the Result serialized to JS must never carry the password
+    assert res.data is not None and "password" not in res.data
+    assert res.data.get("user") == "admin"
 
 
 def _connected_ops(tmp_path, monkeypatch, name="DTB"):

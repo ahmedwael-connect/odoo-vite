@@ -107,7 +107,8 @@ def _password_for(instance) -> str:  # type: ignore[no-untyped-def]
         return instance.db_password or ""
 
 
-def _build_command(instance, database: str, first_start: bool) -> list[str]:  # type: ignore[no-untyped-def]
+def _build_command(instance, database: str, first_start: bool,
+                   include_pending: bool = True) -> list[str]:  # type: ignore[no-untyped-def]
     from odoo_vite.core.instance import effective_python
 
     venv_python = effective_python(instance)
@@ -116,6 +117,13 @@ def _build_command(instance, database: str, first_start: bool) -> list[str]:  # 
     if first_start:
         cmd.extend(["-i", "base"])
     mods = [m.strip() for m in (instance.auto_update_modules or []) if m.strip()]
+    if include_pending:
+        # 3.2.0 F1: one-shot queue joins the every-start list (deduped);
+        # consumed only after a launch actually succeeds.
+        for m in instance.pending_update_modules or []:
+            m = (m or "").strip()
+            if m and m not in mods:
+                mods.append(m)
     if mods:
         cmd.extend(["-u", ",".join(mods)])
     return cmd
@@ -309,14 +317,20 @@ def _launch_locked(inst, instance_id: str, target_db: str, cmd: list,  # type: i
         audit_log.log_event(inst.id, inst.name, "start", f"immediate exit: {msg[:300]}")
         return Result.failure(msg)
 
-    update_instance(
-        instance_id, db_path,
+    update_fields: dict = dict(
         pid=proc.pid, status="running",
         primary_db=target_db, db_created=True, last_error=None,
     )
+    # 3.2.0 F1: the one-shot queue was merged into cmd above — consume it
+    # only now, on a launch that stayed alive past the liveness window.
+    if inst.pending_update_modules:
+        update_fields["pending_update_modules"] = []
+    update_instance(instance_id, db_path, **update_fields)
     audit_log.log_event(inst.id, inst.name, "start",
                         f"pid={proc.pid} db={target_db} needs_init={needs_init}"
-                        + (" reinit-uninitialized" if reinit else ""))
+                        + (" reinit-uninitialized" if reinit else "")
+                        + (f" -u {','.join(inst.pending_update_modules)}"
+                           if inst.pending_update_modules else ""))
     if needs_init:
         audit_log.log_event(inst.id, inst.name, "db_create",
                             f"database '{target_db}' created via -i base"
@@ -607,7 +621,7 @@ def initialize_database(
     if inst.conf_path and not Path(inst.conf_path).is_file():
         return Result.failure(f"odoo.conf missing at {inst.conf_path}")
 
-    cmd = _build_command(inst, target, True) + ["--stop-after-init"]
+    cmd = _build_command(inst, target, True, include_pending=False) + ["--stop-after-init"]
     res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel,
                         timeout=1800)
     if not res.ok:
