@@ -108,6 +108,9 @@ def test_ensure_role_resolves_global_mode(tmp_path, monkeypatch):
 def test_create_database_owner_and_escalation(monkeypatch):
     from odoo_vite.core import db_manager
 
+    if not db_manager.server_reachable():
+        pytest.skip("no local postgres (role probe needs a live server)")
+
     dry = db_manager.create_database("d1", dry_run=True)
     assert dry.ok and "OWNER" in " ".join(dry.data["owner_command"])
     assert dry.data["privileged_command"][0] == "pkexec"

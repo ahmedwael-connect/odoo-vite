@@ -176,6 +176,10 @@ def test_validate_unreachable_host(tmp_path):
 
 
 def test_validate_bad_user(tmp_path):
+    from odoo_vite.core import db_manager
+
+    if not db_manager.server_reachable():
+        pytest.skip("no local postgres (bad-user auth probe needs a live server)")
     base = tmp_path / "i"
     base.mkdir()
     (base / "odoo.conf").write_text(
@@ -191,8 +195,10 @@ def test_validate_bad_user(tmp_path):
 
 # ------------------------------------------------------- initialize
 def test_initialize_refuses_while_running(tmp_path, db, monkeypatch):
-    from odoo_vite.core import process_manager
+    from odoo_vite.core import db_manager, process_manager
 
+    if not db_manager.server_reachable():
+        pytest.skip("no local postgres (initialize inspects the server first)")
     monkeypatch.setattr(process_manager, "_alive_pid", lambda inst: 123)
     inst = _e2e_like(tmp_path, status="running", pid=123,
                      primary_db="not_init_db")

@@ -183,6 +183,8 @@ def test_profiler_cmd_and_validation(tmp_path, monkeypatch):
     import odoo_vite.core.proc as proc
     from odoo_vite.core import profiler
 
+    if profiler.py_spy_path() is None:
+        pytest.skip("py-spy not installed")
     assert profiler.py_spy_path() is not None  # installed in this env
     assert profiler.profile_pid("nope").ok is False
 
