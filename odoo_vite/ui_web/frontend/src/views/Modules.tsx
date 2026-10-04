@@ -9,7 +9,10 @@ import { Modal, useConfirm, useConfirmBackup, useProgressRun, useTypedConfirm } 
 import {
   ActionButton,
   Card,
+  Checkbox,
+  DimText,
   EmptyState,
+  Field,
   LineList,
   SectionHeader,
   Select,
@@ -17,7 +20,7 @@ import {
 } from '../components/ui'
 import { onEvent, route } from '../events'
 import { useApp } from '../store'
-import type { Dict, ModuleRow } from '../types'
+import type { CheckoutRow, Dict, ModuleRow, PullReportRow, PublishState } from '../types'
 
 const STATE_FILTERS = ['All', 'Installed', 'Upgradeable', 'Installable']
 
@@ -168,6 +171,277 @@ function ScaffoldDialog({
         <TextInput placeholder="destination folder" value={dest} onChange={(e) => setDest(e.target.value)} />
         <ActionButton onClick={() => void browse()}>Browse…</ActionButton>
       </div>
+      {error && <p className="error">{error}</p>}
+    </Modal>
+  )
+}
+
+// ------------------------------------------------------------------ updates
+
+/**
+ * 3.3.0 Feature A: app-wide pull — every community/enterprise checkout the
+ * registry knows, pick some, fast-forward, per-path report. Dirty or
+ * diverged trees are skipped by the backend and surfaced in the report.
+ */
+function PullUpdatesDialog({ onClose }: { onClose: () => void }) {
+  const api = getApi()
+  const runProgress = useProgressRun()
+  const [rows, setRows] = useState<CheckoutRow[]>([])
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [report, setReport] = useState<string[]>([])
+  const [summary, setSummary] = useState('')
+  const [summaryOk, setSummaryOk] = useState(true)
+
+  useEffect(() => {
+    void api.updates
+      .list()
+      .then((res) => {
+        const list = res?.checkouts ?? []
+        setRows(list)
+        setPicked(new Set(list.map((c) => c.path)))
+        setLoading(false)
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err))
+        setLoading(false)
+      })
+  }, [api])
+
+  const toggle = (path: string, on?: boolean) => {
+    setPicked((prev) => {
+      const next = new Set(prev)
+      const want = on ?? !next.has(path)
+      if (want) next.add(path)
+      else next.delete(path)
+      return next
+    })
+  }
+
+  const pull = async () => {
+    const paths = rows.filter((r) => picked.has(r.path)).map((r) => r.path)
+    if (paths.length === 0) {
+      setError('Pick at least one checkout')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setReport([])
+    setSummary('')
+    setSummaryOk(true)
+    try {
+      const res = await runProgress(`Pulling ${paths.length} checkout(s)`, (opId) =>
+        api.updates.pull(paths, opId),
+      )
+      setSummary(res.message)
+      setSummaryOk(res.ok)
+      const data = (res as { data?: { results?: PullReportRow[] } }).data
+      setReport(
+        (data?.results ?? []).map((r) => `${r.status} — ${r.message}`),
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const pulledOk = summaryOk && report.some((l) => l.startsWith('ok'))
+
+  return (
+    <Modal
+      title="Pull Odoo Updates"
+      width={560}
+      onClose={busy ? undefined : onClose}
+      footer={
+        <>
+          <ActionButton disabled={busy} onClick={onClose}>
+            Close
+          </ActionButton>
+          <ActionButton
+            primary
+            disabled={busy || loading || rows.length === 0}
+            onClick={() => void pull()}
+          >
+            {busy ? 'Pulling…' : 'Pull selected'}
+          </ActionButton>
+        </>
+      }
+    >
+      <DimText>
+        Fetches and fast-forwards each checkout to its upstream branch. Dirty or diverged trees are
+        skipped and reported — nothing is stashed, rebased, or reset.
+      </DimText>
+      {loading ? (
+        <DimText>loading…</DimText>
+      ) : rows.length === 0 ? (
+        <EmptyState text="No checkouts found — set a community or enterprise path on an instance first." />
+      ) : (
+        <div className="sel-list" style={{ maxHeight: 220 }}>
+          {rows.map((c) => (
+            <div
+              key={c.path}
+              className={`sel-row ${picked.has(c.path) ? 'selected' : ''}`}
+              onClick={() => toggle(c.path)}
+            >
+              <label className="checkbox" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={picked.has(c.path)}
+                  onChange={(e) => toggle(c.path, e.target.checked)}
+                />
+                <span />
+              </label>
+              <span className="sel-title mono">{c.path}</span>
+              <span className="sel-badge">
+                {c.kind}
+                {c.instances.length ? ` · ${c.instances.join(', ')}` : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {report.length > 0 && <LineList lines={report} />}
+      {summary && <p className={summaryOk ? 'dim-label' : 'error'}>{summary}</p>}
+      {pulledOk && (
+        <DimText>
+          Restart running instances so the servers load the pulled code (old code stays in memory).
+        </DimText>
+      )}
+      {error && <p className="error">{error}</p>}
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------- publish
+
+/**
+ * 3.3.0 Feature B: commit + push this instance's custom code to GitHub.
+ * Secret-looking files are refused by the backend before staging; repo
+ * creation (local git init + GitHub API) is optional.
+ */
+function PublishDialog({
+  instanceId,
+  onClose,
+}: {
+  instanceId: string
+  onClose: () => void
+}) {
+  const api = getApi()
+  const runProgress = useProgressRun()
+  const [state, setState] = useState<PublishState | null>(null)
+  const [message, setMessage] = useState('')
+  const [remote, setRemote] = useState('')
+  const [branch, setBranch] = useState('')
+  const [create, setCreate] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void api.github
+      .publish_state(instanceId)
+      .then((s) => {
+        setState(s)
+        setRemote(s.remote ?? '')
+        setBranch(s.branch ?? '')
+        setCreate(!s.in_git)
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+  }, [api, instanceId])
+
+  const publish = async () => {
+    if (!message.trim()) {
+      setError('A commit message is required')
+      return
+    }
+    if (!remote.trim()) {
+      setError(
+        state?.in_git
+          ? 'This repository has no origin remote — give one (owner/repo or full URL)'
+          : 'Give the new repository (owner/repo or full URL)',
+      )
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const res = await runProgress('Publishing to GitHub', (opId) =>
+        api.github.publish(instanceId, message.trim(), branch.trim(), remote.trim(), create, opId),
+      )
+      route({ kind: 'message', payload: { text: res.message, level: res.ok ? 'info' : 'error' } })
+      if (res.ok) onClose()
+      else setError(res.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Publish to GitHub"
+      width={560}
+      onClose={busy ? undefined : onClose}
+      footer={
+        <>
+          <ActionButton disabled={busy} onClick={onClose}>
+            Cancel
+          </ActionButton>
+          <ActionButton primary disabled={busy || !state} onClick={() => void publish()}>
+            Commit &amp; Push
+          </ActionButton>
+        </>
+      }
+    >
+      <DimText>
+        Stages ALL changes under the folder below, refuses secret-looking files (.env, *.pem,
+        id_rsa…), commits, and pushes to origin.
+      </DimText>
+      {state?.error && <p className="error">{state.error}</p>}
+      {state && !state.error && (
+        <>
+          <DimText>
+            {state.in_git
+              ? `Repository: ${state.root}${state.remote ? ` → ${state.remote}` : ' (no origin remote yet)'}`
+              : `Folder: ${state.folder} — not a git repository yet.`}
+          </DimText>
+          <Field label="Commit message">
+            <TextInput
+              autoFocus
+              data-autofocus
+              value={message}
+              placeholder="Update custom modules"
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void publish()
+              }}
+            />
+          </Field>
+          <Field label="Remote (owner/repo or full URL)">
+            <TextInput
+              value={remote}
+              placeholder={state.remote || 'you/your-repo'}
+              onChange={(e) => setRemote(e.target.value)}
+            />
+          </Field>
+          <Field label="Branch (used when creating a repository)">
+            <TextInput
+              value={branch}
+              placeholder={state.branch || 'main'}
+              onChange={(e) => setBranch(e.target.value)}
+            />
+          </Field>
+          {!state.in_git && (
+            <Checkbox
+              label="Create new repository (git init + private GitHub repo via API)"
+              checked={create}
+              onChange={(e) => setCreate(e.target.checked)}
+            />
+          )}
+          {!state.in_git && !create && (
+            <p className="error">Not a git repository — tick the box above to create one.</p>
+          )}
+        </>
+      )}
       {error && <p className="error">{error}</p>}
     </Modal>
   )
@@ -416,6 +690,26 @@ export default function Modules() {
         if (!res.ok) routeErr(res.message)
         return
       }
+      case 'pull-updates': {
+        setDialog(<PullUpdatesDialog onClose={() => setDialog(null)} />)
+        return
+      }
+      case 'sync': {
+        if (!selected) return routeErr('Pick a module first')
+        const res = await runProgress(`Syncing ${selected}`, (opId) =>
+          api.github.sync(currentId, selected, opId),
+        )
+        route({
+          kind: 'message',
+          payload: { text: res.message, level: res.ok ? 'info' : 'error' },
+        })
+        if (!res.ok) routeErr(res.message)
+        return
+      }
+      case 'publish': {
+        setDialog(<PublishDialog instanceId={currentId} onClose={() => setDialog(null)} />)
+        return
+      }
       case 'scaffold': {
         const dbNames = [primary, ...(current.tracked_dbs ?? [])].filter(Boolean)
         setDialog(
@@ -477,6 +771,13 @@ export default function Modules() {
             >
               Update Code…
             </ActionButton>
+            <ActionButton
+              disabled={busy}
+              title="Fetch + fast-forward all checkouts (app-wide, no instance needed)"
+              onClick={() => void onAction('pull-updates')}
+            >
+              Pull Odoo Updates…
+            </ActionButton>
           </>
         }
         menu={[
@@ -487,7 +788,17 @@ export default function Modules() {
             onClick: () => void onAction('uninstall'),
           },
           { label: 'Dependencies…', disabled: busy || !selected, onClick: () => void onAction('deps') },
+          {
+            label: 'Sync from GitHub…',
+            disabled: busy || !selected,
+            onClick: () => void onAction('sync'),
+          },
           { label: 'New Module…', disabled: busy, onClick: () => void onAction('scaffold') },
+          {
+            label: 'Publish to GitHub…',
+            disabled: busy,
+            onClick: () => void onAction('publish'),
+          },
         ]}
       >
         <p className="dim-label">{modDb}</p>

@@ -261,6 +261,58 @@ def delete_instance(instance_id: str, db_path: Path | str | None = None) -> Resu
         return Result.failure(f"Cannot write registry database: {exc}")
 
 
+def missing_path_instances(db_path: Path | str | None = None) -> list[Instance]:
+    """Rows whose folder is gone from disk (3.3.0 registry hygiene).
+
+    Skips empty paths and running rows — a live process keeps its row even
+    if somebody deleted the tree from under it (that needs a human).
+    """
+    out: list[Instance] = []
+    for inst in list_instances(db_path):
+        raw = (inst.path or "").strip()
+        if not raw or (inst.status or "").lower() == "running":
+            continue
+        try:
+            exists = Path(raw).expanduser().exists()
+        except (OSError, ValueError):
+            exists = False
+        if not exists:
+            out.append(inst)
+    return out
+
+
+def purge_missing_paths(db_path: Path | str | None = None) -> Result:
+    """Delete registry rows whose folders no longer exist (3.3.0).
+
+    Registry-only: never touches files (they are already missing), never
+    stops anything (running rows are excluded upstream), and every purge is
+    audited. Use Remove for instances whose files ARE still there.
+    """
+    victims = missing_path_instances(db_path)
+    purged: list[dict] = []
+    for inst in victims:
+        res = delete_instance(inst.id, db_path)
+        if not res.ok:
+            continue
+        delete_db_password(inst.id)
+        purged.append({"id": inst.id, "name": inst.name, "path": inst.path})
+        try:
+            from odoo_vite.core import audit as audit_log
+
+            audit_log.log_event(
+                inst.id, inst.name, "purge",
+                f"registry row removed — path missing: {inst.path}")
+        except Exception:
+            pass
+    if not purged:
+        return Result.success(
+            data={"purged": []}, message="No stale instances — nothing to purge")
+    return Result.success(
+        data={"purged": purged},
+        message=f"Purged {len(purged)} stale instance(s): "
+                + ", ".join(p["name"] for p in purged))
+
+
 # ---------------------------------------------------------------------------
 # DB password storage: OS keyring primary (Phase 1.5 H.2: fail loudly —
 # no silent plaintext fallback unless the caller passes an explicit,

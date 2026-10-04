@@ -6,8 +6,8 @@
 import { useEffect, useState } from 'react'
 import { copyWithToast, downloadText } from '../clipboard'
 import { getApi } from '../bridge'
-import { Modal, useProgressRun } from '../components/dialog'
-import { ActionButton, DimText, EmptyState, LineList, SectionHeader, Select, StatusPill, TextInput } from '../components/ui'
+import { Modal, useConfirm, useProgressRun } from '../components/dialog'
+import { ActionButton, DimText, EmptyState, LineList, PasswordInput, SectionHeader, Select, StatusPill, TextInput } from '../components/ui'
 import { route, type ProgressOp } from '../events'
 import { useApp } from '../store'
 import { getTheme, setTheme, type ThemeChoice } from '../theme'
@@ -29,11 +29,50 @@ const THEMES: ThemeChoice[] = ['system', 'dark', 'light']
 
 export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   const api = getApi()
+  const { refresh } = useApp()
+  const confirm = useConfirm()
   const [modeIdx, setModeIdx] = useState(0)
   const [theme, setThemeChoice] = useState<ThemeChoice>(() => getTheme())
   const [keyring, setKeyring] = useState('')
   const [dbPath, setDbPath] = useState('')
   const [loaded, setLoaded] = useState(false)
+  // 3.3.0 P2: registry hygiene — rows whose folders are gone.
+  const [missing, setMissing] = useState<Dict[]>([])
+  // 3.3.0 Feature B: GitHub token (saved → keyring; value never read back).
+  const [ghSaved, setGhSaved] = useState(false)
+  const [ghToken, setGhToken] = useState('')
+
+  useEffect(() => {
+    void api.app
+      .list_missing_paths()
+      .then((rows) => setMissing(Array.isArray(rows) ? rows : []))
+      .catch(() => setMissing([]))
+    void api.github
+      .token_status()
+      .then((s) => setGhSaved(Boolean(s?.saved)))
+      .catch(() => setGhSaved(false))
+  }, [api])
+
+  const saveGhToken = async () => {
+    const res = await api.github.save_token(ghToken.trim())
+    route({
+      kind: 'message',
+      payload: { text: res.message, level: res.ok ? 'info' : 'error' },
+    })
+    if (res.ok) {
+      setGhSaved(true)
+      setGhToken('')
+    }
+  }
+
+  const clearGhToken = async () => {
+    const res = await api.github.clear_token()
+    route({
+      kind: 'message',
+      payload: { text: res.message, level: res.ok ? 'info' : 'error' },
+    })
+    if (res.ok) setGhSaved(false)
+  }
 
   useEffect(() => {
     void api.app.preferences().then((prefs) => {
@@ -44,6 +83,29 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
       setLoaded(true)
     })
   }, [api])
+
+  const purge = async () => {
+    const names = missing.map((m) => String(m.name ?? '')).join(', ')
+    const go = await confirm({
+      heading: `Purge ${missing.length} stale instance(s)?`,
+      body:
+        `Removes registry rows whose folders no longer exist: ${names}. ` +
+        'Files are never touched (they are already gone) and running ' +
+        'instances are never purged.',
+      confirmLabel: 'Purge',
+      destructive: true,
+    })
+    if (!go) return
+    const res = await api.app.purge_missing_paths()
+    route({
+      kind: 'message',
+      payload: { text: res.message, level: res.ok ? 'info' : 'error' },
+    })
+    if (res.ok) {
+      setMissing([])
+      refresh()
+    }
+  }
 
   const save = async () => {
     const res = await api.app.save_preferences(MODES[modeIdx])
@@ -99,7 +161,48 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
       </Select>
       <DimText>{MODE_NOTES[modeIdx]}</DimText>
       <DimText>{keyring}</DimText>
+      <SectionHeader text="GitHub (token — private clones, pushes, API limits)" />
+      <DimText>
+        {ghSaved
+          ? 'Token saved in the OS keyring. It is never shown again and never passed on command lines.'
+          : 'No token saved — public repositories work without one.'}
+      </DimText>
+      <PasswordInput
+        placeholder={ghSaved ? '•••••••• — enter to replace' : 'ghp_… personal access token (repo scope)'}
+        value={ghToken}
+        onChange={(e) => setGhToken(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && ghToken.trim()) void saveGhToken()
+        }}
+      />
+      <div className="btn-row">
+        <ActionButton
+          primary
+          disabled={!ghToken.trim()}
+          title="Validates against api.github.com, then stores it in the keyring"
+          onClick={() => void saveGhToken()}
+        >
+          Validate &amp; Save
+        </ActionButton>
+        <ActionButton disabled={!ghSaved} onClick={() => void clearGhToken()}>
+          Clear
+        </ActionButton>
+      </div>
       {dbPath && <EmptyState text={`Registry: ${dbPath}`} />}
+      {missing.length > 0 && (
+        <>
+          <SectionHeader text="Maintenance" />
+          <p className="error">
+            {missing.length} instance(s) point at folders that no longer exist:
+          </p>
+          <LineList
+            lines={missing.map((m) => `${String(m.name ?? '')} — ${String(m.path ?? '')}`)}
+          />
+          <ActionButton danger onClick={() => void purge()}>
+            Purge stale rows
+          </ActionButton>
+        </>
+      )}
       {!loaded && <DimText>loading…</DimText>}
     </Modal>
   )

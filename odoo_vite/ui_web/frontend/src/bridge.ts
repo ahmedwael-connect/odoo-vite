@@ -133,6 +133,11 @@ const mock: ApiTree = {
       message: 'mock: no file dialog in browser dev',
     }),
     path_exists: async (): Promise<boolean> => false,
+    list_missing_paths: async (): Promise<Dict[]> => [],
+    purge_missing_paths: async (): Promise<Result<{ purged?: Dict[] }>> => ({
+      ok: false,
+      message: 'mock: nothing to purge in browser dev',
+    }),
     version: async () => 'dev (mock)',
     instance: async (id: string) => MOCK_INSTANCES.find((i) => i.id === id) ?? null,
     enterprise: async (): Promise<Result> => ({ ok: true, message: 'mock: no enterprise' }),
@@ -182,6 +187,47 @@ const mock: ApiTree = {
     cancel: async (opId: string): Promise<Answer> =>
       opId.startsWith('mock') ? { ok: true, message: 'cancelling' } : { ok: false, message: `no running operation '${opId}'` },
   } as ApiTree['modules'],
+  updates: {
+    list: async () => ({ checkouts: [] }),
+    pull: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: pulling is unavailable in browser dev',
+    }),
+    cancel: async (): Promise<Answer> => ({ ok: false, message: 'no running operation' }),
+  } as ApiTree['updates'],
+  github: {
+    token_status: async () => ({ saved: false }),
+    save_token: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: token save unavailable in browser dev',
+    }),
+    clear_token: async (): Promise<Result> => ({ ok: true, message: 'cleared' }),
+    branches: async (): Promise<Result<string[]>> => ({
+      ok: false,
+      message: 'mock: no network in browser dev',
+    }),
+    publish_state: async () => ({
+      folder: '',
+      root: '',
+      in_git: false,
+      remote: '',
+      branch: '',
+      error: 'mock: unavailable in browser dev',
+    }),
+    install: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: install unavailable in browser dev',
+    }),
+    sync: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: sync unavailable in browser dev',
+    }),
+    publish: async (): Promise<Result> => ({
+      ok: false,
+      message: 'mock: publish unavailable in browser dev',
+    }),
+    cancel: async (): Promise<Answer> => ({ ok: false, message: 'no running operation' }),
+  } as ApiTree['github'],
   marketplace: {
     search: async (): Promise<Result> => ({
       ok: true,

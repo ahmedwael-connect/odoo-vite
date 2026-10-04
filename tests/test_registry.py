@@ -66,3 +66,38 @@ def test_update_delete_missing_row(tmp_path):
     assert init_db(db).ok
     assert not update_instance("no-such-id", db, port=1).ok
     assert not delete_instance("no-such-id", db).ok
+
+
+def test_purge_missing_paths(tmp_path):
+    """3.3.0 P2: purge registry rows whose folders are gone — never running
+    rows, never files, idempotent, and reported per row."""
+    from odoo_vite.core.registry import missing_path_instances, purge_missing_paths
+
+    db = tmp_path / "test.db"
+    assert init_db(db).ok
+
+    gone = tmp_path / "gone"          # does not exist
+    live_dir = tmp_path / "here"
+    live_dir.mkdir()
+
+    stale = Instance(name="Stale", path=str(gone), status="stopped")
+    here = Instance(name="Here", path=str(live_dir), status="stopped")
+    # running rows are skipped even when their tree vanished
+    running = Instance(name="Live", path=str(tmp_path / "also-gone"),
+                       status="running")
+    assert create_instance(stale, db).ok
+    assert create_instance(here, db).ok
+    assert create_instance(running, db).ok
+
+    assert {i.id for i in missing_path_instances(db)} == {stale.id}
+
+    res = purge_missing_paths(db)
+    assert res.ok, res.message
+    assert [p["name"] for p in res.data["purged"]] == ["Stale"]
+    assert {i.name for i in list_instances(db)} == {"Here", "Live"}
+    assert get_instance(stale.id, db) is None
+
+    # idempotent second run
+    res = purge_missing_paths(db)
+    assert res.ok and res.data["purged"] == []
+    assert len(list_instances(db)) == 2

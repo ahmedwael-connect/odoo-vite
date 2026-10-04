@@ -181,6 +181,8 @@ export interface AppApi {
   pick_file(title?: string, mode?: string, pattern?: string): Async<Answer & { path?: string }>
   pick_dir(title?: string): Async<Answer & { path?: string }>
   path_exists(path: string): Async<boolean>
+  list_missing_paths(): Async<Dict[]>
+  purge_missing_paths(): Async<Result<{ purged?: Dict[] }>>
   version(): Async<string>
 }
 
@@ -247,6 +249,64 @@ export interface ModulesApi {
     names: string[],
   ): Async<string>
   split_deps(edges: unknown, name: string): Async<unknown[]>
+}
+
+/** 3.3.0 Feature A: one unique community/enterprise checkout to pull. */
+export interface CheckoutRow {
+  path: string
+  kind: string
+  instances: string[]
+}
+
+export interface PullReportRow {
+  path: string
+  status: string
+  message: string
+  updated?: number
+  dirty?: number
+}
+
+export interface UpdatesApi {
+  list(): Async<{ checkouts: CheckoutRow[] }>
+  pull(
+    paths: string[],
+    op_id?: string,
+  ): Async<Result<{ results?: PullReportRow[]; total?: number }>>
+  cancel(op_id: string): Async<Answer>
+}
+
+/** 3.3.0 Feature B: GitHub token / install / sync / publish. */
+export interface PublishState {
+  folder: string
+  root: string
+  in_git: boolean
+  remote: string
+  branch: string
+  error: string
+}
+
+export interface GitHubApi {
+  token_status(): Async<{ saved: boolean }>
+  save_token(token: string): Async<Result<{ login?: string }>>
+  clear_token(): Async<Result>
+  branches(repo: string, refresh?: boolean): Async<Result<string[]>>
+  publish_state(instance_id: string): Async<PublishState>
+  install(
+    instance_id: string,
+    repo: string,
+    branch: string,
+    op_id?: string,
+  ): Async<Result<{ modules?: string[]; path?: string }>>
+  sync(instance_id: string, name: string, op_id?: string): Async<Result>
+  publish(
+    instance_id: string,
+    message: string,
+    branch?: string,
+    remote?: string,
+    create?: boolean,
+    op_id?: string,
+  ): Async<Result<{ root?: string; remote?: string; rev?: string }>>
+  cancel(op_id: string): Async<Answer>
 }
 
 export interface MarketplaceItem {
@@ -478,6 +538,8 @@ export interface ApiTree {
   lifecycle: LifecycleApi
   databases: DatabasesApi
   modules: ModulesApi
+  updates: UpdatesApi
+  github: GitHubApi
   marketplace: MarketplaceApi
   config: ConfigApi
   logs: LogsApi

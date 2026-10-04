@@ -32,6 +32,8 @@ from odoo_vite.core import process_manager, provisioning, registry
 from odoo_vite.core import version as version_mod
 from odoo_vite.core import addon_paths, audit, backup_scheduler, db_manager, health
 from odoo_vite.core import devtools_export
+from odoo_vite.core import github
+from odoo_vite.core import updates
 from odoo_vite.core import venv_manager
 from odoo_vite.core.enterprise import detect_enterprise
 from odoo_vite.core.instance import Instance
@@ -291,6 +293,15 @@ class AppApi(Domain):
         except (OSError, ValueError):
             return False
 
+    def list_missing_paths(self) -> list[dict]:
+        """3.3.0: registry rows whose folders no longer exist (stale rows)."""
+        return [{"id": i.id, "name": i.name, "path": i.path}
+                for i in registry.missing_path_instances()]
+
+    def purge_missing_paths(self) -> Any:
+        """3.3.0: drop those rows (registry-only, audited, never running)."""
+        return registry.purge_missing_paths()
+
     def version(self) -> str:
         return version_mod.__version__
 
@@ -536,6 +547,89 @@ class ModulesApi(Domain):
     def split_deps(self, edges: list, name: str) -> list:
         depends, required_by = split_deps(edges, name)
         return [list(depends), list(required_by)]
+
+
+# ------------------------------------------------------------------- Updates
+
+
+class UpdatesApi(Domain):
+    """3.3.0 Feature A: app-wide 'Pull Odoo Updates' across all checkouts."""
+
+    def __init__(self, push: PushChannel, cancels: CancelRegistry) -> None:
+        self._push = push
+        self._cancels = cancels
+
+    def cancel(self, op_id: str) -> dict:
+        if self._cancels.cancel(op_id):
+            return {"ok": True, "message": "cancelling"}
+        return {"ok": False, "message": f"no running operation '{op_id}'"}
+
+    def list(self) -> dict:
+        return {"checkouts": updates.collect_checkouts()}
+
+    def pull(self, paths: list, op_id: str = "") -> Any:
+        return _progress_call(
+            self._push, self._cancels, updates.pull_all, op_id, paths
+        )
+
+
+# --------------------------------------------------------------- GitHub
+
+
+class GitHubApi(Domain):
+    """3.3.0 Feature B: token, branches, install-from-GitHub, sync, publish."""
+
+    def __init__(self, push: PushChannel, cancels: CancelRegistry) -> None:
+        self._push = push
+        self._cancels = cancels
+
+    def cancel(self, op_id: str) -> dict:
+        if self._cancels.cancel(op_id):
+            return {"ok": True, "message": "cancelling"}
+        return {"ok": False, "message": f"no running operation '{op_id}'"}
+
+    def token_status(self) -> dict:
+        return github.token_status()
+
+    def save_token(self, token: str) -> Any:
+        return github.save_token(token)
+
+    def clear_token(self) -> Any:
+        return github.clear_token()
+
+    def branches(self, repo: str, refresh: bool = False) -> Any:
+        return github.list_repo_branches(repo, refresh)
+
+    def publish_state(self, instance_id: str) -> Any:
+        return github.publish_state(instance_id)
+
+    def install(
+        self, instance_id: str, repo: str, branch: str, op_id: str = ""
+    ) -> Any:
+        return _progress_call(
+            self._push, self._cancels, github.install_repo,
+            op_id, instance_id, repo, branch,
+        )
+
+    def sync(self, instance_id: str, name: str, op_id: str = "") -> Any:
+        return _progress_call(
+            self._push, self._cancels, github.sync_module,
+            op_id, instance_id, name,
+        )
+
+    def publish(
+        self,
+        instance_id: str,
+        message: str,
+        branch: str = "",
+        remote: str = "",
+        create: bool = False,
+        op_id: str = "",
+    ) -> Any:
+        return _progress_call(
+            self._push, self._cancels, github.publish_addons,
+            op_id, instance_id, message, branch, remote, create,
+        )
 
 
 # ---------------------------------------------------------------- Marketplace
@@ -1137,6 +1231,8 @@ class Api:
         self.lifecycle = LifecycleApi(push, cancels)
         self.databases = DatabasesApi(push, cancels)
         self.modules = ModulesApi(push, cancels)
+        self.updates = UpdatesApi(push, cancels)
+        self.github = GitHubApi(push, cancels)
         self.marketplace = MarketplaceApi(push, cancels)
         self.config = ConfigApi(push, cancels)
         self.logs = LogsApi(push)

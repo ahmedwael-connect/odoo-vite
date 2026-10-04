@@ -516,3 +516,159 @@ export function IndexModuleDialog({ onClose }: { onClose: () => void }) {
     </Modal>
   )
 }
+
+/**
+ * 3.3.0 Feature B: install a repo straight from GitHub — repo → branch
+ * (live ls-remote, token-aware) → clone into the instance's addons →
+ * optional odoo-bin -i (same two-phase flow as the zip installer).
+ */
+export function GitHubInstallDialog({ onClose }: { onClose: () => void }) {
+  const api = getApi()
+  const { current, currentId } = useApp()
+  const confirm = useConfirm()
+  const runProgress = useProgressRun()
+  const [repo, setRepo] = useState('')
+  const [branches, setBranches] = useState<string[]>([])
+  const [branch, setBranch] = useState('')
+  const [branchErr, setBranchErr] = useState('')
+  const [loadingBranches, setLoadingBranches] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const loadBranches = async (refresh = false) => {
+    const source = repo.trim()
+    if (!source) {
+      setError('Enter a repository as owner/repo (e.g. OCA/web-responsive)')
+      return
+    }
+    setLoadingBranches(true)
+    setBranchErr('')
+    setError('')
+    try {
+      const res = await api.github.branches(source, refresh)
+      if (res.ok && res.data) {
+        setBranches(res.data)
+        setBranch((prev) => prev || res.data![0] || '')
+      } else {
+        setBranches([])
+        setBranchErr(res.message)
+      }
+    } catch (err) {
+      setBranchErr(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoadingBranches(false)
+    }
+  }
+
+  const submit = async () => {
+    const source = repo.trim()
+    if (!currentId) {
+      setError('Select an instance first (this clones into its addons)')
+      return
+    }
+    if (!source) {
+      setError('Enter a repository as owner/repo (e.g. OCA/web-responsive)')
+      return
+    }
+    if (!branch) {
+      setError(branchErr || 'Load and pick a branch first')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const res = await runProgress(`Cloning ${source} @ ${branch}`, (opId) =>
+        api.github.install(currentId, source, branch, opId),
+      )
+      route({ kind: 'message', payload: { text: res.message, level: res.ok ? 'info' : 'error' } })
+      if (!res.ok) {
+        setError(res.message)
+        return
+      }
+      const mods = (res as { data?: { modules?: string[] } }).data?.modules ?? []
+      if (mods.length) {
+        const init = await confirm({
+          heading: 'Install into the database now?',
+          body: `Runs odoo-bin -i ${mods.join(', ')} on ${current?.name ?? 'the instance'}.`,
+          confirmLabel: 'Install',
+        })
+        if (init) {
+          const r = await runProgress(`Installing ${mods.join(', ')}`, (opId) =>
+            api.modules.install(currentId, mods, opId),
+          )
+          route({
+            kind: 'message',
+            payload: { text: r.message, level: r.ok ? 'info' : 'error' },
+          })
+        }
+      }
+      onClose()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Install from GitHub"
+      onClose={busy ? undefined : onClose}
+      width={520}
+      footer={
+        <>
+          <ActionButton disabled={busy} onClick={onClose}>
+            Cancel
+          </ActionButton>
+          <ActionButton primary loading={busy} onClick={() => void submit()}>
+            Clone & Install
+          </ActionButton>
+        </>
+      }
+    >
+      <DimText>
+        Shallow-clones the branch into {current?.name ? `${current.name}'s` : "the instance's"}{' '}
+        addons folder and wires it into addons_path. Private repositories use the saved GitHub
+        token (Preferences → GitHub).
+      </DimText>
+      <Field label="Repository (owner/repo or full URL)">
+        <TextInput
+          autoFocus
+          data-autofocus
+          value={repo}
+          placeholder="OCA/web-responsive"
+          onChange={(e) => {
+            setRepo(e.target.value)
+            setBranches([])
+            setBranch('')
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void loadBranches()
+          }}
+        />
+      </Field>
+      <div className="btn-row">
+        <ActionButton disabled={loadingBranches} onClick={() => void loadBranches()}>
+          {loadingBranches ? 'Loading…' : 'Load branches'}
+        </ActionButton>
+        <ActionButton
+          disabled={loadingBranches || !branches.length}
+          onClick={() => void loadBranches(true)}
+        >
+          Refresh
+        </ActionButton>
+      </div>
+      {branches.length > 0 && (
+        <Field label={`Branch (${branches.length} found)`}>
+          <Select value={branch} onChange={(e) => setBranch(e.target.value)}>
+            {branches.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      {branchErr && <p className="error">{branchErr}</p>}
+      {error && <p className="error">{error}</p>}
+    </Modal>
+  )
+}

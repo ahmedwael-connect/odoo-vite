@@ -131,12 +131,14 @@ def clone_repo(
     progress_cb: Callable[[str], None] | None = None,
     cancel: Callable[[], bool] | None = None,
     label: str = "repo",
+    env: dict[str, str] | None = None,
 ) -> Result:
     """Shallow-clone any git repo/branch into `dest_dir` (must not exist
     non-empty). Shared engine behind clone_instance() and enterprise load —
     one cloner, not two. Auth comes from the user's own git/SSH setup;
     failures (including auth errors) surface verbatim, never worked around.
     `label` names the clone in messages (e.g. "Odoo 17.0").
+    `env` (3.3.0): extra env for the child (e.g. GIT_ASKPASS + token).
     """
     if shutil.which("git") is None:
         return Result.failure("git is not installed (required for cloning)")
@@ -156,7 +158,8 @@ def clone_repo(
         "git", "clone", "--branch", branch, "--depth", "1",
         url.strip(), str(dest),
     ]
-    res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel, timeout=1800)
+    res = run_streaming(cmd, progress_cb=progress_cb, cancel=cancel,
+                        timeout=1800, env=env)
     if not res.ok:
         return Result.failure(
             f"git clone of {label} failed: {res.message}",

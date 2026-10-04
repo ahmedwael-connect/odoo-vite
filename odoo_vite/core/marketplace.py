@@ -86,15 +86,29 @@ def cache_dir() -> Path:
     return Path.home() / ".local" / "share" / "odoo-vite" / "marketplace"
 
 
+def _request_headers(url: str) -> dict[str, str]:
+    """3.3.0 E1: attach the saved GitHub token to api.github.com calls only
+    (60 → 5000 req/h). The token is NEVER sent anywhere else — mirror,
+    github.com HTML, or any other host."""
+    headers = {
+        "User-Agent": f"odoo-vite/{version_mod.__version__} (marketplace)",
+        "Accept": "text/html,application/xhtml+xml,*/*",
+    }
+    if url.startswith("https://api.github.com/"):
+        try:
+            from odoo_vite.core.github import get_token
+
+            token = get_token()
+        except Exception:
+            token = ""
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def _http_get_url(url: str) -> bytes:
     """The one place that touches the network. Tests replace this."""
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": f"odoo-vite/{version_mod.__version__} (marketplace)",
-            "Accept": "text/html,application/xhtml+xml,*/*",
-        },
-    )
+    req = urllib.request.Request(url, headers=_request_headers(url))
     with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
         return resp.read()
 

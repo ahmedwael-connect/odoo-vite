@@ -15,7 +15,7 @@ import { Banner, OverflowMenu } from '../components/widgets'
 import { route, useRefreshEvent } from '../events'
 import { useApp } from '../store'
 import type { MarketplaceItem, MarketplaceSearchData, MarketplaceStats } from '../types'
-import { IndexModuleDialog, MarketplaceDetailDialog } from '../dialogs/marketplace'
+import { GitHubInstallDialog, IndexModuleDialog, MarketplaceDetailDialog } from '../dialogs/marketplace'
 
 const ORDERS = [
   'Relevance',
@@ -263,6 +263,10 @@ export default function Marketplace({ active = false }: { active?: boolean }) {
       label: 'Index GitHub module…',
       onClick: () => setDialog(<IndexModuleDialog onClose={() => setDialog(null)} />),
     },
+    {
+      label: 'Install from GitHub…',
+      onClick: () => setDialog(<GitHubInstallDialog onClose={() => setDialog(null)} />),
+    },
   ]
 
   const emptyText = offline
@@ -347,6 +351,12 @@ export default function Marketplace({ active = false }: { active?: boolean }) {
             </option>
           ))}
         </Select>
+        <ActionButton
+          onClick={() => setDialog(<GitHubInstallDialog onClose={() => setDialog(null)} />)}
+          title="Clone a GitHub repository straight into this instance's addons"
+        >
+          From GitHub…
+        </ActionButton>
         <ActionButton
           onClick={() => setDialog(<IndexModuleDialog onClose={() => setDialog(null)} />)}
           title="Index an Odoo addon repository from GitHub into the local marketplace"
